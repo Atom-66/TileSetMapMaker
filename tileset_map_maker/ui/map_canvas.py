@@ -1,6 +1,6 @@
 from typing import Optional, List, Tuple, Any
 from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QPoint, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QMenu
+from PyQt6.QtWidgets import QWidget, QApplication
 from PyQt6.QtGui import (
     QPainter,
     QColor,
@@ -11,6 +11,7 @@ from PyQt6.QtGui import (
     QDragEnterEvent,
     QDropEvent,
     QCursor,
+    QFocusEvent,
 )
 
 from ..models.project import Project
@@ -19,6 +20,7 @@ from ..core.render_engine import RenderEngine, RenderOptions
 from ..core.asset_manager import AssetManager
 from ..core.history import HistoryManager
 from ..core.tools.base import BaseTool, ToolContext
+from ..core.tools.eraser import EraserTool
 from ..core.tools.object_tool import ObjectTool
 from ..core.tools.select_tool import StampTool
 
@@ -26,7 +28,8 @@ from ..core.tools.select_tool import StampTool
 class MapCanvas(QWidget):
     """
     Interactive 2D map viewport supporting smooth zoom, pan,
-    tool execution, live preview, grid display, object transforms, and drag-and-drop.
+    left-click tool execution, right-click temporary eraser,
+    object transforms, live previews, and robust focus/leave handling.
     """
     cursor_moved = pyqtSignal(int, int)  # col, row
     zoom_changed = pyqtSignal(float)      # zoom factor
@@ -47,6 +50,9 @@ class MapCanvas(QWidget):
         self.history_manager = history_manager
 
         self.active_tool: Optional[BaseTool] = None
+        self.eraser_tool = EraserTool()
+        self.is_right_erasing = False
+
         self.tool_context = ToolContext(
             project=self.project,
             asset_manager=self.asset_manager,
@@ -147,10 +153,11 @@ class MapCanvas(QWidget):
         painter.scale(self.zoom, self.zoom)
 
         previews = []
-        if self.active_tool and self.underMouse():
-            previews = self.active_tool.get_preview_items(self.tool_context)
+        effective_tool = self.eraser_tool if self.is_right_erasing else self.active_tool
+        if effective_tool and self.underMouse() and not self.is_right_erasing:
+            previews = effective_tool.get_preview_items(self.tool_context)
 
-        sel_rect = getattr(self.active_tool, "selection_rect", None)
+        sel_rect = getattr(effective_tool, "selection_rect", None)
 
         options = RenderOptions(
             show_grid=self.show_grid,
@@ -191,6 +198,7 @@ class MapCanvas(QWidget):
         pos = event.position()
         self.last_mouse_pos = pos
 
+        # Pan on Middle Click or Space + Left Click
         if (
             event.button() == Qt.MouseButton.MiddleButton
             or (event.button() == Qt.MouseButton.LeftButton and self.space_pressed)
@@ -200,14 +208,24 @@ class MapCanvas(QWidget):
             event.accept()
             return
 
-        if event.button() == Qt.MouseButton.LeftButton:
-            world = self.screen_to_world(pos)
-            col, row = self.screen_to_tile(pos)
-            self.tool_context.cursor_col = col
-            self.tool_context.cursor_row = row
-            self.tool_context.cursor_pixel_x = world.x()
-            self.tool_context.cursor_pixel_y = world.y()
+        # Update cursor coordinates accurately
+        world = self.screen_to_world(pos)
+        col, row = self.screen_to_tile(pos)
+        self.tool_context.cursor_col = col
+        self.tool_context.cursor_row = row
+        self.tool_context.cursor_pixel_x = world.x()
+        self.tool_context.cursor_pixel_y = world.y()
 
+        # Right Click: Temporarily activate Eraser!
+        if event.button() == Qt.MouseButton.RightButton:
+            self.is_right_erasing = True
+            self.eraser_tool.on_press(col, row, self.tool_context)
+            self.update()
+            event.accept()
+            return
+
+        # Left Click: Standard Tool execution
+        if event.button() == Qt.MouseButton.LeftButton:
             if self.active_tool:
                 self.active_tool.on_press(col, row, self.tool_context)
                 self.update()
@@ -232,6 +250,14 @@ class MapCanvas(QWidget):
             event.accept()
             return
 
+        # Right Mouse Drag Erasing
+        if self.is_right_erasing and (event.buttons() & Qt.MouseButton.RightButton):
+            self.eraser_tool.on_drag(col, row, self.tool_context)
+            self.update()
+            event.accept()
+            return
+
+        # Left Mouse Drag Tool
         if event.buttons() & Qt.MouseButton.LeftButton:
             if self.active_tool and self.active_tool.is_active:
                 self.active_tool.on_drag(col, row, self.tool_context)
@@ -242,18 +268,57 @@ class MapCanvas(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         pos = event.position()
+        world = self.screen_to_world(pos)
+        col, row = self.screen_to_tile(pos)
+        self.tool_context.cursor_col = col
+        self.tool_context.cursor_row = row
+        self.tool_context.cursor_pixel_x = world.x()
+        self.tool_context.cursor_pixel_y = world.y()
+
         if event.button() in [Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton] and self.is_panning:
             self.is_panning = False
             self.setCursor(Qt.CursorShape.OpenHandCursor if self.space_pressed else Qt.CursorShape.ArrowCursor)
             event.accept()
             return
 
+        # Right Click Release: End Eraser and restore previous tool automatically!
+        if event.button() == Qt.MouseButton.RightButton and self.is_right_erasing:
+            self.is_right_erasing = False
+            self.eraser_tool.on_release(col, row, self.tool_context)
+            self.update()
+            event.accept()
+            return
+
+        # Left Click Release: Tool commit
         if event.button() == Qt.MouseButton.LeftButton:
-            col, row = self.screen_to_tile(pos)
             if self.active_tool and self.active_tool.is_active:
                 self.active_tool.on_release(col, row, self.tool_context)
                 self.update()
             event.accept()
+
+    def contextMenuEvent(self, event) -> None:
+        # Suppress context menu so Right Click erases seamlessly without popup
+        event.accept()
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        # Prevent eraser or panning from being stuck when window loses focus
+        if self.is_right_erasing:
+            self.is_right_erasing = False
+            self.eraser_tool.on_release(self.tool_context.cursor_col, self.tool_context.cursor_row, self.tool_context)
+            self.update()
+        if self.is_panning:
+            self.is_panning = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.space_pressed = False
+        super().focusOutEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        # Check if right button was released outside the window
+        if self.is_right_erasing and not (QApplication.mouseButtons() & Qt.MouseButton.RightButton):
+            self.is_right_erasing = False
+            self.eraser_tool.on_release(self.tool_context.cursor_col, self.tool_context.cursor_row, self.tool_context)
+            self.update()
+        super().leaveEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
@@ -261,7 +326,6 @@ class MapCanvas(QWidget):
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             event.accept()
         elif event.key() == Qt.Key.Key_R:
-            # Rotate selected object or stamp
             if isinstance(self.active_tool, ObjectTool):
                 self.active_tool.rotate_selected(90.0, self.tool_context)
                 self.update()

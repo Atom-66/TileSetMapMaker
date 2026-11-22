@@ -27,6 +27,7 @@ from ..core.set_manager import SetManager
 from ..core.stamp_manager import StampManager
 from ..core.tools.select_tool import SelectTool
 from ..core.tools.object_tool import ObjectTool
+from .icons import IconFactory
 from .map_canvas import MapCanvas
 from .asset_library_widget import AssetLibraryWidget
 from .layer_panel import LayerPanel
@@ -143,19 +144,19 @@ class MainWindow(QMainWindow):
         self.toolbar.setIconSize(QSize(20, 20))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar)
 
-        self.act_new = QAction("📄 Nowy", self)
+        self.act_new = QAction(IconFactory.get_icon("new", 20), "Nowy", self)
         self.act_new.setShortcut(QKeySequence.StandardKey.New)
         self.act_new.setToolTip("Nowy projekt (Ctrl+N)")
         self.act_new.triggered.connect(self.new_project)
         self.toolbar.addAction(self.act_new)
 
-        self.act_open = QAction("📂 Otwórz", self)
+        self.act_open = QAction(IconFactory.get_icon("open", 20), "Otwórz", self)
         self.act_open.setShortcut(QKeySequence.StandardKey.Open)
         self.act_open.setToolTip("Otwórz projekt (Ctrl+O)")
         self.act_open.triggered.connect(self.open_project)
         self.toolbar.addAction(self.act_open)
 
-        self.act_save = QAction("💾 Zapisz", self)
+        self.act_save = QAction(IconFactory.get_icon("save", 20), "Zapisz", self)
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
         self.act_save.setToolTip("Zapisz projekt (Ctrl+S)")
         self.act_save.triggered.connect(self.save_project)
@@ -163,14 +164,14 @@ class MainWindow(QMainWindow):
 
         self.toolbar.addSeparator()
 
-        self.act_undo = QAction("↩️ Cofnij", self)
+        self.act_undo = QAction(IconFactory.get_icon("undo", 20), "Cofnij", self)
         self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
         self.act_undo.setToolTip("Cofnij operację (Ctrl+Z)")
         self.act_undo.setEnabled(False)
         self.act_undo.triggered.connect(self.history_manager.undo)
         self.toolbar.addAction(self.act_undo)
 
-        self.act_redo = QAction("↪️ Ponów", self)
+        self.act_redo = QAction(IconFactory.get_icon("redo", 20), "Ponów", self)
         self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
         self.act_redo.setToolTip("Ponów operację (Ctrl+Y)")
         self.act_redo.setEnabled(False)
@@ -179,7 +180,7 @@ class MainWindow(QMainWindow):
 
         self.toolbar.addSeparator()
 
-        self.act_grid = QAction("▦ Siatka", self)
+        self.act_grid = QAction(IconFactory.get_icon("grid", 20), "Siatka", self)
         self.act_grid.setCheckable(True)
         self.act_grid.setChecked(True)
         self.act_grid.setShortcut("Ctrl+G")
@@ -187,7 +188,7 @@ class MainWindow(QMainWindow):
         self.act_grid.triggered.connect(lambda: self.canvas.toggle_grid(self.act_grid.isChecked()))
         self.toolbar.addAction(self.act_grid)
 
-        self.act_fit = QAction("🎯 Dopasuj", self)
+        self.act_fit = QAction(IconFactory.get_icon("fit", 20), "Dopasuj", self)
         self.act_fit.setShortcut("Ctrl+F")
         self.act_fit.setToolTip("Dopasuj mapę do okna (Ctrl+F)")
         self.act_fit.triggered.connect(self.canvas.fit_to_view)
@@ -196,25 +197,25 @@ class MainWindow(QMainWindow):
         self.toolbar.addSeparator()
 
         # Auto-Tiling configuration dialog
-        self.act_autotile = QAction("⚡ Auto-Tile", self)
+        self.act_autotile = QAction(IconFactory.get_icon("autotile", 20), "Auto-Tile", self)
         self.act_autotile.setToolTip("Konfigurator reguł Auto-Tiling i połączeń terenu")
         self.act_autotile.triggered.connect(self.open_autotile_dialog)
         self.toolbar.addAction(self.act_autotile)
 
         # Save stamp from selection
-        self.act_save_stamp = QAction("📑 Zapisz stempel", self)
+        self.act_save_stamp = QAction(IconFactory.get_icon("save_stamp", 20), "Zapisz stempel", self)
         self.act_save_stamp.setToolTip("Zapisz zaznaczony fragment mapy jako trwały stempel w bibliotece")
         self.act_save_stamp.triggered.connect(self.save_selection_as_stamp)
         self.toolbar.addAction(self.act_save_stamp)
 
         self.toolbar.addSeparator()
 
-        self.act_settings = QAction("⚙️ Ustawienia mapy", self)
+        self.act_settings = QAction(IconFactory.get_icon("settings", 20), "Ustawienia", self)
         self.act_settings.setToolTip("Zmień rozmiar mapy, kafelków lub tło")
         self.act_settings.triggered.connect(self.open_map_settings)
         self.toolbar.addAction(self.act_settings)
 
-        self.act_export = QAction("🖼️ Eksport PNG", self)
+        self.act_export = QAction(IconFactory.get_icon("export", 20), "Eksport PNG", self)
         self.act_export.setShortcut("Ctrl+E")
         self.act_export.setToolTip("Eksportuj gotową mapę do pliku PNG (Ctrl+E)")
         self.act_export.triggered.connect(self.export_png_dialog)
@@ -222,12 +223,12 @@ class MainWindow(QMainWindow):
 
         self.toolbar.addSeparator()
 
-        self.act_shortcuts = QAction("⌨️ Skróty", self)
+        self.act_shortcuts = QAction(IconFactory.get_icon("shortcuts", 20), "Skróty", self)
         self.act_shortcuts.setToolTip("Lista skrótów klawiszowych")
         self.act_shortcuts.triggered.connect(self.open_shortcuts_dialog)
         self.toolbar.addAction(self.act_shortcuts)
 
-        self.act_reset_ui = QAction("🔄 Reset paneli", self)
+        self.act_reset_ui = QAction(IconFactory.get_icon("reset_ui", 20), "Reset", self)
         self.act_reset_ui.setToolTip("Przywróć domyślny układ paneli")
         self.act_reset_ui.triggered.connect(self._reset_dock_layout)
         self.toolbar.addAction(self.act_reset_ui)

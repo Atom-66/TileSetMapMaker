@@ -25,8 +25,9 @@ class AssetManager(QObject):
         self.selected_item: Optional[Any] = None  # Asset or SelectedSubTile
         self.recent_asset_ids: List[str] = []
 
-        # In-memory pixmap cache for fast drawing and thumbnails
+        # In-memory pixmap and image cache for fast drawing, thumbnails and hit-testing
         self._pixmap_cache: Dict[str, QPixmap] = {}
+        self._image_cache: Dict[str, QImage] = {}
         self._thumbnail_cache: Dict[Tuple[str, int], QPixmap] = {}
 
     def get_asset(self, asset_id: str) -> Optional[Asset]:
@@ -65,6 +66,17 @@ class AssetManager(QObject):
         if not pixmap.isNull():
             self._pixmap_cache[asset_id] = pixmap
             return pixmap
+        return None
+
+    def get_image(self, asset_id: str) -> Optional[QImage]:
+        """Returns QImage for pixel-level sampling and alpha hit-testing."""
+        if asset_id in self._image_cache:
+            return self._image_cache[asset_id]
+        pixmap = self.get_pixmap(asset_id)
+        if pixmap and not pixmap.isNull():
+            img = pixmap.toImage()
+            self._image_cache[asset_id] = img
+            return img
         return None
 
     def get_thumbnail(self, asset_id: str, size: int = 64) -> Optional[QPixmap]:

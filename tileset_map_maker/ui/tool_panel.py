@@ -1,5 +1,5 @@
 from typing import Optional, Dict
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -19,10 +19,11 @@ from ..core.tools import (
     EyedropperTool,
     ObjectTool,
 )
+from .icons import IconFactory
 
 
 class ToolPanel(QWidget):
-    """Vertical tools ribbon on the left side of the canvas."""
+    """Vertical tools ribbon on the left side of the canvas with crisp vector icons."""
     tool_changed = pyqtSignal(BaseTool)
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -34,9 +35,9 @@ class ToolPanel(QWidget):
             "line": LineTool(),
             "rect": RectTool(),
             "select": SelectTool(),
+            "object": ObjectTool(),
             "eyedropper": EyedropperTool(),
             "stamp": StampTool(),
-            "object": ObjectTool(),
         }
 
         self._init_ui()
@@ -50,26 +51,26 @@ class ToolPanel(QWidget):
         self.btn_group.setExclusive(True)
 
         tool_defs = [
-            ("brush", "🖌️", "Pędzel (B)"),
-            ("eraser", "🧹", "Gumka (E)"),
-            ("fill", "🪣", "Wypełnianie (G)"),
-            ("line", "📏", "Linia (L)"),
-            ("rect", "⬛", "Prostokąt (U)"),
-            ("select", "🔲", "Zaznaczanie (S)"),
-            ("object", "🎯", "Swobodny obiekt (V)"),
-            ("eyedropper", "🧪", "Pipeta (I)"),
-            ("stamp", "📑", "Stempel (T)"),
+            ("brush", "Pędzel (B)"),
+            ("eraser", "Gumka (E / Prawy przycisk myszy)"),
+            ("fill", "Wypełnianie (G)"),
+            ("line", "Linia (L)"),
+            ("rect", "Prostokąt (U)"),
+            ("select", "Zaznaczanie (S)"),
+            ("object", "Swobodny obiekt (V)"),
+            ("eyedropper", "Pipeta (I)"),
+            ("stamp", "Stempel (T)"),
         ]
 
         self.buttons: Dict[str, QToolButton] = {}
 
-        for key, icon_txt, tooltip in tool_defs:
+        for key, tooltip in tool_defs:
             btn = QToolButton()
-            btn.setText(icon_txt)
+            btn.setIcon(IconFactory.get_icon(key, size=24))
+            btn.setIconSize(QSize(22, 22))
             btn.setToolTip(tooltip)
             btn.setCheckable(True)
-            btn.setFixedSize(38, 38)
-            btn.setStyleSheet("font-size: 16px;")
+            btn.setFixedSize(40, 40)
             self.btn_group.addButton(btn)
             btn.clicked.connect(lambda checked, k=key: self._on_tool_clicked(k))
             layout.addWidget(btn)
