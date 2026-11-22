@@ -9,7 +9,7 @@ class ItemType(str, Enum):
 
 
 class MapItem:
-    """An individual tile or prop placed on a layer."""
+    """An individual tile or prop placed on a layer with full transform support."""
 
     def __init__(
         self,
@@ -28,6 +28,17 @@ class MapItem:
         flip_x: bool = False,
         flip_y: bool = False,
         item_id: Optional[str] = None,
+        rotation: float = 0.0,
+        scale_x: float = 1.0,
+        scale_y: float = 1.0,
+        anchor_x: float = 0.5,
+        anchor_y: float = 0.5,
+        free_x: Optional[float] = None,
+        free_y: Optional[float] = None,
+        z_index: int = 0,
+        group_id: Optional[str] = None,
+        terrain_type: Optional[str] = None,
+        is_auto_tiled: bool = False,
     ):
         self.id = item_id or str(uuid.uuid4())
         self.asset_id = asset_id
@@ -44,6 +55,23 @@ class MapItem:
         self.dest_h = max(1, dest_h)
         self.flip_x = flip_x
         self.flip_y = flip_y
+        self.rotation = float(rotation)
+        self.scale_x = float(scale_x)
+        self.scale_y = float(scale_y)
+        self.anchor_x = float(anchor_x)
+        self.anchor_y = float(anchor_y)
+        self.free_x = float(free_x) if free_x is not None else None
+        self.free_y = float(free_y) if free_y is not None else None
+        self.z_index = int(z_index)
+        self.group_id = group_id
+        self.terrain_type = terrain_type
+        self.is_auto_tiled = is_auto_tiled
+
+    def get_pixel_pos(self, tile_size: int) -> Tuple[float, float]:
+        """Returns pixel (x, y) accounting for free_x/y or grid alignment."""
+        if self.free_x is not None and self.free_y is not None:
+            return self.free_x, self.free_y
+        return float(self.col * tile_size + self.offset_x), float(self.row * tile_size + self.offset_y)
 
     def clone(self) -> "MapItem":
         return MapItem(
@@ -61,6 +89,17 @@ class MapItem:
             dest_h=self.dest_h,
             flip_x=self.flip_x,
             flip_y=self.flip_y,
+            rotation=self.rotation,
+            scale_x=self.scale_x,
+            scale_y=self.scale_y,
+            anchor_x=self.anchor_x,
+            anchor_y=self.anchor_y,
+            free_x=self.free_x,
+            free_y=self.free_y,
+            z_index=self.z_index,
+            group_id=self.group_id,
+            terrain_type=self.terrain_type,
+            is_auto_tiled=self.is_auto_tiled,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -80,14 +119,25 @@ class MapItem:
             "dest_h": self.dest_h,
             "flip_x": self.flip_x,
             "flip_y": self.flip_y,
+            "rotation": self.rotation,
+            "scale_x": self.scale_x,
+            "scale_y": self.scale_y,
+            "anchor_x": self.anchor_x,
+            "anchor_y": self.anchor_y,
+            "free_x": self.free_x,
+            "free_y": self.free_y,
+            "z_index": self.z_index,
+            "group_id": self.group_id,
+            "terrain_type": self.terrain_type,
+            "is_auto_tiled": self.is_auto_tiled,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MapItem":
         return cls(
             asset_id=data["asset_id"],
-            col=data["col"],
-            row=data["row"],
+            col=data.get("col", 0),
+            row=data.get("row", 0),
             item_type=ItemType(data.get("item_type", ItemType.TILE.value)),
             offset_x=data.get("offset_x", 0),
             offset_y=data.get("offset_y", 0),
@@ -100,11 +150,22 @@ class MapItem:
             flip_x=data.get("flip_x", False),
             flip_y=data.get("flip_y", False),
             item_id=data.get("id"),
+            rotation=data.get("rotation", 0.0),
+            scale_x=data.get("scale_x", 1.0),
+            scale_y=data.get("scale_y", 1.0),
+            anchor_x=data.get("anchor_x", 0.5),
+            anchor_y=data.get("anchor_y", 0.5),
+            free_x=data.get("free_x"),
+            free_y=data.get("free_y"),
+            z_index=data.get("z_index", 0),
+            group_id=data.get("group_id"),
+            terrain_type=data.get("terrain_type"),
+            is_auto_tiled=data.get("is_auto_tiled", False),
         )
 
 
 class Layer:
-    """A single layer in the map containing tiles and objects."""
+    """A single layer or layer group in the map."""
 
     def __init__(
         self,
@@ -113,19 +174,25 @@ class Layer:
         visible: bool = True,
         locked: bool = False,
         opacity: float = 1.0,
+        group_id: Optional[str] = None,
+        is_group: bool = False,
+        auto_tiling_enabled: bool = True,
     ):
         self.id = layer_id or str(uuid.uuid4())
         self.name = name
         self.visible = visible
         self.locked = locked
         self.opacity = max(0.0, min(1.0, opacity))
-        # tiles indexed by (col, row)
+        self.group_id = group_id
+        self.is_group = is_group
+        self.auto_tiling_enabled = auto_tiling_enabled
+
+        # Tiles indexed by (col, row)
         self.tiles: Dict[Tuple[int, int], MapItem] = {}
-        # objects list for freeform props/large images
+        # Freeform objects / props
         self.objects: List[MapItem] = []
 
     def set_tile(self, col: int, row: int, item: Optional[MapItem]) -> Optional[MapItem]:
-        """Sets or removes a tile at (col, row). Returns previous item."""
         prev = self.tiles.get((col, row))
         if item is None:
             self.tiles.pop((col, row), None)
@@ -152,16 +219,25 @@ class Layer:
                 return self.objects.pop(i)
         return None
 
+    def get_object(self, obj_id: str) -> Optional[MapItem]:
+        for obj in self.objects:
+            if obj.id == obj_id:
+                return obj
+        return None
+
     def clear(self) -> None:
         self.tiles.clear()
         self.objects.clear()
 
     def clone(self, new_name: Optional[str] = None) -> "Layer":
         cloned = Layer(
-            name=new_name or f"{self.name} (Copy)",
+            name=new_name or f"{self.name} (Kopia)",
             visible=self.visible,
             locked=self.locked,
             opacity=self.opacity,
+            group_id=self.group_id,
+            is_group=self.is_group,
+            auto_tiling_enabled=self.auto_tiling_enabled,
         )
         for coord, item in self.tiles.items():
             cloned.tiles[coord] = item.clone()
@@ -176,6 +252,9 @@ class Layer:
             "visible": self.visible,
             "locked": self.locked,
             "opacity": self.opacity,
+            "group_id": self.group_id,
+            "is_group": self.is_group,
+            "auto_tiling_enabled": self.auto_tiling_enabled,
             "tiles": [
                 {"col": c, "row": r, "item": item.to_dict()}
                 for (c, r), item in self.tiles.items()
@@ -191,6 +270,9 @@ class Layer:
             visible=data.get("visible", True),
             locked=data.get("locked", False),
             opacity=data.get("opacity", 1.0),
+            group_id=data.get("group_id"),
+            is_group=data.get("is_group", False),
+            auto_tiling_enabled=data.get("auto_tiling_enabled", True),
         )
         for tile_data in data.get("tiles", []):
             item = MapItem.from_dict(tile_data["item"])

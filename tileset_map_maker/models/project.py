@@ -4,7 +4,7 @@ from .layer import Layer
 
 
 class Project:
-    """Represents a map project with multiple layers, metadata, and settings."""
+    """Represents a map project with multiple layers, layer groups, metadata, and settings."""
 
     def __init__(
         self,
@@ -41,25 +41,52 @@ class Project:
             self.add_layer("Foreground")
             self.active_layer_id = ground.id
 
-    def add_layer(self, name: str = "Warstwa", at_index: Optional[int] = None) -> Layer:
-        layer = Layer(name=name)
+    def add_layer(
+        self,
+        name: str = "Warstwa",
+        at_index: Optional[int] = None,
+        group_id: Optional[str] = None,
+        is_group: bool = False,
+    ) -> Layer:
+        layer = Layer(name=name, group_id=group_id, is_group=is_group)
         if at_index is not None and 0 <= at_index <= len(self.layers):
             self.layers.insert(at_index, layer)
         else:
             self.layers.append(layer)
-        self.active_layer_id = layer.id
+        if not is_group:
+            self.active_layer_id = layer.id
         self.is_modified = True
         return layer
+
+    def add_group(self, name: str = "Grupa", parent_group_id: Optional[str] = None) -> Layer:
+        return self.add_layer(name=name, is_group=True, group_id=parent_group_id)
 
     def remove_layer(self, layer_id: str) -> bool:
         if len(self.layers) <= 1:
             return False  # Maintain at least one layer
         idx = self.get_layer_index(layer_id)
         if idx is not None:
-            self.layers.pop(idx)
+            target = self.layers[idx]
+            # If removing a group, also remove or unparent child layers
+            child_ids = [l.id for l in self.layers if l.group_id == target.id]
+            for cid in child_ids:
+                cidx = self.get_layer_index(cid)
+                if cidx is not None:
+                    self.layers.pop(cidx)
+
+            # Re-fetch idx after child deletions
+            idx = self.get_layer_index(layer_id)
+            if idx is not None:
+                self.layers.pop(idx)
+
+            if not self.layers:
+                self.ensure_default_layers()
+
             if self.active_layer_id == layer_id:
-                new_idx = max(0, idx - 1)
-                self.active_layer_id = self.layers[new_idx].id
+                # Find first non-group layer
+                non_groups = [l for l in self.layers if not l.is_group]
+                self.active_layer_id = non_groups[0].id if non_groups else self.layers[0].id
+
             self.is_modified = True
             return True
         return False
@@ -70,7 +97,8 @@ class Project:
             source = self.layers[idx]
             clone = source.clone(f"{source.name} (Kopia)")
             self.layers.insert(idx + 1, clone)
-            self.active_layer_id = clone.id
+            if not clone.is_group:
+                self.active_layer_id = clone.id
             self.is_modified = True
             return clone
         return None
@@ -99,22 +127,54 @@ class Project:
 
     def get_active_layer(self) -> Optional[Layer]:
         layer = self.get_layer(self.active_layer_id)
-        if not layer and self.layers:
+        if (not layer or layer.is_group) and self.layers:
+            non_groups = [l for l in self.layers if not l.is_group]
+            if non_groups:
+                self.active_layer_id = non_groups[0].id
+                return non_groups[0]
             self.active_layer_id = self.layers[0].id
             return self.layers[0]
         return layer
 
     def set_active_layer(self, layer_id: str) -> bool:
-        if self.get_layer(layer_id):
+        layer = self.get_layer(layer_id)
+        if layer and not layer.is_group:
             self.active_layer_id = layer_id
             return True
         return False
 
+    def get_effective_visible(self, layer: Layer) -> bool:
+        """Checks visibility traversing up through parent groups."""
+        curr: Optional[Layer] = layer
+        while curr:
+            if not curr.visible:
+                return False
+            curr = self.get_layer(curr.group_id) if curr.group_id else None
+        return True
+
+    def get_effective_opacity(self, layer: Layer) -> float:
+        """Calculates cumulative opacity through parent groups."""
+        op = layer.opacity
+        curr: Optional[Layer] = self.get_layer(layer.group_id) if layer.group_id else None
+        while curr:
+            op *= curr.opacity
+            curr = self.get_layer(curr.group_id) if curr.group_id else None
+        return max(0.0, min(1.0, op))
+
+    def get_effective_locked(self, layer: Layer) -> bool:
+        """Checks if layer or any of its parent groups is locked."""
+        curr: Optional[Layer] = layer
+        while curr:
+            if curr.locked:
+                return True
+            curr = self.get_layer(curr.group_id) if curr.group_id else None
+        return False
+
+    def get_render_order_layers(self) -> List[Layer]:
+        """Returns non-group layers in ascending render order (bottom to top)."""
+        return [l for l in self.layers if not l.is_group]
+
     def resize_map(self, new_width: int, new_height: int, anchor: str = "top_left") -> None:
-        """
-        Resize map dimensions.
-        Anchor can be: "top_left", "center", "bottom_right".
-        """
         new_width = max(1, new_width)
         new_height = max(1, new_height)
         if new_width == self.map_width and new_height == self.map_height:
@@ -143,8 +203,11 @@ class Project:
                 for obj in layer.objects:
                     obj.col += dx
                     obj.row += dy
+                    if obj.free_x is not None:
+                        obj.free_x += dx * self.tile_size
+                    if obj.free_y is not None:
+                        obj.free_y += dy * self.tile_size
         else:
-            # Simply cull tiles that are out of bounds
             for layer in self.layers:
                 layer.tiles = {
                     (c, r): item
@@ -185,5 +248,6 @@ class Project:
         if not proj.layers:
             proj.ensure_default_layers()
         if not proj.get_active_layer() and proj.layers:
-            proj.active_layer_id = proj.layers[0].id
+            non_groups = [l for l in proj.layers if not l.is_group]
+            proj.active_layer_id = non_groups[0].id if non_groups else proj.layers[0].id
         return proj

@@ -1,0 +1,366 @@
+import math
+from typing import Optional, List, Tuple
+from PyQt6.QtCore import QRect, QRectF, QPointF, Qt
+from PyQt6.QtGui import (
+    QPainter,
+    QColor,
+    QImage,
+    QPixmap,
+    QPen,
+    QBrush,
+    QTransform,
+)
+
+from ..models.project import Project
+from ..models.layer import Layer, MapItem, ItemType
+from .asset_manager import AssetManager
+
+
+class RenderOptions:
+    """Configuration options for map rendering."""
+
+    def __init__(
+        self,
+        show_grid: bool = True,
+        grid_color: QColor = QColor(255, 255, 255, 35),
+        show_selection: bool = True,
+        selection_rect: Optional[QRect] = None,
+        selected_object_ids: Optional[List[str]] = None,
+        preview_items: Optional[List[MapItem]] = None,
+        preview_opacity: float = 0.65,
+        only_layer_ids: Optional[List[str]] = None,
+        ignore_hidden_layers: bool = True,
+        transparent_bg: bool = False,
+        custom_bg_color: Optional[QColor] = None,
+        scale: float = 1.0,
+        render_checkerboard: bool = True,
+    ):
+        self.show_grid = show_grid
+        self.grid_color = grid_color
+        self.show_selection = show_selection
+        self.selection_rect = selection_rect
+        self.selected_object_ids = selected_object_ids or []
+        self.preview_items = preview_items or []
+        self.preview_opacity = preview_opacity
+        self.only_layer_ids = only_layer_ids
+        self.ignore_hidden_layers = ignore_hidden_layers
+        self.transparent_bg = transparent_bg
+        self.custom_bg_color = custom_bg_color
+        self.scale = scale
+        self.render_checkerboard = render_checkerboard
+
+
+class RenderEngine:
+    """
+    Renders map projects to QPainter or high-resolution QImage.
+    Supports layer groups, opacity hierarchies, freeform objects with rotation and scaling.
+    """
+
+    def __init__(self, asset_manager: AssetManager):
+        self.asset_manager = asset_manager
+
+    def get_map_dimensions_px(self, project: Project) -> Tuple[int, int]:
+        w_px = project.map_width * project.tile_size
+        h_px = project.map_height * project.tile_size
+        return w_px, h_px
+
+    def calculate_item_bounding_rect(self, item: MapItem, tile_size: int) -> QRectF:
+        """Calculates transformed bounding box in pixel coordinates."""
+        px, py = item.get_pixel_pos(tile_size)
+        w = item.dest_w * abs(item.scale_x)
+        h = item.dest_h * abs(item.scale_y)
+
+        # Standard axis-aligned if no rotation
+        if abs(item.rotation % 360) < 0.001:
+            return QRectF(px, py, w, h)
+
+        # Rotated bounding box
+        rad = math.radians(item.rotation)
+        cos_a = abs(math.cos(rad))
+        sin_a = abs(math.sin(rad))
+        rot_w = w * cos_a + h * sin_a
+        rot_h = w * sin_a + h * cos_a
+        cx = px + item.dest_w * item.anchor_x
+        cy = py + item.dest_h * item.anchor_y
+        return QRectF(cx - rot_w / 2, cy - rot_h / 2, rot_w, rot_h)
+
+    def calculate_content_bounding_box(self, project: Project) -> QRect:
+        min_x = float("inf")
+        min_y = float("inf")
+        max_x = float("-inf")
+        max_y = float("-inf")
+        ts = project.tile_size
+        found_any = False
+
+        for layer in project.layers:
+            if layer.is_group or not project.get_effective_visible(layer):
+                continue
+            for item in list(layer.tiles.values()) + layer.objects:
+                rect = self.calculate_item_bounding_rect(item, ts)
+                min_x = min(min_x, rect.left())
+                min_y = min(min_y, rect.top())
+                max_x = max(max_x, rect.right())
+                max_y = max(max_y, rect.bottom())
+                found_any = True
+
+        if not found_any:
+            w_px, h_px = self.get_map_dimensions_px(project)
+            return QRect(0, 0, w_px, h_px)
+
+        return QRect(int(min_x), int(min_y), int(max_x - min_x), int(max_y - min_y))
+
+    def draw_checkerboard(self, painter: QPainter, rect: QRect, square_size: int = 16) -> None:
+        c1 = QColor("#1e1e24")
+        c2 = QColor("#282830")
+        painter.fillRect(rect, c1)
+
+        painter.setBrush(QBrush(c2))
+        painter.setPen(Qt.PenStyle.NoPen)
+        for y in range(rect.top(), rect.bottom(), square_size):
+            start_offset = 0 if ((y - rect.top()) // square_size) % 2 == 0 else square_size
+            for x in range(rect.left() + start_offset, rect.right(), square_size * 2):
+                w = min(square_size, rect.right() - x)
+                h = min(square_size, rect.bottom() - y)
+                if w > 0 and h > 0:
+                    painter.drawRect(x, y, w, h)
+
+    def draw_item(self, painter: QPainter, item: MapItem, tile_size: int) -> None:
+        pixmap = self.asset_manager.get_pixmap(item.asset_id)
+        if not pixmap or pixmap.isNull():
+            return
+
+        px_x, px_y = item.get_pixel_pos(tile_size)
+        source_rect = QRectF(item.source_x, item.source_y, item.source_w, item.source_h)
+
+        has_transform = (
+            abs(item.rotation % 360) > 0.001
+            or item.scale_x != 1.0
+            or item.scale_y != 1.0
+            or item.flip_x
+            or item.flip_y
+        )
+
+        if has_transform:
+            painter.save()
+            anchor_px_x = px_x + item.dest_w * item.anchor_x
+            anchor_px_y = px_y + item.dest_h * item.anchor_y
+
+            painter.translate(anchor_px_x, anchor_px_y)
+            if item.rotation != 0.0:
+                painter.rotate(item.rotation)
+
+            sx = item.scale_x * (-1 if item.flip_x else 1)
+            sy = item.scale_y * (-1 if item.flip_y else 1)
+            painter.scale(sx, sy)
+
+            target = QRectF(
+                -item.dest_w * item.anchor_x,
+                -item.dest_h * item.anchor_y,
+                item.dest_w,
+                item.dest_h,
+            )
+            painter.drawPixmap(target, pixmap, source_rect)
+            painter.restore()
+        else:
+            dest_rect = QRectF(px_x, px_y, item.dest_w, item.dest_h)
+            painter.drawPixmap(dest_rect, pixmap, source_rect)
+
+    def render_layer(
+        self,
+        painter: QPainter,
+        layer: Layer,
+        project: Project,
+        effective_opacity: float,
+    ) -> None:
+        if effective_opacity <= 0.0:
+            return
+
+        painter.save()
+        if effective_opacity < 1.0:
+            painter.setOpacity(painter.opacity() * effective_opacity)
+
+        # 1. Grid tiles
+        sorted_tiles = sorted(layer.tiles.values(), key=lambda t: (t.row, t.col))
+        for item in sorted_tiles:
+            self.draw_item(painter, item, project.tile_size)
+
+        # 2. Objects
+        sorted_objs = sorted(layer.objects, key=lambda o: (o.z_index, o.row, o.col))
+        for obj in sorted_objs:
+            self.draw_item(painter, obj, project.tile_size)
+
+        painter.restore()
+
+    def render(
+        self,
+        painter: QPainter,
+        project: Project,
+        options: RenderOptions,
+        clip_rect: Optional[QRectF] = None,
+    ) -> None:
+        w_px, h_px = self.get_map_dimensions_px(project)
+        map_rect = QRect(0, 0, w_px, h_px)
+
+        # 1. Background
+        if options.transparent_bg or project.is_bg_transparent:
+            if options.render_checkerboard:
+                self.draw_checkerboard(painter, map_rect)
+        else:
+            bg_color = (
+                options.custom_bg_color
+                if options.custom_bg_color
+                else QColor(project.background_color)
+            )
+            painter.fillRect(map_rect, bg_color)
+
+        # 2. Render Layers in ascending order
+        for layer in project.layers:
+            if layer.is_group:
+                continue
+            if options.only_layer_ids and layer.id not in options.only_layer_ids:
+                continue
+
+            # Respect group hierarchy visibility and opacity
+            is_visible = project.get_effective_visible(layer)
+            if options.ignore_hidden_layers and not is_visible:
+                continue
+
+            effective_op = project.get_effective_opacity(layer)
+            self.render_layer(painter, layer, project, effective_op)
+
+        # 3. Tool Previews
+        if options.preview_items:
+            painter.save()
+            painter.setOpacity(options.preview_opacity)
+            for item in options.preview_items:
+                self.draw_item(painter, item, project.tile_size)
+            painter.restore()
+
+        # 4. Grid overlay
+        if options.show_grid:
+            self.draw_grid(painter, project, options.grid_color)
+
+        # 5. Selection overlay (Tile Marquee)
+        if options.show_selection and options.selection_rect:
+            self.draw_selection(painter, options.selection_rect, project.tile_size)
+
+        # 6. Selected Objects Bounding Handles
+        if options.selected_object_ids:
+            self.draw_selected_objects(painter, project, options.selected_object_ids)
+
+    def draw_grid(self, painter: QPainter, project: Project, grid_color: QColor) -> None:
+        ts = project.tile_size
+        w_px, h_px = self.get_map_dimensions_px(project)
+
+        painter.save()
+        pen = QPen(grid_color)
+        pen.setWidth(1)
+        pen.setStyle(Qt.PenStyle.SolidLine)
+        painter.setPen(pen)
+
+        for x in range(0, w_px + 1, ts):
+            painter.drawLine(x, 0, x, h_px)
+
+        for y in range(0, h_px + 1, ts):
+            painter.drawLine(0, y, w_px, y)
+
+        border_pen = QPen(QColor(80, 130, 255, 120))
+        border_pen.setWidth(2)
+        painter.setPen(border_pen)
+        painter.drawRect(0, 0, w_px, h_px)
+        painter.restore()
+
+    def draw_selection(self, painter: QPainter, sel_rect: QRect, tile_size: int) -> None:
+        px_x = sel_rect.x() * tile_size
+        px_y = sel_rect.y() * tile_size
+        px_w = sel_rect.width() * tile_size
+        px_h = sel_rect.height() * tile_size
+
+        painter.save()
+        fill_brush = QBrush(QColor(79, 128, 255, 60))
+        painter.fillRect(px_x, px_y, px_w, px_h, fill_brush)
+
+        pen = QPen(QColor(79, 128, 255, 230))
+        pen.setWidth(2)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.drawRect(px_x, px_y, px_w, px_h)
+        painter.restore()
+
+    def draw_selected_objects(
+        self,
+        painter: QPainter,
+        project: Project,
+        selected_ids: List[str],
+    ) -> None:
+        """Draws bounding boxes and transform handles around selected objects."""
+        painter.save()
+        pen = QPen(QColor(255, 193, 7, 240))
+        pen.setWidth(2)
+        pen.setStyle(Qt.PenStyle.SolidLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        for layer in project.layers:
+            for obj in layer.objects:
+                if obj.id in selected_ids:
+                    rect = self.calculate_item_bounding_rect(obj, project.tile_size)
+                    painter.drawRect(rect)
+                    # Corner handles
+                    handle_size = 6
+                    painter.fillRect(
+                        QRectF(rect.left() - handle_size / 2, rect.top() - handle_size / 2, handle_size, handle_size),
+                        QColor(255, 255, 255),
+                    )
+                    painter.fillRect(
+                        QRectF(rect.right() - handle_size / 2, rect.bottom() - handle_size / 2, handle_size, handle_size),
+                        QColor(255, 255, 255),
+                    )
+        painter.restore()
+
+    def export_to_image(
+        self,
+        project: Project,
+        options: Optional[RenderOptions] = None,
+        crop_to_content: bool = False,
+    ) -> QImage:
+        if options is None:
+            options = RenderOptions(
+                show_grid=False,
+                show_selection=False,
+                selected_object_ids=[],
+                preview_items=[],
+                render_checkerboard=False,
+                ignore_hidden_layers=True,
+            )
+        else:
+            options.show_grid = False
+            options.show_selection = False
+            options.selected_object_ids = []
+            options.preview_items = []
+            options.render_checkerboard = False
+
+        if crop_to_content:
+            target_rect = self.calculate_content_bounding_box(project)
+        else:
+            w_px, h_px = self.get_map_dimensions_px(project)
+            target_rect = QRect(0, 0, w_px, h_px)
+
+        img = QImage(
+            target_rect.width(),
+            target_rect.height(),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        img.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+
+        if crop_to_content:
+            painter.translate(-target_rect.x(), -target_rect.y())
+
+        self.render(painter, project, options)
+        painter.end()
+
+        return img

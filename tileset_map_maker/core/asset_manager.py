@@ -2,7 +2,7 @@ import os
 import time
 from typing import Dict, List, Optional, Tuple, Set, Any
 from PyQt6.QtGui import QPixmap, QImage
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, Qt
 
 from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
 from ..models.category import CategoryTree, CategoryNode
@@ -79,8 +79,8 @@ class AssetManager(QObject):
         thumb = pixmap.scaled(
             size,
             size,
-            aspectRatioMode=1,  # KeepAspectRatio
-            transformMode=1,    # SmoothTransformation
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
         self._thumbnail_cache[cache_key] = thumb
         return thumb
