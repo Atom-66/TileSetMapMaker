@@ -60,6 +60,11 @@ Linux:
 ./build-linux.sh
 ```
 
+Wynikiem jest pojedynczy `dist/TileSetMapMaker-<architektura>.AppImage`.
+Zawiera on katalog `_internal` z bibliotekami i zasobami, więc nie trzeba
+kopiować żadnego katalogu obok pliku. Starszy katalog `dist/TileSetMapMaker/`
+może pozostać po poprzednich buildach i nie jest potrzebny AppImage.
+
 Windows EXE z Linuksa x86_64:
 
 ```bash

@@ -3,6 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+if [[ -z "${APPIMAGETOOL:-}" ]] && ! command -v appimagetool >/dev/null 2>&1 && [[ -x "$PWD/.tools/appimagetool" ]]; then
+    export APPIMAGETOOL="$PWD/.tools/appimagetool"
+fi
+
 if [[ -z "${APPIMAGETOOL:-}" ]] && ! command -v appimagetool >/dev/null 2>&1; then
     if [[ "$(uname -m)" != "x86_64" ]]; then
         echo "Automatyczne pobieranie appimagetool jest obecnie obsługiwane tylko na x86_64." >&2

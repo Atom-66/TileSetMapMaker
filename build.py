@@ -7,6 +7,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from tileset_map_maker.version import APP_VERSION
 
@@ -58,75 +59,81 @@ def build_appimage() -> None:
             "Nie znaleziono appimagetool. Zainstaluj appimagetool i dodaj go do PATH."
         )
 
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "--noconfirm",
-            "--clean",
-            "--windowed",
-            "--onedir",
-            "--name",
-            APP_NAME,
-            "--add-data",
-            f"icons{os.pathsep}icons",
-            "run_app.py",
-        ],
-        cwd=ROOT,
-        check=True,
-    )
-
-    app_dir = ROOT / "build" / "appimage" / "TileSetMapMaker.AppDir"
-    if app_dir.exists():
-        shutil.rmtree(app_dir)
-
-    app_bin = app_dir / "usr" / "bin" / APP_NAME
-    app_bin.parent.mkdir(parents=True)
-    shutil.copytree(ROOT / "dist" / APP_NAME, app_bin)
-
-    app_icon = (
-        app_dir
-        / "usr"
-        / "share"
-        / "icons"
-        / "hicolor"
-        / "scalable"
-        / "apps"
-        / "tileset-map-maker.svg"
-    )
-    app_icon.parent.mkdir(parents=True)
-    shutil.copy2(ROOT / "icons" / "outline" / "map.svg", app_icon)
-
-    (app_dir / "tileset-map-maker.desktop").write_text(
-        "[Desktop Entry]\n"
-        "Name=TileSet Map Maker\n"
-        "Exec=TileSetMapMaker %F\n"
-        "Icon=tileset-map-maker\n"
-        "Type=Application\n"
-        "Categories=Graphics;2DGraphics;\n"
-        "Terminal=false\n",
-        encoding="utf-8",
-    )
-    app_run = app_dir / "AppRun"
-    app_run.write_text(
-        '#!/bin/sh\n'
-        'HERE="$(dirname "$(readlink -f "$0")")"\n'
-        'exec "$HERE/usr/bin/TileSetMapMaker/TileSetMapMaker" "$@"\n',
-        encoding="utf-8",
-    )
-    app_run.chmod(0o755)
-
     output = ROOT / "dist" / f"{APP_NAME}-{platform.machine()}.AppImage"
     output.parent.mkdir(parents=True, exist_ok=True)
-    environment = os.environ.copy()
-    environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
-    subprocess.run(
-        [appimagetool, "--no-appstream", str(app_dir), str(output)],
-        cwd=ROOT,
-        env=environment,
-        check=True,
-    )
+    staging_root = ROOT / "build" / "appimage"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="package-", dir=staging_root) as directory:
+        staging = Path(directory)
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "PyInstaller",
+                "--noconfirm",
+                "--clean",
+                "--windowed",
+                "--onedir",
+                "--name",
+                APP_NAME,
+                "--distpath",
+                str(staging / "dist"),
+                "--workpath",
+                str(staging / "work"),
+                "--specpath",
+                str(staging),
+                "--add-data",
+                f"{ROOT / 'icons'}{os.pathsep}icons",
+                str(ROOT / "run_app.py"),
+            ],
+            cwd=ROOT,
+            check=True,
+        )
+
+        app_dir = staging / "TileSetMapMaker.AppDir"
+        app_bin = app_dir / "usr" / "bin" / APP_NAME
+        app_bin.parent.mkdir(parents=True)
+        shutil.copytree(staging / "dist" / APP_NAME, app_bin)
+
+        app_icon = (
+            app_dir / "usr" / "share" / "icons" / "hicolor" / "scalable"
+            / "apps" / "tileset-map-maker.svg"
+        )
+        app_icon.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / "icons" / "outline" / "map.svg", app_icon)
+        shutil.copy2(app_icon, app_dir / "tileset-map-maker.svg")
+
+        (app_dir / "tileset-map-maker.desktop").write_text(
+            "[Desktop Entry]\n"
+            "Name=TileSet Map Maker\n"
+            "Exec=TileSetMapMaker %F\n"
+            "Icon=tileset-map-maker\n"
+            "Type=Application\n"
+            "Categories=Graphics;2DGraphics;\n"
+            "Terminal=false\n",
+            encoding="utf-8",
+        )
+        app_run = app_dir / "AppRun"
+        app_run.write_text(
+            '#!/bin/sh\n'
+            'HERE="$(dirname "$(readlink -f "$0")")"\n'
+            'exec "$HERE/usr/bin/TileSetMapMaker/TileSetMapMaker" "$@"\n',
+            encoding="utf-8",
+        )
+        app_run.chmod(0o755)
+
+        temporary_output = staging / output.name
+        environment = os.environ.copy()
+        environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+        subprocess.run(
+            [appimagetool, "--no-appstream", str(app_dir), str(temporary_output)],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
+        if not temporary_output.is_file() or temporary_output.stat().st_size == 0:
+            raise RuntimeError("appimagetool nie utworzył pliku AppImage.")
+        os.replace(temporary_output, output)
     print(f"\nGotowe: {output}")
 
 
