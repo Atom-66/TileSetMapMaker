@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QSpinBox,
     QComboBox,
-    QCheckBox,
     QPushButton,
     QColorDialog,
     QWidget,
@@ -14,6 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor
 
 from ...models.project import Project
+from ..widgets.switch_toggle import SwitchToggle
+from ..icons import IconFactory
 
 
 class MapSettingsDialog(QDialog):
@@ -60,15 +61,15 @@ class MapSettingsDialog(QDialog):
 
         # Background color
         bg_layout = QHBoxLayout()
-        self.btn_color = QPushButton("Wybierz kolor")
+        self.btn_color = QPushButton(" Wybierz kolor")
+        self.btn_color.setIcon(IconFactory.get_icon("palette", 14))
         self._update_color_btn()
         self.btn_color.clicked.connect(self._choose_color)
         bg_layout.addWidget(self.btn_color)
         form.addRow("Kolor tła:", bg_layout)
 
         # Transparent background toggle
-        self.chk_transparent = QCheckBox("Przezroczyste tło (brak tła)")
-        self.chk_transparent.setChecked(self.project.is_bg_transparent)
+        self.chk_transparent = SwitchToggle("Przezroczyste tło (brak tła)", checked=self.project.is_bg_transparent)
         form.addRow("", self.chk_transparent)
 
         layout.addLayout(form)
@@ -76,10 +77,12 @@ class MapSettingsDialog(QDialog):
 
         # Action buttons
         btn_layout = QHBoxLayout()
-        btn_cancel = QPushButton("Anuluj")
+        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
 
-        btn_save = QPushButton("Zapisz zmiany")
+        btn_save = QPushButton(" Zapisz zmiany")
+        btn_save.setIcon(IconFactory.get_icon("save", 16))
         btn_save.setProperty("class", "primary")
         btn_save.clicked.connect(self._save_settings)
 

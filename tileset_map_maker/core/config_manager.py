@@ -59,6 +59,7 @@ def get_default_config() -> Dict[str, Any]:
             "state": "",
             "splitter_state": "",
         },
+        "toolbar_layout": None,
     }
 
 
@@ -69,9 +70,10 @@ class ConfigManager:
     tileset library hierarchy.
     """
 
-    def __init__(self, custom_config_path: Optional[str] = None):
-        if custom_config_path:
-            self.config_path = custom_config_path
+    def __init__(self, custom_config_path: Optional[str] = None, config_path: Optional[str] = None):
+        target_path = custom_config_path or config_path
+        if target_path:
+            self.config_path = target_path
         else:
             self.config_path = os.path.join(get_config_dir(), "app_config.json")
         self.config_data = self.load()
@@ -93,7 +95,7 @@ class ConfigManager:
             # Merge with defaults
             merged = defaults.copy()
             for k, v in data.items():
-                if isinstance(v, dict) and k in merged:
+                if isinstance(v, dict) and isinstance(merged.get(k), dict):
                     merged[k] = {**merged[k], **v}
                 else:
                     merged[k] = v
@@ -179,6 +181,19 @@ class ConfigManager:
         self.save()
 
     # -------------------------------------------------------------
+    # Toolbar Layout Persistence
+    # -------------------------------------------------------------
+
+    def get_toolbar_layout(self) -> Optional[Dict[str, Any]]:
+        """Returns saved toolbar layout configuration or None."""
+        return self.config_data.get("toolbar_layout")
+
+    def save_toolbar_layout(self, layout_data: Dict[str, Any]) -> bool:
+        """Saves toolbar layout configuration to persistent settings."""
+        self.config_data["toolbar_layout"] = layout_data
+        return self.save()
+
+    # -------------------------------------------------------------
     # Tileset Library Persistence
     # -------------------------------------------------------------
 
@@ -252,3 +267,35 @@ class ConfigManager:
             active_id = next(iter(asset_manager.assets.keys()), None)
 
         return active_id, expanded
+
+    # -------------------------------------------------------------
+    # AutoTile Ruleset Persistence
+    # -------------------------------------------------------------
+
+    def save_autotile_rules(self, autotile_engine: Any) -> bool:
+        """Saves configured AutoTile rulesets to persistent configuration."""
+        self.config_data["autotile_library"] = autotile_engine.to_dict()
+        return self.save()
+
+    def restore_autotile_rules(self, autotile_engine: Any) -> None:
+        """Restores configured AutoTile rulesets from configuration."""
+        data = self.config_data.get("autotile_library")
+        if data:
+            autotile_engine.load_from_dict(data)
+
+    # -------------------------------------------------------------
+    # Brush Variants & Randomizer Persistence
+    # -------------------------------------------------------------
+
+    def save_brush_settings(self, brush_settings: Any) -> bool:
+        """Saves brush randomizer configuration and variants to persistent settings."""
+        if hasattr(brush_settings, "to_dict"):
+            self.config_data["brush_settings"] = brush_settings.to_dict()
+            return self.save()
+        return False
+
+    def restore_brush_settings(self, brush_settings: Any) -> None:
+        """Restores brush randomizer configuration and variants from persistent settings."""
+        data = self.config_data.get("brush_settings")
+        if data and hasattr(brush_settings, "load_from_dict"):
+            brush_settings.load_from_dict(data)

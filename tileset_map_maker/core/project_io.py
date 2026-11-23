@@ -17,8 +17,9 @@ class ProjectIO:
         project: Project,
         asset_manager: AssetManager,
         file_path: str,
+        autotile_engine: Optional[Any] = None,
     ) -> bool:
-        """Saves project and asset library metadata to a JSON .tmmap file."""
+        """Saves project, asset library metadata, and autotile rules to a JSON .tmmap file."""
         try:
             base_dir = os.path.dirname(os.path.abspath(file_path))
             os.makedirs(base_dir, exist_ok=True)
@@ -28,6 +29,8 @@ class ProjectIO:
                 "project": project.to_dict(),
                 "assets": asset_manager.to_dict(),
             }
+            if autotile_engine:
+                data["autotile"] = autotile_engine.to_dict()
 
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -43,8 +46,9 @@ class ProjectIO:
     def load_project(
         file_path: str,
         asset_manager: AssetManager,
+        autotile_engine: Optional[Any] = None,
     ) -> Optional[Project]:
-        """Loads project from .tmmap file and restores asset library and layers."""
+        """Loads project from .tmmap file and restores asset library, layers, and autotile rules."""
         try:
             if not os.path.exists(file_path):
                 return None
@@ -54,6 +58,9 @@ class ProjectIO:
 
             if "assets" in data:
                 asset_manager.load_from_dict(data["assets"])
+
+            if autotile_engine and "autotile" in data:
+                autotile_engine.load_from_dict(data["autotile"])
 
             project_data = data.get("project", {})
             project = Project.from_dict(project_data)

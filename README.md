@@ -1,4 +1,4 @@
-# TileSet Map Maker 🗺️🖌️ – Etap 2: Zaawansowany Edytor Map 2D
+# TileSet Map Maker 🗺️🖌️: Zaawansowany Edytor Map 2D
 
 Nowoczesna, wydajna i intuicyjna aplikacja desktopowa do profesjonalnego projektowania map 2D z wykorzystaniem tilesetów oraz pojedynczych grafik PNG, stworzona od zera w oparciu o Python 3 i PyQt6.
 
@@ -19,7 +19,7 @@ python3 -m tileset_map_maker.main
 
 ---
 
-## 🌟 Zaawansowane Funkcjonalności (Etap 2)
+## 🌟 Zaawansowane Funkcjonalności
 
 ### 1. 🗺️ Inteligentny Import Tilesetów i Wybieranie Kafelków (Tiled-Style)
 - **Ścisła, regularna siatka (Uniform Regular Grid)**:

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 from ..models.project import Project
+from .icons import IconFactory
 
 
 class MapTabBar(QWidget):
@@ -81,7 +82,7 @@ class MapTabBar(QWidget):
         layout.addWidget(self.tab_bar)
 
         self.btn_add_map = QToolButton(self)
-        self.btn_add_map.setText("➕")
+        self.btn_add_map.setIcon(IconFactory.get_icon("plus", 14))
         self.btn_add_map.setToolTip("Utwórz nową mapę w projekcie")
         self.btn_add_map.setStyleSheet("""
             QToolButton {
@@ -114,8 +115,7 @@ class MapTabBar(QWidget):
 
         active_idx = 0
         for i, m in enumerate(self.project.maps.values()):
-            icon_prefix = "🗺️ "
-            idx = self.tab_bar.addTab(f"{icon_prefix}{m.name}")
+            idx = self.tab_bar.addTab(IconFactory.get_icon("map", 16), m.name)
             self.tab_bar.setTabData(idx, m.id)
             if m.id == self.project.active_map_id:
                 active_idx = idx
@@ -168,10 +168,10 @@ class MapTabBar(QWidget):
             return
 
         menu = QMenu(self)
-        act_rename = menu.addAction("✏️ Zmień nazwę mapy...")
-        act_dup = menu.addAction("📑 Duplikuj mapę")
+        act_rename = menu.addAction(IconFactory.get_icon("pencil", 16), "Zmień nazwę mapy...")
+        act_dup = menu.addAction(IconFactory.get_icon("copy", 16), "Duplikuj mapę")
         menu.addSeparator()
-        act_close = menu.addAction("❌ Usuń mapę")
+        act_close = menu.addAction(IconFactory.get_icon("trash", 16), "Usuń mapę")
         if self.tab_bar.count() <= 1:
             act_close.setEnabled(False)
 

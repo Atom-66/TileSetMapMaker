@@ -49,7 +49,7 @@ class QuickActionMenu(QWidget):
         inner_layout.setContentsMargins(8, 8, 8, 8)
         inner_layout.setSpacing(6)
 
-        header = QLabel("⚡ Szybkie Narzędzia")
+        header = QLabel("Szybkie Narzędzia")
         header.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: 600; border: none; padding: 2px;")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner_layout.addWidget(header)

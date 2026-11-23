@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 from PyQt6.QtCore import Qt
+from ..icons import IconFactory
 
 
 class ShortcutsDialog(QDialog):
@@ -77,7 +78,8 @@ class ShortcutsDialog(QDialog):
 
         layout.addWidget(table)
 
-        btn_close = QPushButton("Zamknij")
+        btn_close = QPushButton(" Zamknij")
+        btn_close.setIcon(IconFactory.get_icon("close", 14))
         btn_close.clicked.connect(self.accept)
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()

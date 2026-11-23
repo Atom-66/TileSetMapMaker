@@ -41,9 +41,21 @@ QToolButton:hover {
     color: #ffffff;
 }
 
-QToolButton:pressed, QToolButton:checked {
-    background-color: #3b82f6;
+QToolButton:pressed {
+    background-color: #1d4ed8;
     border: 1px solid #2563eb;
+    color: #ffffff;
+}
+
+QToolButton:checked {
+    background-color: #2563eb;
+    border: 1px solid #93c5fd;
+    color: #ffffff;
+}
+
+QToolButton:checked:hover {
+    background-color: #1d4ed8;
+    border: 1px solid #bfdbfe;
     color: #ffffff;
 }
 
@@ -100,21 +112,99 @@ QStatusBar QLabel {
     padding: 2px 8px;
 }
 
-/* Dock Widgets & Panels */
+/* Dock Widgets & Panels (Photoshop / Professional Studio Style) */
 QDockWidget {
     color: #e4e4e7;
     font-weight: 600;
-    titlebar-close-icon: url(close.png);
-    titlebar-normal-icon: url(undock.png);
+    border: 1px solid #282932;
+    border-radius: 4px;
 }
 
 QDockWidget::title {
-    background-color: #1c1d22;
-    border-bottom: 1px solid #27272f;
-    padding: 8px 12px;
-    font-size: 12px;
+    background-color: #1e1f26;
+    border-bottom: 1px solid #2d2e38;
+    padding: 6px 10px;
+    font-size: 11px;
     letter-spacing: 0.5px;
     text-transform: uppercase;
+    font-weight: 600;
+    color: #e4e4e7;
+}
+
+QDockWidget::title:hover {
+    background-color: #272834;
+}
+
+QDockWidget::close-button, QDockWidget::float-button {
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    padding: 2px;
+    subcontrol-position: top right;
+}
+
+QDockWidget::close-button:hover, QDockWidget::float-button:hover {
+    background: #373847;
+}
+
+QDockWidget::close-button {
+    subcontrol-origin: margin;
+    right: 4px;
+}
+
+QDockWidget::float-button {
+    subcontrol-origin: margin;
+    right: 22px;
+}
+
+/* RubberBand (Photoshop / Tiled style docking target preview) */
+QRubberBand {
+    background-color: rgba(59, 130, 246, 85);
+    border: 2px solid #3b82f6;
+    border-radius: 4px;
+}
+
+/* Main Window Dock Separators */
+QMainWindow::separator {
+    background-color: #1c1d22;
+    width: 6px;
+    height: 6px;
+}
+
+QMainWindow::separator:hover {
+    background-color: #3b82f6;
+}
+
+/* Docked Tab Bars (Photoshop Style Tabs at the Top of Dock Groups) */
+QMainWindow > QTabBar, QDockWidget QTabBar {
+    background-color: #141519;
+    border-bottom: 1px solid #27272f;
+    padding-top: 2px;
+}
+
+QMainWindow > QTabBar::tab, QDockWidget QTabBar::tab {
+    background-color: #1a1b22;
+    border: 1px solid #2a2b36;
+    border-bottom: 2px solid transparent;
+    padding: 5px 12px;
+    margin-right: 2px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #a1a1aa;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+QMainWindow > QTabBar::tab:hover, QDockWidget QTabBar::tab:hover {
+    background-color: #242530;
+    color: #ffffff;
+}
+
+QMainWindow > QTabBar::tab:selected, QDockWidget QTabBar::tab:selected {
+    background-color: #1e1f28;
+    color: #ffffff;
+    font-weight: 600;
+    border-bottom: 2px solid #3b82f6;
 }
 
 /* Push Buttons */

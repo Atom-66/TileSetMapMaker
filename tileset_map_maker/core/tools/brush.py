@@ -47,8 +47,16 @@ class BrushTool(BaseTool):
                 tc = col + dc
                 tr = row + dr
 
-                # Pick variant
-                variant = bs.pick_variant(context.selected_asset)
+                # Pick variant (with optional adjacent avoidance)
+                adj = None
+                if bs.avoid_adjacent:
+                    adj = [
+                        layer.get_tile(tc - 1, tr),
+                        layer.get_tile(tc + 1, tr),
+                        layer.get_tile(tc, tr - 1),
+                        layer.get_tile(tc, tr + 1),
+                    ]
+                variant = bs.pick_variant(context.selected_asset, avoid_adjacent_items=adj)
                 items = self.create_items_from_selection(tc, tr, context, override_asset=variant)
 
                 for item in items:
@@ -71,6 +79,14 @@ class BrushTool(BaseTool):
                                 ruleset = context.autotile_engine.get_active_ruleset()
                                 if ruleset:
                                     item.terrain_type = ruleset.terrain_type
+                                    init_tile = ruleset.default_tile or ruleset.get_tile_for_mask(0)
+                                    if init_tile:
+                                        aid, sx, sy, sw, sh = init_tile
+                                        item.asset_id = aid
+                                        item.source_x = sx
+                                        item.source_y = sy
+                                        item.source_w = sw
+                                        item.source_h = sh
 
                             layer.set_tile(item.col, item.row, item)
                             self.session_changes[coord] = (prev_clone, item.clone())

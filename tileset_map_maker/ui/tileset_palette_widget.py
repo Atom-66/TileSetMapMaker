@@ -20,7 +20,6 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
     QSpinBox,
-    QCheckBox,
     QDialogButtonBox,
     QPushButton,
     QApplication,
@@ -40,6 +39,7 @@ from PyQt6.QtGui import (
     QDropEvent,
     QPixmap,
     QImage,
+    QShowEvent,
 )
 
 from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
@@ -48,6 +48,8 @@ from ..core.asset_manager import AssetManager
 from ..core.config_manager import ConfigManager
 from .tileset_slicer_dialog import TilesetSlicerDialog
 from .dialogs.tileset_import_dialog import TilesetImportDialog
+from .widgets.switch_toggle import SwitchToggle
+from .icons import IconFactory
 
 logger = logging.getLogger("TilesetPalette")
 
@@ -81,23 +83,83 @@ class TilesetCanvas(QWidget):
         self.sel_end_col = 0
         self.sel_end_row = 0
 
+        # View state cache per tileset asset ID: {asset_id: {"zoom": float, "pan_offset": QPointF, ...}}
+        self.tileset_view_states: Dict[str, Dict[str, Any]] = {}
+        self._has_init_shown = False
+
         self.setMouseTracking(True)
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if not self._has_init_shown:
+            self._has_init_shown = True
+            if self.current_asset and self.current_asset.id not in self.tileset_view_states:
+                self.fit_to_view()
+
+    def save_current_view_state(self) -> None:
+        """Saves current zoom, pan offset and selection bounds for the active asset."""
+        if self.current_asset and self.current_asset.id:
+            self.tileset_view_states[self.current_asset.id] = {
+                "zoom": self.zoom,
+                "pan_offset": QPointF(self.pan_offset.x(), self.pan_offset.y()),
+                "sel_start_col": self.sel_start_col,
+                "sel_start_row": self.sel_start_row,
+                "sel_end_col": self.sel_end_col,
+                "sel_end_row": self.sel_end_row,
+            }
+
+    def restore_or_init_view_state(self, asset_id: str) -> None:
+        """Restores previously saved zoom and pan for this tileset, or computes initial fit."""
+        if asset_id in self.tileset_view_states:
+            st = self.tileset_view_states[asset_id]
+            self.zoom = st["zoom"]
+            self.pan_offset = QPointF(st["pan_offset"].x(), st["pan_offset"].y())
+            self.sel_start_col = st.get("sel_start_col", 0)
+            self.sel_start_row = st.get("sel_start_row", 0)
+            self.sel_end_col = st.get("sel_end_col", 0)
+            self.sel_end_row = st.get("sel_end_row", 0)
+            self.zoom_changed.emit(self.zoom)
+        else:
+            if self.width() > 0 and self.height() > 0:
+                self.fit_to_view()
+            else:
+                self.zoom = 1.0
+                self.pan_offset = QPointF(16.0, 16.0)
+                self.zoom_changed.emit(self.zoom)
+            self.sel_start_col = 0
+            self.sel_start_row = 0
+            self.sel_end_col = 0
+            self.sel_end_row = 0
+            self.save_current_view_state()
+
     def set_asset(self, asset: Optional[Asset]) -> None:
+        if not asset:
+            if self.current_asset:
+                self.save_current_view_state()
+            self.current_asset = None
+            self.update()
+            return
+
+        if self.current_asset and self.current_asset.id == asset.id:
+            # Same asset already active, keep zoom/pan/selection completely intact!
+            self.current_asset = asset
+            self.update()
+            return
+
+        # Switching to a different asset: save previous asset view state
+        if self.current_asset:
+            self.save_current_view_state()
+
         self.current_asset = asset
-        self.sel_start_col = 0
-        self.sel_start_row = 0
-        self.sel_end_col = 0
-        self.sel_end_row = 0
-        if self.width() > 0 and self.height() > 0:
-            self.fit_to_view()
+        self.restore_or_init_view_state(asset.id)
         self._emit_selection()
         self.update()
 
     def set_zoom(self, zoom: float) -> None:
         self.zoom = max(0.25, min(zoom, 16.0))
+        self.save_current_view_state()
         self.zoom_changed.emit(self.zoom)
         self.update()
 
@@ -117,6 +179,7 @@ class TilesetCanvas(QWidget):
         cx = (self.width() - w * self.zoom) / 2
         cy = (self.height() - h * self.zoom) / 2
         self.pan_offset = QPointF(cx, cy)
+        self.save_current_view_state()
         self.zoom_changed.emit(self.zoom)
         self.update()
 
@@ -158,6 +221,7 @@ class TilesetCanvas(QWidget):
             self.sel_end_col = grid["cols"] - 1
             self.sel_end_row = grid["rows"] - 1
             self._emit_selection()
+            self.save_current_view_state()
             self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -321,6 +385,7 @@ class TilesetCanvas(QWidget):
             world_after = self.screen_to_world(mouse_pos)
             self.pan_offset += (world_after - world_before) * self.zoom
 
+            self.save_current_view_state()
             self.zoom_changed.emit(self.zoom)
             self.update()
             event.accept()
@@ -330,6 +395,7 @@ class TilesetCanvas(QWidget):
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             step = (delta if delta != 0 else delta_x)
             self.pan_offset.setX(self.pan_offset.x() + step)
+            self.save_current_view_state()
             self.update()
             event.accept()
             return
@@ -337,6 +403,7 @@ class TilesetCanvas(QWidget):
         # 3. Standard Wheel: Vertical scroll/pan
         if delta != 0:
             self.pan_offset.setY(self.pan_offset.y() + delta)
+            self.save_current_view_state()
             self.update()
             event.accept()
 
@@ -369,6 +436,7 @@ class TilesetCanvas(QWidget):
                     self.sel_end_row = row
 
                 self._emit_selection()
+                self.save_current_view_state()
                 self.update()
             event.accept()
 
@@ -381,6 +449,7 @@ class TilesetCanvas(QWidget):
             diff = pos - self.last_mouse_pos
             self.pan_offset += diff
             self.last_mouse_pos = pos
+            self.save_current_view_state()
             self.update()
             event.accept()
             return
@@ -391,6 +460,7 @@ class TilesetCanvas(QWidget):
             if cell:
                 self.sel_end_col, self.sel_end_row = cell
                 self._emit_selection()
+                self.save_current_view_state()
                 self.update()
             event.accept()
             return
@@ -405,12 +475,14 @@ class TilesetCanvas(QWidget):
         if event.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton) and self.is_panning:
             self.is_panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.save_current_view_state()
             event.accept()
             return
 
         if event.button() == Qt.MouseButton.LeftButton and self.is_selecting:
             self.is_selecting = False
             self._emit_selection()
+            self.save_current_view_state()
             self.update()
             event.accept()
 
@@ -657,8 +729,7 @@ class GlobalImportSettingsDialog(QDialog):
         self.spin_spacing_y.setValue(cfg.get("default_spacing_y", 0))
         form.addRow("Odstęp pionowy (Spacing Y, px):", self.spin_spacing_y)
 
-        self.chk_skip_single = QCheckBox("Używaj automatycznie dla pojedynczych plików (bez okna konfiguracji)")
-        self.chk_skip_single.setChecked(cfg.get("skip_dialog_on_single", False))
+        self.chk_skip_single = SwitchToggle("Używaj automatycznie dla pojedynczych plików (bez okna konfiguracji)", checked=cfg.get("skip_dialog_on_single", False))
         form.addRow(self.chk_skip_single)
 
         layout.addLayout(form)
@@ -703,10 +774,12 @@ class TilesetPaletteWidget(QWidget):
         asset_manager: AssetManager,
         config_manager: Optional[ConfigManager] = None,
         parent: Optional[QWidget] = None,
+        standalone: bool = True,
     ):
         super().__init__(parent)
         self.asset_manager = asset_manager
         self.config_manager = config_manager or ConfigManager()
+        self.standalone = standalone
         self.active_asset_id: Optional[str] = None
         self.open_tileset_ids: List[str] = []  # For backward compatibility
         self.expanded_folders: List[str] = []
@@ -714,7 +787,8 @@ class TilesetPaletteWidget(QWidget):
         self.setAcceptDrops(True)
         self._init_ui()
         self._connect_signals()
-        self.restore_splitter_state()
+        if self.standalone:
+            self.restore_splitter_state()
         self.refresh_tilesets()
 
     @property
@@ -757,7 +831,7 @@ class TilesetPaletteWidget(QWidget):
         # ==========================================
         # 1. GÓRNA SEKCJA – PODGLĄD TILESETU I WYBÓR KAFELKÓW
         # ==========================================
-        self.top_widget = QWidget(self)
+        self.top_widget = QWidget(self if self.standalone else None)
         self.top_widget.setMinimumHeight(140)
         top_layout = QVBoxLayout(self.top_widget)
         top_layout.setContentsMargins(4, 4, 4, 2)
@@ -768,19 +842,19 @@ class TilesetPaletteWidget(QWidget):
         top_header.setContentsMargins(2, 2, 2, 2)
         top_header.setSpacing(4)
 
-        self.lbl_active_title = QLabel("🖼️ Podgląd tilesetu: (Brak wyboru)")
+        self.lbl_active_title = QLabel("Podgląd tilesetu: (Brak wyboru)")
         self.lbl_active_title.setStyleSheet("color: #93c5fd; font-size: 11px; font-weight: bold;")
         top_header.addWidget(self.lbl_active_title, 1)
 
         self.btn_config = QToolButton(self.top_widget)
-        self.btn_config.setText("⚙️")
+        self.btn_config.setIcon(IconFactory.get_icon("settings", 16))
         self.btn_config.setToolTip("Konfiguruj parametry siatki tilesetu (Slicer)...")
         self.btn_config.setStyleSheet(self._button_style())
         self.btn_config.clicked.connect(self._open_slicer_dialog)
         top_header.addWidget(self.btn_config)
 
         self.btn_fit = QToolButton(self.top_widget)
-        self.btn_fit.setText("🎯")
+        self.btn_fit.setIcon(IconFactory.get_icon("fit", 16))
         self.btn_fit.setToolTip("Dopasuj widok arkusza do okna podglądu")
         self.btn_fit.setStyleSheet(self._button_style())
         self.btn_fit.clicked.connect(self._fit_to_view)
@@ -818,7 +892,7 @@ class TilesetPaletteWidget(QWidget):
 
         # Zoom Controls
         self.btn_zoom_out = QToolButton(self.top_widget)
-        self.btn_zoom_out.setText("➖")
+        self.btn_zoom_out.setIcon(IconFactory.get_icon("zoom-out", 14))
         self.btn_zoom_out.setToolTip("Pomniejsz widok tilesetu")
         self.btn_zoom_out.setStyleSheet(self._button_style())
         self.btn_zoom_out.clicked.connect(lambda: self.canvas.set_zoom(self.canvas.zoom / 1.25))
@@ -832,7 +906,7 @@ class TilesetPaletteWidget(QWidget):
         info_layout.addWidget(self.slider_zoom)
 
         self.btn_zoom_in = QToolButton(self.top_widget)
-        self.btn_zoom_in.setText("➕")
+        self.btn_zoom_in.setIcon(IconFactory.get_icon("zoom-in", 14))
         self.btn_zoom_in.setToolTip("Powiększ widok tilesetu")
         self.btn_zoom_in.setStyleSheet(self._button_style())
         self.btn_zoom_in.clicked.connect(lambda: self.canvas.set_zoom(self.canvas.zoom * 1.25))
@@ -847,12 +921,13 @@ class TilesetPaletteWidget(QWidget):
 
         self.canvas.zoom_changed.connect(self._on_canvas_zoom_changed)
         top_layout.addLayout(info_layout)
-        self.splitter.addWidget(self.top_widget)
+        if self.standalone:
+            self.splitter.addWidget(self.top_widget)
 
         # ==========================================
         # 2. DOLNA SEKCJA – BIBLIOTEKA ZAIMPORTOWANYCH TILESETÓW (DRZEWO)
         # ==========================================
-        self.bottom_widget = QWidget(self)
+        self.bottom_widget = QWidget(self if self.standalone else None)
         self.bottom_widget.setMinimumHeight(120)
         bottom_layout = QVBoxLayout(self.bottom_widget)
         bottom_layout.setContentsMargins(4, 2, 4, 4)
@@ -863,48 +938,58 @@ class TilesetPaletteWidget(QWidget):
         lib_header.setContentsMargins(2, 2, 2, 2)
         lib_header.setSpacing(3)
 
-        self.lbl_list_title = QLabel("🗂️ Biblioteka tilesetów (0)")
+        self.lbl_list_title = QLabel("Biblioteka tilesetów (0)")
         self.lbl_list_title.setStyleSheet("color: #e4e4e7; font-size: 11px; font-weight: 600;")
         lib_header.addWidget(self.lbl_list_title, 1)
 
         # Action buttons for library management
         self.btn_add_files = QToolButton(self.bottom_widget)
-        self.btn_add_files.setText("➕ Plik(i)")
+        self.btn_add_files.setIcon(IconFactory.get_icon("file-plus", 14))
+        self.btn_add_files.setText(" Plik(i)")
+        self.btn_add_files.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_add_files.setToolTip("Zaimportuj jeden lub więcej plików PNG/JPG jako tilesety")
         self.btn_add_files.setStyleSheet(self._button_style())
         self.btn_add_files.clicked.connect(lambda: self._import_files_action())
         lib_header.addWidget(self.btn_add_files)
 
         self.btn_import_folder = QToolButton(self.bottom_widget)
-        self.btn_import_folder.setText("📁 Folder")
+        self.btn_import_folder.setIcon(IconFactory.get_icon("folder", 14))
+        self.btn_import_folder.setText(" Folder")
+        self.btn_import_folder.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_import_folder.setToolTip("Zaimportuj cały folder z dysku rekursywnie")
         self.btn_import_folder.setStyleSheet(self._button_style())
         self.btn_import_folder.clicked.connect(lambda: self._import_folder_action())
         lib_header.addWidget(self.btn_import_folder)
 
         self.btn_new_folder = QToolButton(self.bottom_widget)
-        self.btn_new_folder.setText("📂 Nowy folder")
+        self.btn_new_folder.setIcon(IconFactory.get_icon("folder-plus", 14))
+        self.btn_new_folder.setText(" Nowy folder")
+        self.btn_new_folder.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_new_folder.setToolTip("Utwórz nowy folder w bibliotece tilesetów")
         self.btn_new_folder.setStyleSheet(self._button_style())
         self.btn_new_folder.clicked.connect(lambda: self._create_folder_action())
         lib_header.addWidget(self.btn_new_folder)
 
         self.btn_rename = QToolButton(self.bottom_widget)
-        self.btn_rename.setText("✏️")
+        self.btn_rename.setIcon(IconFactory.get_icon("pencil", 14))
         self.btn_rename.setToolTip("Zmień nazwę zaznaczonego folderu lub tilesetu")
         self.btn_rename.setStyleSheet(self._button_style())
         self.btn_rename.clicked.connect(self._rename_action)
         lib_header.addWidget(self.btn_rename)
 
         self.btn_delete = QToolButton(self.bottom_widget)
-        self.btn_delete.setText("🗑️")
+        self.btn_delete.setIcon(IconFactory.get_icon("trash", 14))
         self.btn_delete.setToolTip("Usuń zaznaczony folder lub tileset z biblioteki")
         self.btn_delete.setStyleSheet(self._button_style())
         self.btn_delete.clicked.connect(self._delete_action)
         lib_header.addWidget(self.btn_delete)
 
         self.btn_settings = QToolButton(self.bottom_widget)
-        self.btn_settings.setText("⚙️")
+        self.btn_settings.setIcon(IconFactory.get_icon("settings", 14))
+        self.btn_settings.setToolTip("Ustawienia domyślne importu tilesetów...")
+        self.btn_settings.setStyleSheet(self._button_style())
+        self.btn_settings.clicked.connect(self._open_global_settings_dialog)
+        lib_header.addWidget(self.btn_settings)
         self.btn_settings.setToolTip("Ustawienia domyślne importu tilesetów...")
         self.btn_settings.setStyleSheet(self._button_style())
         self.btn_settings.clicked.connect(self._open_global_settings_dialog)
@@ -923,14 +1008,26 @@ class TilesetPaletteWidget(QWidget):
         self.tree.itemDoubleClicked.connect(self._on_tree_double_clicked)
         bottom_layout.addWidget(self.tree, 1)
 
-        self.splitter.addWidget(self.bottom_widget)
+        if self.standalone:
+            self.splitter.addWidget(self.bottom_widget)
+            # Splitter proportion defaults (top gets ~70%, bottom gets ~30%)
+            self.splitter.setStretchFactor(0, 7)
+            self.splitter.setStretchFactor(1, 3)
+            self.splitter.splitterMoved.connect(lambda pos, index: self.save_splitter_state())
+            main_layout.addWidget(self.splitter)
+        else:
+            self.splitter.addWidget(QWidget())
+            self.splitter.addWidget(QWidget())
+            main_layout.addWidget(self.splitter)
+            self.hide()
 
-        # Splitter proportion defaults (top gets ~70%, bottom gets ~30%)
-        self.splitter.setStretchFactor(0, 7)
-        self.splitter.setStretchFactor(1, 3)
-        self.splitter.splitterMoved.connect(lambda pos, index: self.save_splitter_state())
+    def get_preview_widget(self) -> QWidget:
+        """Returns the top section widget (interactive canvas & preview controls)."""
+        return self.top_widget
 
-        main_layout.addWidget(self.splitter)
+    def get_library_widget(self) -> QWidget:
+        """Returns the bottom section widget (tileset library & tree controls)."""
+        return self.bottom_widget
 
     @staticmethod
     def _button_style() -> str:
@@ -1058,7 +1155,7 @@ class TilesetPaletteWidget(QWidget):
             a for a in self.asset_manager.assets.values()
             if a.asset_type == AssetType.TILESET
         ]
-        self.lbl_list_title.setText(f"🗂️ Biblioteka tilesetów ({len(all_tilesets)})")
+        self.lbl_list_title.setText(f"Biblioteka tilesetów ({len(all_tilesets)})")
 
         self.tree.blockSignals(True)
         self.tree.clear()
@@ -1074,7 +1171,8 @@ class TilesetPaletteWidget(QWidget):
 
                 # Count tilesets in this subtree
                 sub_count = len(child_node.get_all_asset_ids())
-                folder_item.setText(0, f"📁 {child_node.name} ({sub_count})")
+                folder_item.setIcon(0, IconFactory.get_icon("folder", 16))
+                folder_item.setText(0, f"{child_node.name} ({sub_count})")
                 folder_item.setToolTip(0, f"Folder: {child_node.path} ({sub_count} tilesetów)")
 
                 if parent_item:
@@ -1139,7 +1237,7 @@ class TilesetPaletteWidget(QWidget):
             self.canvas.set_asset(active_asset)
             self._update_info_label(active_asset)
             cfg = active_asset.tileset_config or TilesetConfig(tile_width=32, tile_height=32)
-            self.lbl_active_title.setText(f"🗺️ Arkusz: {active_asset.name} ({cfg.tile_width}×{cfg.tile_height} px)")
+            self.lbl_active_title.setText(f"Arkusz: {active_asset.name} ({cfg.tile_width}×{cfg.tile_height} px)")
         else:
             self.active_asset_id = None
             self.canvas.set_asset(None)
@@ -1154,12 +1252,14 @@ class TilesetPaletteWidget(QWidget):
         item = TilesetTreeItem()
         item.setData(0, Qt.ItemDataRole.UserRole, "tileset")
         item.setData(0, Qt.ItemDataRole.UserRole + 1, asset.id)
-        item.setText(0, f"🗺️ {asset.name}  ({cfg.tile_width}×{cfg.tile_height} px | {grid['cols']}×{grid['rows']})")
+        item.setText(0, f"{asset.name}  ({cfg.tile_width}×{cfg.tile_height} px | {grid['cols']}×{grid['rows']})")
         item.setToolTip(0, f"Tileset: {asset.name}\nPlik: {asset.file_path}\nRozmiar: {asset.width}x{asset.height} px\nKafelki: {grid['cols']}x{grid['rows']} ({grid['total_cells']})")
 
         thumb = self.asset_manager.get_thumbnail(asset.id, 24)
         if thumb and not thumb.isNull():
             item.setIcon(0, QIcon(thumb))
+        else:
+            item.setIcon(0, IconFactory.get_icon("map", 16))
         return item
 
     def _find_folder_item(self, path: str) -> Optional[QTreeWidgetItem]:
@@ -1212,23 +1312,27 @@ class TilesetPaletteWidget(QWidget):
         if asset.asset_type != AssetType.TILESET:
             self.asset_manager.set_asset_type(asset.id, AssetType.TILESET)
 
+        is_different_asset = (self.active_asset_id != asset.id)
         self.active_asset_id = asset.id
+
         if not asset.tileset_config:
             asset.tileset_config = TilesetConfig(tile_width=32, tile_height=32)
 
         cfg = asset.tileset_config
-        self.lbl_active_title.setText(f"🗺️ Arkusz: {asset.name} ({cfg.tile_width}×{cfg.tile_height} px)")
-        self.canvas.current_asset = asset
+        self.lbl_active_title.setText(f"Arkusz: {asset.name} ({cfg.tile_width}×{cfg.tile_height} px)")
 
-        if self.canvas.width() > 0 and self.canvas.height() > 0:
-            self.canvas.fit_to_view()
+        if is_different_asset:
+            self.canvas.set_asset(asset)
+            self._select_tree_item_for_asset(asset.id)
+            self._auto_save_library()
 
         if sub_tile:
             self.canvas.sel_start_col = sub_tile.col
             self.canvas.sel_start_row = sub_tile.row
             self.canvas.sel_end_col = sub_tile.col + sub_tile.cols_count - 1
             self.canvas.sel_end_row = sub_tile.row + sub_tile.rows_count - 1
-        else:
+            self.canvas.save_current_view_state()
+        elif is_different_asset and asset.id not in self.canvas.tileset_view_states:
             self.canvas.sel_start_col = 0
             self.canvas.sel_start_row = 0
             self.canvas.sel_end_col = 0
@@ -1236,8 +1340,22 @@ class TilesetPaletteWidget(QWidget):
 
         self._update_info_label(asset, sub_tile)
         self.canvas.update()
-        self._select_tree_item_for_asset(asset.id)
-        self._auto_save_library()
+
+    def set_selected_sub_tile(self, sub_tile: SelectedSubTile) -> None:
+        """Updates tile selection on the palette canvas without touching zoom or view position."""
+        if not self.canvas.current_asset or self.canvas.current_asset.id != sub_tile.asset_id:
+            asset = self.asset_manager.get_asset(sub_tile.asset_id)
+            if asset:
+                self.set_active_asset(asset, sub_tile)
+            return
+
+        self.canvas.sel_start_col = sub_tile.col
+        self.canvas.sel_start_row = sub_tile.row
+        self.canvas.sel_end_col = sub_tile.col + sub_tile.cols_count - 1
+        self.canvas.sel_end_row = sub_tile.row + sub_tile.rows_count - 1
+        self.canvas.save_current_view_state()
+        self._update_info_label(self.canvas.current_asset, sub_tile)
+        self.canvas.update()
 
     def _on_tree_item_changed(self, current: Optional[QTreeWidgetItem], previous: Optional[QTreeWidgetItem]) -> None:
         if not current:
@@ -1253,7 +1371,7 @@ class TilesetPaletteWidget(QWidget):
         elif itype == "folder":
             fpath = current.data(0, Qt.ItemDataRole.UserRole + 1)
             if not self.active_asset_id:
-                self.lbl_active_title.setText(f"📁 Folder: {fpath}")
+                self.lbl_active_title.setText(f"Folder: {fpath}")
 
     def _on_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         itype = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1276,12 +1394,12 @@ class TilesetPaletteWidget(QWidget):
                 asset = self.asset_manager.get_asset(val)
                 if asset:
                     self.set_active_asset(asset)
-                    act_open = menu.addAction("👁️ Pokaż w podglądzie")
-                    act_slicer = menu.addAction("⚙️ Konfiguruj siatkę (Slicer)...")
-                    act_rename = menu.addAction("✏️ Zmień nazwę tilesetu...")
-                    act_move = menu.addAction("📁 Przenieś do innego folderu...")
+                    act_open = menu.addAction(IconFactory.get_icon("eye", 16), "Pokaż w podglądzie")
+                    act_slicer = menu.addAction(IconFactory.get_icon("slicer", 16), "Konfiguruj siatkę (Slicer)...")
+                    act_rename = menu.addAction(IconFactory.get_icon("pencil", 16), "Zmień nazwę tilesetu...")
+                    act_move = menu.addAction(IconFactory.get_icon("folder-share", 16), "Przenieś do innego folderu...")
                     menu.addSeparator()
-                    act_del = menu.addAction("🗑️ Usuń tileset z biblioteki")
+                    act_del = menu.addAction(IconFactory.get_icon("trash", 16), "Usuń tileset z biblioteki")
 
                     action = menu.exec(self.tree.mapToGlobal(pos))
                     if action == act_open:
@@ -1298,12 +1416,12 @@ class TilesetPaletteWidget(QWidget):
 
             elif itype == "folder":
                 folder_path = val
-                act_add_files = menu.addAction("➕ Dodaj plik(i) tilesetu do tego folderu...")
-                act_import_sub = menu.addAction("📁 Zaimportuj folder z dysku tutaj...")
-                act_new_sub = menu.addAction("📂 Utwórz nowy podfolder...")
+                act_add_files = menu.addAction(IconFactory.get_icon("file-plus", 16), "Dodaj plik(i) tilesetu do tego folderu...")
+                act_import_sub = menu.addAction(IconFactory.get_icon("folder", 16), "Zaimportuj folder z dysku tutaj...")
+                act_new_sub = menu.addAction(IconFactory.get_icon("folder-plus", 16), "Utwórz nowy podfolder...")
                 menu.addSeparator()
-                act_rename_f = menu.addAction("✏️ Zmień nazwę folderu...")
-                act_del_f = menu.addAction("🗑️ Usuń folder...")
+                act_rename_f = menu.addAction(IconFactory.get_icon("pencil", 16), "Zmień nazwę folderu...")
+                act_del_f = menu.addAction(IconFactory.get_icon("trash", 16), "Usuń folder...")
 
                 action = menu.exec(self.tree.mapToGlobal(pos))
                 if action == act_add_files:
@@ -1319,11 +1437,11 @@ class TilesetPaletteWidget(QWidget):
                 return
 
         # Empty space context menu
-        act_add = menu.addAction("➕ Zaimportuj plik(i) tilesetu...")
-        act_imp_folder = menu.addAction("📁 Zaimportuj cały folder z dysku...")
-        act_folder = menu.addAction("📂 Utwórz nowy folder w bibliotece...")
+        act_add = menu.addAction(IconFactory.get_icon("file-plus", 16), "Zaimportuj plik(i) tilesetu...")
+        act_imp_folder = menu.addAction(IconFactory.get_icon("folder", 16), "Zaimportuj cały folder z dysku...")
+        act_folder = menu.addAction(IconFactory.get_icon("folder-plus", 16), "Utwórz nowy folder w bibliotece...")
         menu.addSeparator()
-        act_global = menu.addAction("⚙️ Ustawienia domyślne importu...")
+        act_global = menu.addAction(IconFactory.get_icon("settings", 16), "Ustawienia domyślne importu...")
 
         action = menu.exec(self.tree.mapToGlobal(pos))
         if action == act_add:

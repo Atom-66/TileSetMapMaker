@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QToolButton,
 )
 from ..core.history import HistoryManager
+from .icons import IconFactory
 
 
 class HistoryPanel(QWidget):
@@ -38,13 +39,13 @@ class HistoryPanel(QWidget):
         header.addStretch()
 
         btn_undo = QToolButton(self)
-        btn_undo.setText("↩️")
+        btn_undo.setIcon(IconFactory.get_icon("undo", 16))
         btn_undo.setToolTip("Cofnij (Ctrl+Z)")
         btn_undo.clicked.connect(lambda: self.history_manager.undo())
         header.addWidget(btn_undo)
 
         btn_redo = QToolButton(self)
-        btn_redo.setText("↪️")
+        btn_redo.setIcon(IconFactory.get_icon("redo", 16))
         btn_redo.setToolTip("Ponów (Ctrl+Y)")
         btn_redo.clicked.connect(lambda: self.history_manager.redo())
         header.addWidget(btn_redo)
@@ -68,14 +69,16 @@ class HistoryPanel(QWidget):
     def refresh(self, *args) -> None:
         self.list_history.clear()
         # Initial base state
-        init_item = QListWidgetItem("🏁 Stan początkowy")
+        init_item = QListWidgetItem("Stan początkowy")
+        init_item.setIcon(IconFactory.get_icon("fit", 16))
         if not self.history_manager.undo_stack:
             init_item.setSelected(True)
         self.list_history.addItem(init_item)
 
         # Undo stack items
         for cmd in self.history_manager.undo_stack:
-            item = QListWidgetItem(f"✔️ {cmd.description}")
+            item = QListWidgetItem(cmd.description)
+            item.setIcon(IconFactory.get_icon("check", 16))
             self.list_history.addItem(item)
 
         # Highlight current state
@@ -84,7 +87,8 @@ class HistoryPanel(QWidget):
 
         # Redo stack items (dimmed)
         for cmd in reversed(self.history_manager.redo_stack):
-            item = QListWidgetItem(f"⚪ {cmd.description} (cofnięto)")
+            item = QListWidgetItem(f"{cmd.description} (cofnięto)")
+            item.setIcon(IconFactory.get_icon("undo", 16))
             item.setForeground(Qt.GlobalColor.darkGray)
             self.list_history.addItem(item)
 

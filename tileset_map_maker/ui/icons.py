@@ -1,6 +1,8 @@
+import os
 import math
-from typing import Dict, Optional
-from PyQt6.QtCore import Qt, QRectF, QPointF
+import logging
+from typing import Dict, Optional, Tuple
+from PyQt6.QtCore import Qt, QRectF, QPointF, QByteArray
 from PyQt6.QtGui import (
     QIcon,
     QPixmap,
@@ -11,48 +13,213 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPolygonF,
 )
+from PyQt6.QtSvg import QSvgRenderer
+
+logger = logging.getLogger("IconFactory")
 
 
 class IconFactory:
     """
-    Generates crisp, high-contrast, scalable vector icons using QPainter
-    for all tools, actions, and toolbar buttons in the application.
-    Includes state rendering (normal, hover, selected) and reliable fallbacks.
+    Central icon provider for TileSet Map Maker.
+    Loads and renders crisp, scalable SVG icons directly from the project's `icons/` folder
+    (Tabler Icons collection: outline and filled variants), with automatic state styling
+    (normal, active, selected, disabled) and reliable vector fallbacks.
     """
 
     _cache: Dict[str, QIcon] = {}
+    _svg_cache: Dict[str, str] = {}
+    _icons_dir: Optional[str] = None
+
+    # Canonical mapping from semantic UI keys to SVG file names in icons/
+    ICON_NAME_MAP: Dict[str, str] = {
+        # Tools
+        "brush": "brush",
+        "eraser": "eraser",
+        "fill": "bucket",
+        "bucket": "bucket",
+        "line": "line",
+        "rect": "rectangle",
+        "rectangle": "rectangle",
+        "select": "marquee-2",
+        "wand": "wand",
+        "object": "map-object",
+        "map-object": "map-object",
+        "eyedropper": "color-picker",
+        "color-picker": "color-picker",
+        "stamp": "rubber-stamp",
+        "rubber-stamp": "rubber-stamp",
+        
+        # Actions & Navigation
+        "new": "file-plus",
+        "open": "folder-open",
+        "save": "device-floppy",
+        "save-as": "save-as",
+        "save_as": "save-as",
+        "undo": "arrow-back-up",
+        "redo": "arrow-forward-up",
+        "grid": "grid-4x4",
+        "fit": "focus-2",
+        "autotile": "autotile",
+        "bolt": "bolt",
+        "path": "path-generator",
+        "path-generator": "path-generator",
+        "road": "road",
+        "randomizer": "tile-variants",
+        "tile-variants": "tile-variants",
+        "dice": "dice-5",
+        "dice-5": "dice-5",
+        "save_stamp": "stamp-save",
+        "stamp-save": "stamp-save",
+        "slicer": "tileset-slice",
+        "tileset-slice": "tileset-slice",
+        "slice": "slice",
+        "grid-3x3": "grid-3x3",
+        "grid-3x3-template": "grid-3x3-template",
+        "hud": "hud-coords",
+        "hud-coords": "hud-coords",
+        "settings": "settings",
+        "export": "download",
+        "download": "download",
+        "shortcuts": "keyboard",
+        "keyboard": "keyboard",
+        "reset_ui": "layout",
+        "layout": "layout",
+        "history": "history",
+        "map-edit": "map-edit",
+
+        # General UI Controls & Clipboard
+        "plus": "plus",
+        "minus": "minus",
+        "trash": "trash",
+        "delete": "trash",
+        "pencil": "pencil",
+        "edit": "pencil",
+        "rename": "pencil",
+        "folder": "folder",
+        "folder-open": "folder-open",
+        "folder-plus": "folder-plus",
+        "folder_new": "folder-plus",
+        "folder-share": "folder-share",
+        "file": "file",
+        "file-plus": "file-plus",
+        "file_add": "file-plus",
+        "eye": "eye",
+        "eye-off": "eye-off",
+        "lock": "lock",
+        "lock-open": "lock-open",
+        "up": "arrow-up",
+        "down": "arrow-down",
+        "arrow-up": "arrow-up",
+        "arrow-down": "arrow-down",
+        "chevron-up": "chevron-up",
+        "chevron-down": "chevron-down",
+        "zoom-in": "zoom-in",
+        "zoom-out": "zoom-out",
+        "target": "target",
+        "copy": "copy",
+        "paste": "clipboard",
+        "clipboard": "clipboard",
+        "check": "check",
+        "close": "x",
+        "x": "x",
+        "exit": "door-exit",
+        "door-exit": "door-exit",
+        "about": "info-circle",
+        "info-circle": "info-circle",
+        "palette": "palette",
+        "refresh": "refresh",
+        "rot": "rotate",
+        "rotate": "rotate",
+        "flip": "flip-horizontal",
+        "sparkles": "sparkles",
+        "adjustments": "adjustments",
+        "help": "help",
+        "world": "world",
+        "map": "map",
+        "layers": "layers-intersect",
+        "arrows-maximize": "arrows-maximize",
+        "fullscreen": "arrows-maximize",
+    }
 
     @classmethod
-    def get_icon(cls, name: str, size: int = 24) -> QIcon:
-        cache_key = f"{name}_{size}"
+    def _get_icons_dir(cls) -> str:
+        if cls._icons_dir is None:
+            # Locate `icons` folder relative to repository root
+            curr = os.path.abspath(os.path.dirname(__file__))
+            # curr is tileset_map_maker/ui -> repo root is parent of tileset_map_maker
+            repo_root = os.path.abspath(os.path.join(curr, "..", ".."))
+            cand = os.path.join(repo_root, "icons")
+            if os.path.isdir(cand):
+                cls._icons_dir = cand
+            else:
+                cls._icons_dir = "icons"
+        return cls._icons_dir
+
+    @classmethod
+    def get_icon(cls, name: str, size: int = 24, filled: bool = False) -> QIcon:
+        cache_key = f"{name}_{size}_{filled}"
         if cache_key in cls._cache:
             return cls._cache[cache_key]
 
         icon = QIcon()
 
-        # Generate pixmaps for Normal, Active, and Selected states
-        pix_normal = cls._render_vector_pixmap(name, size, QColor("#d4d4d8"), QColor("#3f404d"))
-        pix_active = cls._render_vector_pixmap(name, size, QColor("#ffffff"), QColor("#4f80ff"))
-        pix_selected = cls._render_vector_pixmap(name, size, QColor("#ffffff"), QColor("#2563eb"))
-        pix_disabled = cls._render_vector_pixmap(name, size, QColor("#52525b"), QColor("#27272a"))
+        # State palettes matching dark theme:
+        # Normal: zinc-300 (#d4d4d8)
+        # Active: pure white (#ffffff)
+        # Selected: bright blue (#3b82f6)
+        # Disabled: zinc-600 (#52525b)
+        pix_normal = cls._render_pixmap(name, size, QColor("#d4d4d8"), QColor("#3f404d"), filled)
+        pix_active = cls._render_pixmap(name, size, QColor("#ffffff"), QColor("#4f80ff"), filled)
+        pix_selected = cls._render_pixmap(name, size, QColor("#3b82f6"), QColor("#2563eb"), filled)
+        pix_disabled = cls._render_pixmap(name, size, QColor("#52525b"), QColor("#27272a"), filled)
 
         icon.addPixmap(pix_normal, QIcon.Mode.Normal, QIcon.State.Off)
-        icon.addPixmap(pix_selected, QIcon.Mode.Normal, QIcon.State.On)
+        icon.addPixmap(pix_active, QIcon.Mode.Normal, QIcon.State.On)
         icon.addPixmap(pix_active, QIcon.Mode.Active, QIcon.State.Off)
-        icon.addPixmap(pix_selected, QIcon.Mode.Active, QIcon.State.On)
-        icon.addPixmap(pix_selected, QIcon.Mode.Selected, QIcon.State.Off)
+        icon.addPixmap(pix_active, QIcon.Mode.Active, QIcon.State.On)
+        icon.addPixmap(pix_active, QIcon.Mode.Selected, QIcon.State.Off)
+        icon.addPixmap(pix_active, QIcon.Mode.Selected, QIcon.State.On)
         icon.addPixmap(pix_disabled, QIcon.Mode.Disabled, QIcon.State.Off)
 
         cls._cache[cache_key] = icon
         return icon
 
     @classmethod
-    def _render_vector_pixmap(
+    def _load_svg_text(cls, name: str, filled: bool = False) -> Optional[str]:
+        """Resolves and loads raw SVG XML text from the icons directory."""
+        canonical = cls.ICON_NAME_MAP.get(name, name)
+        subfolder = "filled" if filled else "outline"
+        cache_key = f"{subfolder}/{canonical}"
+        if cache_key in cls._svg_cache:
+            return cls._svg_cache[cache_key]
+
+        icons_dir = cls._get_icons_dir()
+        paths_to_check = [
+            os.path.join(icons_dir, subfolder, f"{canonical}.svg"),
+            os.path.join(icons_dir, "outline", f"{canonical}.svg"),
+            os.path.join(icons_dir, "filled", f"{canonical}.svg"),
+        ]
+
+        for p in paths_to_check:
+            if os.path.isfile(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        text = f.read()
+                    cls._svg_cache[cache_key] = text
+                    return text
+                except Exception as e:
+                    logger.debug(f"Failed to read icon SVG at {p}: {e}")
+
+        return None
+
+    @classmethod
+    def _render_pixmap(
         cls,
         name: str,
         size: int,
         primary_color: QColor,
         secondary_color: QColor,
+        filled: bool = False,
     ) -> QPixmap:
         # Scale 2x for sharp rendering on High DPI displays
         scale = 2
@@ -60,6 +227,25 @@ class IconFactory:
         pixmap = QPixmap(pix_size, pix_size)
         pixmap.fill(Qt.GlobalColor.transparent)
 
+        # 1. Try loading and rendering SVG file from icons/
+        svg_text = cls._load_svg_text(name, filled)
+        if svg_text:
+            hex_col = primary_color.name()
+            # Replace currentColor with desired state color
+            tinted_svg = svg_text.replace("currentColor", hex_col)
+            # Ensure stroke and fill colors match if hardcoded in SVG
+            if filled:
+                tinted_svg = tinted_svg.replace('fill="none"', f'fill="{hex_col}"')
+
+            renderer = QSvgRenderer(QByteArray(tinted_svg.encode("utf-8")))
+            if renderer.isValid():
+                painter = QPainter(pixmap)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                renderer.render(painter, QRectF(0, 0, pix_size, pix_size))
+                painter.end()
+                return pixmap
+
+        # 2. Vector QPainter Fallback if SVG not present
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.scale(scale, scale)

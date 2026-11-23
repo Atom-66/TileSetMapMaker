@@ -16,6 +16,7 @@ class EraserTool(BaseTool):
         super().__init__("Gumka", shortcut="E")
         self.session_changes: Dict[Tuple[int, int], Tuple[Optional[MapItem], Optional[MapItem]]] = {}
         self.removed_objects: List[MapItem] = []
+        self.erased_coords: List[Tuple[int, int]] = []
 
     def on_press(self, col: int, row: int, context: ToolContext) -> None:
         layer = context.active_layer
@@ -24,6 +25,8 @@ class EraserTool(BaseTool):
         self.is_active = True
         self.session_changes.clear()
         self.removed_objects.clear()
+        self.erased_coords.clear()
+        self.erased_coords.clear()
         self._erase_at(col, row, context)
 
     def on_drag(self, col: int, row: int, context: ToolContext) -> None:
@@ -102,39 +105,72 @@ class EraserTool(BaseTool):
         ts = context.project.tile_size
         px = context.cursor_pixel_x
         py = context.cursor_pixel_y
-
-        # 1. Check freeform objects on the active layer (in reverse render order: topmost first)
-        hit_object: Optional[MapItem] = None
-        for obj in reversed(layer.objects):
-            if self.is_point_inside_object(obj, px, py, ts, context.asset_manager):
-                hit_object = obj
-                break
-
-        if hit_object:
-            # Remove ONLY the topmost hit object
-            layer.remove_object(hit_object.id)
-            self.removed_objects.append(hit_object)
-            context.project.is_modified = True
-            return
-
-        # 2. If no object was hit, check the single grid tile strictly at (col, row)
         w = context.project.map_width
         h = context.project.map_height
-        if 0 <= col < w and 0 <= row < h:
-            coord = (col, row)
-            if coord not in self.session_changes:
-                prev = layer.get_tile(col, row)
-                if prev:
-                    layer.remove_tile(col, row)
-                    self.session_changes[coord] = (prev.clone(), None)
-                    context.project.is_modified = True
+        eraser_size = getattr(context.brush_settings, "eraser_size", 1)
+
+        radius = (eraser_size - 1) // 2
+        extra = 1 if (eraser_size % 2 == 0) else 0
+
+        # 1. Check and remove freeform objects within the eraser footprint
+        if eraser_size == 1:
+            hit_object: Optional[MapItem] = None
+            for obj in reversed(layer.objects):
+                if self.is_point_inside_object(obj, px, py, ts, context.asset_manager):
+                    hit_object = obj
+                    break
+
+            if hit_object:
+                layer.remove_object(hit_object.id)
+                self.removed_objects.append(hit_object)
+                context.project.is_modified = True
+                return
+        else:
+            # Multi-tile eraser footprint object removal
+            for dr in range(-radius, radius + extra + 1):
+                for dc in range(-radius, radius + extra + 1):
+                    cur_px = (col + dc + 0.5) * ts
+                    cur_py = (row + dr + 0.5) * ts
+                    for obj in list(reversed(layer.objects)):
+                        if self.is_point_inside_object(obj, cur_px, cur_py, ts, context.asset_manager):
+                            layer.remove_object(obj.id)
+                            self.removed_objects.append(obj)
+                            context.project.is_modified = True
+
+        # 2. Erase grid tiles within the eraser footprint
+        for dr in range(-radius, radius + extra + 1):
+            for dc in range(-radius, radius + extra + 1):
+                tc = col + dc
+                tr = row + dr
+                if 0 <= tc < w and 0 <= tr < h:
+                    coord = (tc, tr)
+                    if coord not in self.session_changes:
+                        prev = layer.get_tile(tc, tr)
+                        if prev:
+                            layer.remove_tile(tc, tr)
+                            self.session_changes[coord] = (prev.clone(), None)
+                            self.erased_coords.append(coord)
+                            context.project.is_modified = True
 
     def on_release(self, col: int, row: int, context: ToolContext) -> None:
         if not self.is_active:
             return
         self.is_active = False
 
-        if self.session_changes and context.active_layer:
+        if context.autotile_engine and context.active_layer and self.erased_coords:
+            ruleset = context.autotile_engine.get_active_ruleset()
+            if ruleset:
+                neighbor_changes = context.autotile_engine.update_neighbors_after_erase(
+                    context.active_layer,
+                    self.erased_coords,
+                    ruleset,
+                    context.project,
+                )
+                for ncoord, (nbefore, nafter) in neighbor_changes.items():
+                    if ncoord not in self.session_changes:
+                        self.session_changes[ncoord] = (nbefore, nafter)
+
+        if self.session_changes and context.active_layer and context.history_manager:
             cmd = TileBatchCommand(
                 context.project,
                 context.active_layer.id,
@@ -143,14 +179,16 @@ class EraserTool(BaseTool):
             )
             context.history_manager.push(cmd)
 
-        for obj in self.removed_objects:
-            cmd = ObjectRemoveCommand(
-                context.project,
-                context.active_layer.id,
-                obj,
-                description="Usunięcie obiektu gumką",
-            )
-            context.history_manager.push(cmd)
+        if context.history_manager:
+            for obj in self.removed_objects:
+                cmd = ObjectRemoveCommand(
+                    context.project,
+                    context.active_layer.id,
+                    obj,
+                    description="Usunięcie obiektu gumką",
+                )
+                context.history_manager.push(cmd)
 
         self.session_changes.clear()
         self.removed_objects.clear()
+        self.erased_coords.clear()

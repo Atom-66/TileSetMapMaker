@@ -1,0 +1,23 @@
+<!--
+tags: [variants, random, randomizer, tiles, shuffle, dice, variety, map]
+category: Map
+version: "1.0"
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <rect x="8" y="8" width="12" height="12" rx="2" />
+  <path d="M4 16v-9a2 2 0 0 1 2 -2h9" />
+  <path d="M11 14h.01" />
+  <path d="M17 14h.01" />
+  <path d="M14 11h.01" />
+  <path d="M14 17h.01" />
+</svg>

@@ -181,6 +181,34 @@ class SelectedSubTile:
     def is_multi_tile(self) -> bool:
         return self.cols_count > 1 or self.rows_count > 1
 
+    def extract_single_tiles(self) -> List["SelectedSubTile"]:
+        """
+        Decomposes a multi-tile block selection into individual 1x1 SelectedSubTiles.
+        Enables seamless creation of variant groups from any rectangular block selection.
+        """
+        tiles: List["SelectedSubTile"] = []
+        for dr in range(self.rows_count):
+            for dc in range(self.cols_count):
+                sx, sy, sw, sh = self.get_tile_slice(dc, dr)
+                sub = SelectedSubTile(
+                    asset_id=self.asset_id,
+                    col=self.col + dc,
+                    row=self.row + dr,
+                    cols_count=1,
+                    rows_count=1,
+                    sub_x=sx,
+                    sub_y=sy,
+                    sub_w=sw,
+                    sub_h=sh,
+                    tile_width=self.tile_width,
+                    tile_height=self.tile_height,
+                    spacing_x=self.spacing_x,
+                    spacing_y=self.spacing_y,
+                    asset_name=self.asset_name,
+                )
+                tiles.append(sub)
+        return tiles
+
     def get_tile_slice(self, dc: int, dr: int) -> Tuple[int, int, int, int]:
         """Returns pixel (x, y, w, h) for sub-cell (dc, dr) relative to selection origin."""
         x = self.sub_x + dc * (self.tile_width + self.spacing_x)

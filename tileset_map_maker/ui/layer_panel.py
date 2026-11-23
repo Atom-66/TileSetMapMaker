@@ -15,11 +15,12 @@ from PyQt6.QtWidgets import (
     QMenu,
     QComboBox,
 )
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QIcon
 
 from ..models.project import Project
 from ..models.layer import Layer
 from ..core.history import HistoryManager, LayerAddCommand, LayerRemoveCommand, LayerMoveCommand
+from .icons import IconFactory
 
 
 class LayerTreeWidget(QTreeWidget):
@@ -155,43 +156,43 @@ class LayerPanel(QWidget):
         """
 
         btn_add = QToolButton()
-        btn_add.setText("➕")
+        btn_add.setIcon(IconFactory.get_icon("plus", 16))
         btn_add.setToolTip("Dodaj nową warstwę")
         btn_add.setStyleSheet(btn_style)
         btn_add.clicked.connect(self._add_layer)
 
         btn_add_grp = QToolButton()
-        btn_add_grp.setText("📁")
+        btn_add_grp.setIcon(IconFactory.get_icon("folder-plus", 16))
         btn_add_grp.setToolTip("Dodaj nową grupę warstw")
         btn_add_grp.setStyleSheet(btn_style)
         btn_add_grp.clicked.connect(self._add_group)
 
         btn_dup = QToolButton()
-        btn_dup.setText("📋")
+        btn_dup.setIcon(IconFactory.get_icon("copy", 16))
         btn_dup.setToolTip("Duplikuj aktywną warstwę")
         btn_dup.setStyleSheet(btn_style)
         btn_dup.clicked.connect(self._duplicate_layer)
 
         btn_del = QToolButton()
-        btn_del.setText("🗑️")
+        btn_del.setIcon(IconFactory.get_icon("trash", 16))
         btn_del.setToolTip("Usuń wybraną warstwę lub grupę")
         btn_del.setStyleSheet(btn_style)
         btn_del.clicked.connect(self._delete_layer)
 
         btn_clear = QToolButton()
-        btn_clear.setText("🧹")
+        btn_clear.setIcon(IconFactory.get_icon("eraser", 16))
         btn_clear.setToolTip("Wyczyść zawartość aktywnej warstwy")
         btn_clear.setStyleSheet(btn_style)
         btn_clear.clicked.connect(self._clear_layer)
 
         btn_up = QToolButton()
-        btn_up.setText("⬆️")
+        btn_up.setIcon(IconFactory.get_icon("arrow-up", 16))
         btn_up.setToolTip("Przesuń w górę")
         btn_up.setStyleSheet(btn_style)
         btn_up.clicked.connect(self._move_up)
 
         btn_down = QToolButton()
-        btn_down.setText("⬇️")
+        btn_down.setIcon(IconFactory.get_icon("arrow-down", 16))
         btn_down.setToolTip("Przesuń w dół")
         btn_down.setStyleSheet(btn_style)
         btn_down.clicked.connect(self._move_down)
@@ -223,25 +224,29 @@ class LayerPanel(QWidget):
             item = QTreeWidgetItem(parent_item or self.tree_widget)
             item.setData(0, Qt.ItemDataRole.UserRole, layer.id)
 
-            prefix = "📁 " if layer.is_group else "📄 "
+            item.setIcon(0, IconFactory.get_icon("folder" if layer.is_group else "file", 16))
             count = len(layer.tiles) + len(layer.objects)
             count_str = f" ({count})" if not layer.is_group else ""
-            item.setText(0, f"{prefix}{layer.name}{count_str}")
+            item.setText(0, f"{layer.name}{count_str}")
 
-            # Visibility button / text
-            vis_icon = "👁️" if layer.visible else "🚫"
-            item.setText(1, vis_icon)
+            # Visibility button / icon
+            item.setIcon(1, IconFactory.get_icon("eye" if layer.visible else "eye-off", 16))
+            item.setText(1, "")
             item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
 
-            # Lock button / text
-            lock_icon = "🔒" if layer.locked else "🔓"
-            item.setText(2, lock_icon)
+            # Lock button / icon
+            item.setIcon(2, IconFactory.get_icon("lock" if layer.locked else "lock-open", 16))
+            item.setText(2, "")
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
 
             # Auto-tiling indicator
             if not layer.is_group:
-                at_icon = "⚡" if layer.auto_tiling_enabled else "—"
-                item.setText(3, at_icon)
+                if layer.auto_tiling_enabled:
+                    item.setIcon(3, IconFactory.get_icon("bolt", 16))
+                    item.setText(3, "")
+                else:
+                    item.setIcon(3, QIcon())
+                    item.setText(3, "—")
                 item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
 
             # Highlight active layer
@@ -458,18 +463,18 @@ class LayerPanel(QWidget):
             return
 
         menu = QMenu(self)
-        menu.addAction("✏️ Zmień nazwę", lambda: self._on_item_double_clicked(item, 0))
+        act_rename = menu.addAction(IconFactory.get_icon("pencil", 16), "Zmień nazwę", lambda: self._on_item_double_clicked(item, 0))
 
         if not layer.is_group:
             groups = [l for l in self.project.layers if l.is_group and l.id != layer.id]
             if groups:
-                grp_menu = menu.addMenu("📁 Przenieś do grupy...")
+                grp_menu = menu.addMenu(IconFactory.get_icon("folder", 16), "Przenieś do grupy...")
                 grp_menu.addAction("Brak grupy (główny poziom)", lambda: self._set_parent_group(layer, None))
                 for g in groups:
                     grp_menu.addAction(f"Grupa: {g.name}", lambda g_id=g.id: self._set_parent_group(layer, g_id))
 
         menu.addSeparator()
-        menu.addAction("🗑️ Usuń", self._delete_layer)
+        menu.addAction(IconFactory.get_icon("trash", 16), "Usuń", self._delete_layer)
         menu.exec(self.tree_widget.mapToGlobal(pos))
 
     def _set_parent_group(self, layer: Layer, parent_id: Optional[str]) -> None:

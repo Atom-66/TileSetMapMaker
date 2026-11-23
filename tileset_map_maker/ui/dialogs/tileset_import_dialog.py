@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
 )
 from PyQt6.QtGui import QImage, QColor
+from ..icons import IconFactory
 
 
 class TilesetImportDialog(QDialog):
@@ -208,11 +209,13 @@ class TilesetImportDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        btn_cancel = QPushButton("Anuluj")
+        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
-        btn_import = QPushButton("Zaimportuj tileset")
+        btn_import = QPushButton(" Zaimportuj tileset")
+        btn_import.setIcon(IconFactory.get_icon("file-plus", 16))
         btn_import.setObjectName("btn_primary")
         btn_import.clicked.connect(self.accept)
         btn_layout.addWidget(btn_import)

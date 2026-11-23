@@ -1,0 +1,24 @@
+<!--
+tags: [path, road, path-generator, curve, connection, tiles, route, map]
+category: Map
+version: "1.0"
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 19h7a4 4 0 0 0 4 -4v-11" />
+  <path d="M3 13h3a2 2 0 0 0 2 -2v-7" />
+  <path d="M3 8h2" />
+  <path d="M15 19v-2" />
+  <path d="M19 19v-2" />
+  <path d="M10 13l2 -2" />
+  <path d="M17 7l2 -2" />
+</svg>

@@ -74,6 +74,7 @@ class TestAuditRemediation(unittest.TestCase):
         8. Użyj ich do malowania mapy.
         """
         win = MainWindow()
+        win.canvas.tool_context.brush_settings.size = 1
         # 1 & 2: Empty on start
         self.assertEqual(len(win.asset_manager.assets), 0)
         self.assertEqual(win.tileset_palette.tab_bar.count(), 0)

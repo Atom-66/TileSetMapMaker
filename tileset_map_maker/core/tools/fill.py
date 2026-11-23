@@ -58,9 +58,24 @@ class FillTool(BaseTool):
             prev_tile = layer.get_tile(cx, cy)
             prev_clone = prev_tile.clone() if prev_tile else None
 
-            new_tile = replacement_template.clone()
-            new_tile.col = cx
-            new_tile.row = cy
+            if context.brush_settings.random_variant:
+                adj = None
+                if context.brush_settings.avoid_adjacent:
+                    adj = [
+                        layer.get_tile(cx - 1, cy),
+                        layer.get_tile(cx + 1, cy),
+                        layer.get_tile(cx, cy - 1),
+                        layer.get_tile(cx, cy + 1),
+                    ]
+                v = context.brush_settings.pick_variant(context.selected_asset, avoid_adjacent_items=adj)
+                items = self.create_items_from_selection(cx, cy, context, override_asset=v)
+                new_tile = items[0] if items else replacement_template.clone()
+                new_tile.col = cx
+                new_tile.row = cy
+            else:
+                new_tile = replacement_template.clone()
+                new_tile.col = cx
+                new_tile.row = cy
             layer.set_tile(cx, cy, new_tile)
             changes[(cx, cy)] = (prev_clone, new_tile.clone())
 

@@ -19,6 +19,7 @@ class ToolContext:
         autotile_engine: Optional[Any] = None,
         stamp_manager: Optional[Any] = None,
         set_manager: Optional[Any] = None,
+        brush_settings: Optional[BrushSettings] = None,
     ):
         self.project = project
         self.asset_manager = asset_manager
@@ -34,7 +35,7 @@ class ToolContext:
         self.cursor_pixel_x: float = 0.0
         self.cursor_pixel_y: float = 0.0
 
-        self.brush_settings = BrushSettings()
+        self.brush_settings = brush_settings if brush_settings is not None else BrushSettings()
         self.clipboard_tiles: Dict[Tuple[int, int], MapItem] = {}
         self.selected_object_ids: List[str] = []
         self.selected_cells: Set[Tuple[int, int]] = set()
@@ -76,13 +77,39 @@ class BaseTool(ABC):
         If a multi-tile block is selected (Tiled-style), returns all tiles
         in the block relative to (col, row).
         """
+        bs = context.brush_settings
         sel = override_asset if override_asset is not None else context.selected_asset
         if not sel and context.asset_manager:
             sel = context.asset_manager.selected_item
         if not sel:
+            if bs.random_variant and bs.variants:
+                sel = bs.pick_variant(None)
+
+        if not sel:
+            if bs.auto_tile_enabled and context.autotile_engine:
+                ruleset = context.autotile_engine.get_active_ruleset()
+                if ruleset:
+                    init_tile = ruleset.default_tile or ruleset.get_tile_for_mask(0)
+                    aid = ruleset.asset_id or (init_tile[0] if init_tile else "")
+                    ts = getattr(context.project, "tile_size", 32)
+                    sx, sy, sw, sh = (init_tile[1], init_tile[2], init_tile[3], init_tile[4]) if init_tile else (0, 0, ts, ts)
+                    item = MapItem(
+                        asset_id=aid,
+                        col=col,
+                        row=row,
+                        item_type=ItemType.TILE,
+                        terrain_type=ruleset.terrain_type,
+                        is_auto_tiled=True,
+                        source_x=sx,
+                        source_y=sy,
+                        source_w=sw,
+                        source_h=sh,
+                        dest_w=sw or ts,
+                        dest_h=sh or ts,
+                    )
+                    return [item]
             return []
 
-        bs = context.brush_settings
         rot, fx, fy, jx, jy = bs.get_random_transform()
 
         if isinstance(sel, SelectedSubTile):

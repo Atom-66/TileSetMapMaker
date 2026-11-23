@@ -7,7 +7,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QLineEdit,
     QPushButton,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QMessageBox,
@@ -20,6 +19,8 @@ from PyQt6.QtGui import QColor
 from ...models.project import Project
 from ...core.render_engine import RenderEngine
 from ...core.project_io import ProjectIO
+from ..widgets.switch_toggle import SwitchToggle
+from ..icons import IconFactory
 
 
 class ExportDialog(QDialog):
@@ -53,7 +54,8 @@ class ExportDialog(QDialog):
         self.txt_path.setText(default_file)
         path_layout.addWidget(self.txt_path)
 
-        btn_browse = QPushButton("Przeglądaj...")
+        btn_browse = QPushButton(" Przeglądaj...")
+        btn_browse.setIcon(IconFactory.get_icon("folder-open", 14))
         btn_browse.clicked.connect(self._browse_path)
         path_layout.addWidget(btn_browse)
         form.addRow("Ścieżka pliku:", path_layout)
@@ -79,13 +81,13 @@ class ExportDialog(QDialog):
         form.addRow("Eksportowane warstwy:", self.combo_layers)
 
         # Transparency option
-        self.chk_transparent = QCheckBox("Przezroczyste tło (Alpha)")
-        self.chk_transparent.setChecked(True)
+        self.chk_transparent = SwitchToggle("Przezroczyste tło (Alpha)", checked=True)
         self.chk_transparent.toggled.connect(self._on_transparent_toggled)
         form.addRow("", self.chk_transparent)
 
         # Custom Background Color
-        self.btn_bg_col = QPushButton("Wybierz kolor tła")
+        self.btn_bg_col = QPushButton(" Wybierz kolor tła")
+        self.btn_bg_col.setIcon(IconFactory.get_icon("palette", 14))
         self.btn_bg_col.setEnabled(False)
         self.btn_bg_col.clicked.connect(self._choose_bg_color)
         form.addRow("Własny kolor tła:", self.btn_bg_col)
@@ -106,10 +108,12 @@ class ExportDialog(QDialog):
 
         # Action buttons
         btn_layout = QHBoxLayout()
-        btn_cancel = QPushButton("Anuluj")
+        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
 
-        btn_export = QPushButton("Eksportuj PNG")
+        btn_export = QPushButton(" Eksportuj PNG")
+        btn_export.setIcon(IconFactory.get_icon("export", 16))
         btn_export.setProperty("class", "primary")
         btn_export.clicked.connect(self._do_export)
 

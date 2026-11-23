@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QWidget,
     QGroupBox,
     QFormLayout,
-    QCheckBox,
     QSlider,
 )
 from PyQt6.QtGui import (
@@ -26,6 +25,8 @@ from PyQt6.QtGui import (
 
 from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
 from ..core.asset_manager import AssetManager
+from .widgets.switch_toggle import SwitchToggle
+from .icons import IconFactory
 
 
 class SlicerPreviewCanvas(QWidget):
@@ -349,7 +350,8 @@ class TilesetSlicerDialog(QDialog):
         ctrl_layout.addWidget(info_group)
 
         # Reset defaults button
-        btn_reset = QPushButton("↺ Przywróć domyślne (32x32, brak marginesów)")
+        btn_reset = QPushButton(" Przywróć domyślne (32x32, brak marginesów)")
+        btn_reset.setIcon(IconFactory.get_icon("refresh", 14))
         btn_reset.clicked.connect(self._reset_defaults)
         ctrl_layout.addWidget(btn_reset)
 
@@ -357,10 +359,12 @@ class TilesetSlicerDialog(QDialog):
 
         # Action Buttons
         btn_layout = QHBoxLayout()
-        btn_cancel = QPushButton("Anuluj")
+        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
 
-        btn_ok = QPushButton("Zastosuj i wybierz")
+        btn_ok = QPushButton(" Zastosuj i wybierz")
+        btn_ok.setIcon(IconFactory.get_icon("check", 16))
         btn_ok.setProperty("class", "primary")
         btn_ok.clicked.connect(self._on_apply)
 
@@ -377,12 +381,12 @@ class TilesetSlicerDialog(QDialog):
 
         # Top Canvas toolbar
         canv_tools = QHBoxLayout()
-        self.chk_grid = QCheckBox("Pokaż siatkę")
-        self.chk_grid.setChecked(True)
+        self.chk_grid = SwitchToggle("Pokaż siatkę", checked=True)
         self.chk_grid.toggled.connect(self._toggle_grid)
         canv_tools.addWidget(self.chk_grid)
 
-        btn_fit = QPushButton("🎯 Dopasuj do okna")
+        btn_fit = QPushButton(" Dopasuj do okna")
+        btn_fit.setIcon(IconFactory.get_icon("fit", 16))
         btn_fit.clicked.connect(self._fit_canvas)
         canv_tools.addWidget(btn_fit)
 

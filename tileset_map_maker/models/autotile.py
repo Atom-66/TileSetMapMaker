@@ -11,20 +11,33 @@ MASK_SW = 32
 MASK_W = 64
 MASK_NW = 128
 
-# Cardinal masks
-CARDINAL_MASK = MASK_N | MASK_E | MASK_S | MASK_W
+# Cardinal mask (N, E, S, W)
+CARDINAL_MASK = MASK_N | MASK_E | MASK_S | MASK_W  # 85
 
-# Common bitmask presets
+# Cardinal values for 3x3 box positions
+CARD_CORNER_TL = MASK_E | MASK_S  # 20
+CARD_EDGE_TOP = MASK_E | MASK_S | MASK_W  # 84
+CARD_CORNER_TR = MASK_W | MASK_S  # 80
+
+CARD_EDGE_LEFT = MASK_N | MASK_S | MASK_E  # 21
+CARD_CENTER = MASK_N | MASK_S | MASK_E | MASK_W  # 85
+CARD_EDGE_RIGHT = MASK_N | MASK_S | MASK_W  # 81
+
+CARD_CORNER_BL = MASK_N | MASK_E  # 5
+CARD_EDGE_BOTTOM = MASK_N | MASK_E | MASK_W  # 69
+CARD_CORNER_BR = MASK_N | MASK_W  # 65
+
+# Full 8-neighbor values with diagonals
 MASK_ISOLATED = 0
 MASK_CENTER = 255  # All 8 neighbors present
-MASK_EDGE_TOP = MASK_E | MASK_SE | MASK_S | MASK_SW | MASK_W  # No North
-MASK_EDGE_BOTTOM = MASK_W | MASK_NW | MASK_N | MASK_NE | MASK_E  # No South
-MASK_EDGE_LEFT = MASK_N | MASK_NE | MASK_E | MASK_SE | MASK_S  # No West
-MASK_EDGE_RIGHT = MASK_S | MASK_SW | MASK_W | MASK_NW | MASK_N  # No East
-MASK_CORNER_TL = MASK_E | MASK_SE | MASK_S  # Top-left outer corner
-MASK_CORNER_TR = MASK_W | MASK_SW | MASK_S  # Top-right outer corner
-MASK_CORNER_BL = MASK_N | MASK_NE | MASK_E  # Bottom-left outer corner
-MASK_CORNER_BR = MASK_W | MASK_NW | MASK_N  # Bottom-right outer corner
+MASK_EDGE_TOP = CARD_EDGE_TOP | MASK_SE | MASK_SW  # 124
+MASK_EDGE_BOTTOM = CARD_EDGE_BOTTOM | MASK_NE | MASK_NW  # 199
+MASK_EDGE_LEFT = CARD_EDGE_LEFT | MASK_NE | MASK_SE  # 31
+MASK_EDGE_RIGHT = CARD_EDGE_RIGHT | MASK_NW | MASK_SW  # 241
+MASK_CORNER_TL = CARD_CORNER_TL | MASK_SE  # 28
+MASK_CORNER_TR = CARD_CORNER_TR | MASK_SW  # 112
+MASK_CORNER_BL = CARD_CORNER_BL | MASK_NE  # 7
+MASK_CORNER_BR = CARD_CORNER_BR | MASK_NW  # 193
 
 
 class AutoTileRuleSet:
@@ -46,22 +59,82 @@ class AutoTileRuleSet:
         self.tile_mappings: Dict[int, Tuple[str, int, int, int, int]] = {}
         self.default_tile = default_tile
 
+    @property
+    def asset_id(self) -> str:
+        if self.default_tile:
+            return self.default_tile[0]
+        for tile in self.tile_mappings.values():
+            return tile[0]
+        return ""
+
     def set_mapping(self, mask: int, tile: Tuple[str, int, int, int, int]) -> None:
         self.tile_mappings[mask] = tile
 
     def get_tile_for_mask(self, mask: int) -> Optional[Tuple[str, int, int, int, int]]:
+        """
+        Resolves the appropriate tile slice for a given 8-neighbor bitmask.
+        Resolution pipeline:
+        1. Exact 8-neighbor bitmask match
+        2. Direct cardinal (4-neighbor N, S, W, E) match
+        3. Smart geometric reduction (corners, edges, linear strips)
+        4. Fallback to default / center tile
+        """
         # 1. Exact match
         if mask in self.tile_mappings:
             return self.tile_mappings[mask]
 
-        # 2. Match cardinal subset if diagonals are missing
+        # 2. Match cardinal subset (N, E, S, W)
         cardinal = mask & CARDINAL_MASK
         if cardinal in self.tile_mappings:
             return self.tile_mappings[cardinal]
 
-        # 3. Fallback to default tile or center
+        # 3. Geometric reduction based on which cardinal sides are present
+        has_n = bool(mask & MASK_N)
+        has_s = bool(mask & MASK_S)
+        has_e = bool(mask & MASK_E)
+        has_w = bool(mask & MASK_W)
+
+        # Corners
+        if has_s and has_e and not has_n and not has_w:
+            for k in (CARD_CORNER_TL, MASK_CORNER_TL):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+        if has_s and has_w and not has_n and not has_e:
+            for k in (CARD_CORNER_TR, MASK_CORNER_TR):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+        if has_n and has_e and not has_s and not has_w:
+            for k in (CARD_CORNER_BL, MASK_CORNER_BL):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+        if has_n and has_w and not has_s and not has_e:
+            for k in (CARD_CORNER_BR, MASK_CORNER_BR):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+
+        # Edges
+        if not has_n and has_s:
+            for k in (CARD_EDGE_TOP, MASK_EDGE_TOP):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+        if not has_s and has_n:
+            for k in (CARD_EDGE_BOTTOM, MASK_EDGE_BOTTOM):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+        if not has_w and has_e:
+            for k in (CARD_EDGE_LEFT, MASK_EDGE_LEFT):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+        if not has_e and has_w:
+            for k in (CARD_EDGE_RIGHT, MASK_EDGE_RIGHT):
+                if k in self.tile_mappings:
+                    return self.tile_mappings[k]
+
+        # 4. Fallback to default tile or center
         if self.default_tile:
             return self.default_tile
+        if CARD_CENTER in self.tile_mappings:
+            return self.tile_mappings[CARD_CENTER]
         if MASK_CENTER in self.tile_mappings:
             return self.tile_mappings[MASK_CENTER]
         if self.tile_mappings:
@@ -75,29 +148,63 @@ class AutoTileRuleSet:
         start_y: int,
         tile_w: int,
         tile_h: int,
+        spacing_x: int = 0,
+        spacing_y: int = 0,
     ) -> None:
         """
-        Quickly sets up standard 3x3 tileset layout:
+        Configures standard 3x3 tileset layout:
         (0,0)=TL, (1,0)=Top,    (2,0)=TR
         (0,1)=L,  (1,1)=Center, (2,1)=R
         (0,2)=BL, (1,2)=Bottom, (2,2)=BR
+        Registers both 8-neighbor and 4-neighbor cardinal masks plus linear fallbacks.
         """
-        def _t(cx, cy):
-            return (asset_id, start_x + cx * tile_w, start_y + cy * tile_h, tile_w, tile_h)
+        def _t(cx: int, cy: int) -> Tuple[str, int, int, int, int]:
+            sx = start_x + cx * (tile_w + spacing_x)
+            sy = start_y + cy * (tile_h + spacing_y)
+            return (asset_id, sx, sy, tile_w, tile_h)
 
-        self.set_mapping(MASK_CORNER_TL, _t(0, 0))
-        self.set_mapping(MASK_EDGE_TOP, _t(1, 0))
-        self.set_mapping(MASK_CORNER_TR, _t(2, 0))
+        tl = _t(0, 0)
+        top = _t(1, 0)
+        tr = _t(2, 0)
+        left = _t(0, 1)
+        center = _t(1, 1)
+        right = _t(2, 1)
+        bl = _t(0, 2)
+        bottom = _t(1, 2)
+        br = _t(2, 2)
 
-        self.set_mapping(MASK_EDGE_LEFT, _t(0, 1))
-        self.set_mapping(MASK_CENTER, _t(1, 1))
-        self.set_mapping(MASK_EDGE_RIGHT, _t(2, 1))
+        # 1. 8-neighbor masks (solid area with diagonals)
+        self.set_mapping(MASK_CORNER_TL, tl)
+        self.set_mapping(MASK_EDGE_TOP, top)
+        self.set_mapping(MASK_CORNER_TR, tr)
+        self.set_mapping(MASK_EDGE_LEFT, left)
+        self.set_mapping(MASK_CENTER, center)
+        self.set_mapping(MASK_EDGE_RIGHT, right)
+        self.set_mapping(MASK_CORNER_BL, bl)
+        self.set_mapping(MASK_EDGE_BOTTOM, bottom)
+        self.set_mapping(MASK_CORNER_BR, br)
 
-        self.set_mapping(MASK_CORNER_BL, _t(0, 2))
-        self.set_mapping(MASK_EDGE_BOTTOM, _t(1, 2))
-        self.set_mapping(MASK_CORNER_BR, _t(2, 2))
+        # 2. Cardinal masks (Crucial for any shape with open or missing diagonals!)
+        self.set_mapping(CARD_CORNER_TL, tl)
+        self.set_mapping(CARD_EDGE_TOP, top)
+        self.set_mapping(CARD_CORNER_TR, tr)
+        self.set_mapping(CARD_EDGE_LEFT, left)
+        self.set_mapping(CARD_CENTER, center)
+        self.set_mapping(CARD_EDGE_RIGHT, right)
+        self.set_mapping(CARD_CORNER_BL, bl)
+        self.set_mapping(CARD_EDGE_BOTTOM, bottom)
+        self.set_mapping(CARD_CORNER_BR, br)
 
-        self.default_tile = _t(1, 1)
+        # 3. Fallbacks for thin lines and endpoints
+        self.set_mapping(MASK_E | MASK_W, top)          # Horizontal strip
+        self.set_mapping(MASK_N | MASK_S, left)         # Vertical strip
+        self.set_mapping(MASK_S, top)                   # Single top endpoint
+        self.set_mapping(MASK_N, bottom)                # Single bottom endpoint
+        self.set_mapping(MASK_E, left)                  # Single left endpoint
+        self.set_mapping(MASK_W, right)                 # Single right endpoint
+        self.set_mapping(0, center)                     # Isolated single tile
+
+        self.default_tile = center
 
     def to_dict(self) -> Dict[str, Any]:
         return {

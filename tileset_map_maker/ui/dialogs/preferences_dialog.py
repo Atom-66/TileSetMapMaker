@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QComboBox,
     QSlider,
-    QCheckBox,
     QSpinBox,
     QPushButton,
     QTableWidget,
@@ -22,6 +21,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor
 
 from ...core.config_manager import ConfigManager
+from ..widgets.switch_toggle import SwitchToggle
+from ..icons import IconFactory
 
 
 class PreferencesDialog(QDialog):
@@ -67,19 +68,16 @@ class PreferencesDialog(QDialog):
         op_box.addWidget(self.lbl_grid_op)
         c_layout.addRow("Przezroczystość siatki:", op_box)
 
-        self.chk_show_grid = QCheckBox("Włącz siatkę kafelków na starcie")
-        self.chk_show_grid.setChecked(True)
+        self.chk_show_grid = SwitchToggle("Włącz siatkę kafelków na starcie", checked=True)
         c_layout.addRow(self.chk_show_grid)
 
-        self.chk_show_hud = QCheckBox("Pokaż pływający wskaźnik HUD współrzędnych")
-        self.chk_show_hud.setChecked(True)
+        self.chk_show_hud = SwitchToggle("Pokaż pływający wskaźnik HUD współrzędnych", checked=True)
         c_layout.addRow(self.chk_show_hud)
 
-        self.chk_checkerboard = QCheckBox("Renderuj szachownicę przezroczystości tła")
-        self.chk_checkerboard.setChecked(True)
+        self.chk_checkerboard = SwitchToggle("Renderuj szachownicę przezroczystości tła", checked=True)
         c_layout.addRow(self.chk_checkerboard)
 
-        self.tab_widget.addTab(self.tab_canvas, "📐 Siatka i Płótno")
+        self.tab_widget.addTab(self.tab_canvas, IconFactory.get_icon("grid", 16), "Siatka i Płótno")
 
         # Tab 2: Wygląd
         self.tab_appearance = QWidget()
@@ -99,7 +97,7 @@ class PreferencesDialog(QDialog):
         self.combo_font_size.addItems(["Mały (10 pt)", "Standardowy (12 pt)", "Duży (14 pt)"])
         a_layout.addRow("Wielkość czcionki UI:", self.combo_font_size)
 
-        self.tab_widget.addTab(self.tab_appearance, "🎨 Wygląd")
+        self.tab_widget.addTab(self.tab_appearance, IconFactory.get_icon("palette", 16), "Wygląd")
 
         # Tab 3: Narzędzia
         self.tab_tools = QWidget()
@@ -116,8 +114,7 @@ class PreferencesDialog(QDialog):
         self.combo_rot_step.addItems(["90°", "45°", "15°"])
         t_layout.addRow("Krok obrotu obiektów (klawisz R):", self.combo_rot_step)
 
-        self.chk_snap_default = QCheckBox("Domyślnie przyciągaj obiekty do siatki (Snap)")
-        self.chk_snap_default.setChecked(False)
+        self.chk_snap_default = SwitchToggle("Domyślnie przyciągaj obiekty do siatki (Snap)", checked=False)
         t_layout.addRow(self.chk_snap_default)
 
         self.combo_autosave = QComboBox()
@@ -125,7 +122,7 @@ class PreferencesDialog(QDialog):
         self.combo_autosave.setCurrentIndex(1)
         t_layout.addRow("Częstotliwość autozapisu:", self.combo_autosave)
 
-        self.tab_widget.addTab(self.tab_tools, "🛠️ Narzędzia")
+        self.tab_widget.addTab(self.tab_tools, IconFactory.get_icon("brush", 16), "Narzędzia")
 
         # Tab 4: Domyślne parametry importu tilesetów
         self.tab_import = QWidget()
@@ -172,10 +169,10 @@ class PreferencesDialog(QDialog):
         self.spin_imp_spacing_y.setValue(0)
         i_layout.addRow("Odstęp między kafelkami (Spacing Y, px):", self.spin_imp_spacing_y)
 
-        self.chk_imp_skip_single = QCheckBox("Pomiń okno dialogowe przy imporcie pojedynczego pliku (stosuj domyślne)")
+        self.chk_imp_skip_single = SwitchToggle("Pomiń okno dialogowe przy imporcie pojedynczego pliku (stosuj domyślne)", checked=False)
         i_layout.addRow(self.chk_imp_skip_single)
 
-        self.tab_widget.addTab(self.tab_import, "📥 Import Tilesetów")
+        self.tab_widget.addTab(self.tab_import, IconFactory.get_icon("download", 16), "📥 Import Tilesetów")
 
         # Tab 5: Skróty klawiszowe
         self.tab_shortcuts = QWidget()
@@ -196,7 +193,7 @@ class PreferencesDialog(QDialog):
         s_layout.addWidget(self.table_shortcuts)
 
         self._populate_shortcuts_table()
-        self.tab_widget.addTab(self.tab_shortcuts, "⌨️ Skróty klawiszowe")
+        self.tab_widget.addTab(self.tab_shortcuts, IconFactory.get_icon("shortcuts", 16), "Skróty klawiszowe")
 
         main_layout.addWidget(self.tab_widget)
 
@@ -204,7 +201,8 @@ class PreferencesDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        btn_save = QPushButton("💾 Zapisz i Zastosuj")
+        btn_save = QPushButton(" Zapisz i Zastosuj")
+        btn_save.setIcon(IconFactory.get_icon("save", 16))
         btn_save.setStyleSheet("""
             QPushButton {
                 background-color: #2563eb;
@@ -220,7 +218,8 @@ class PreferencesDialog(QDialog):
         btn_save.clicked.connect(self._save_and_accept)
         btn_layout.addWidget(btn_save)
 
-        btn_cancel = QPushButton("Anuluj")
+        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 

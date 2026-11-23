@@ -127,13 +127,28 @@ Faza poświęcona usunięciu fikcyjnych elementów ("wydmuszek"), naprawie podst
 
 ## FAZA 2 – Interfejs i ergonomia pracy (Aseprite & Tiled Ergonomics)
 
-- **[x] `TASK-201`: Responsywny układ paneli dokowalnych i rozszerzanie przestrzeni roboczej**
-  - *Opis*: Płótno mapy automatycznie przejmuje całą zwolnioną przestrzeń przy zwijaniu doków.
-  - *Status*: `[x]` Ukończone.
+- **[x] `TASK-201`: Zaawansowany profesjonalny system dokowania i swobodnego układania paneli (Wzór Photoshopa / Aseprite)**
+  - *Opis*: Pełny profesjonalny system zarządzania panelami dokowalnymi:
+    - Prawdziwe chwytanie i przeciąganie za pasek tytułowy panelu (zagnieżdżanie `AllowNestedDocks`, dokowanie lewo/prawo/góra/dół, układanie obok siebie oraz nad/pod innymi panelami).
+    - Grupowanie paneli w zakładki (`tabifyDockWidget`, `AllowTabbedDocks`), wyciąganie zakładek do osobnych paneli, przeciąganie całych grup zakładek (`GroupedDragging`), karty zakładek umieszczone u góry (`QTabWidget.TabPosition.North`).
+    - Niezależne okna pływające (`setFloating`) z własnymi paskami tytułowymi i przyciskami dokowania/zamykania, swobodne przemieszczanie, zmiana rozmiaru oraz ponowne wpinanie do głównego okna.
+    - Wizualny podgląd miejsca dokowania – akcentowany, półprzezroczysty drop-target (`QRubberBand`) w kolorze niebieskim (`#3b82f6`).
+    - Płynne dostosowywanie proporcji za pomocą separatorów (`QMainWindow::separator`) i responsywne skalowanie widoku mapy (`MapCanvas`).
+    - Pełne zachowanie stanu wewnętrznego (zoom, pan, zaznaczenia) przy wszelkich operacjach przeciągania, dokowania i odpinania paneli – brak przeładowywania widgetów.
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 16 scenariuszami w `test_docking_and_layouts.py`).
 
-- **[x] `TASK-202`: Trwałość konfiguracji okna i przywracanie domyślnego układu**
-  - *Opis*: Zapamiętywanie geometrii, pozycji paneli i stanów widoczności w `QSettings`, przycisk `Reset` w pasku narzędzi.
-  - *Status*: `[x]` Ukończone.
+- **[x] `TASK-202`: Menedżer układów interfejsu (Layout Manager), wersjonowanie i presety**
+  - *Opis*: Kompleksowe zarządzanie układami w menu „Widok -> Układ interfejsu”:
+    - Przywracanie domyślnego układu roboczego (`Ctrl+Shift+D`).
+    - Wbudowane presety profilowe:
+      - *Domyślny* (zrównoważony układ narzędzi, tilesetów i warstw).
+      - *Edycja mapy* (maksymalne płótno robocze, widoczne tylko narzędzia i warstwy).
+      - *Studio tilesetów* (rozszerzona paleta i biblioteka tilesetów).
+      - *Minimalistyczny* (maksymalny obszar roboczy, ukryte panele pomocnicze).
+      - *Rozszerzony* (wszystkie panele otwarte i rozmieszczone w optymalnych sekcjach).
+    - Zarządzanie własnymi profilami: Zapisz bieżący układ jako..., Wczytaj zapisany układ, Zmień nazwę zapisanego układu, Usuń zapisany układ.
+    - Wersjonowanie stanu (`LAYOUT_VERSION = 2`) w `QSettings` i `ConfigManager`, automatyczne zapamiętywanie przy zamykaniu i wczytywanie przy starcie z bezpiecznym fallbackiem przy wykryciu uszkodzenia.
+  - *Status*: `[x]` Ukończone i przetestowane w 100%.
 
 - **[x] `TASK-203`: Konfigurowalny HUD współrzędnych i siatki na płótnie (Floating Overlay)**
   - *Opis*: Lekki, półprzezroczysty miniaturowy wskaźnik na płótnie (w rogu) pokazujący `Tile: (X, Y)`, `Pixel: (PX, PY)`, `Zoom: Z%` w stylu Aseprite.
@@ -146,6 +161,64 @@ Faza poświęcona usunięciu fikcyjnych elementów ("wydmuszek"), naprawie podst
   - *Zależności*: `TASK-601`.
   - *Pliki*: `tileset_map_maker/ui/quick_action_menu.py`.
   - *Status*: `[x]` Ukończone i przetestowane.
+
+- **[x] `TASK-205`: Rozdzielenie panelu tilesetów na zsynchronizowane doki (Podgląd tilesetu + Biblioteka tilesetów)**
+  - *Opis*: Użytkownik ma pełną swobodę rozdzielenia sekcji podglądu tilesetu (`tileset_preview_dock`) oraz drzewa biblioteki tilesetów (`tileset_library_dock`). Doki mogą być ułożone pionowo, poziomo, jako zakładki lub w osobnych oknach pływających przy zachowaniu pełnej synchronizacji wyboru.
+  - *Status*: `[x]` Ukończone i przetestowane.
+
+- **[x] `TASK-206`: Dedykowany dokowalny panel obiektów na mapie (`ObjectListPanel`)**
+  - *Opis*: Panel wyświetlający listę swobodnych obiektów na aktywnej warstwie z podglądem pozycji i wymiarów, centrowaniem widoku na wybranym obiekcie, usuwaniem z obsługą Undo oraz domyślnym zagnieżdżeniem w grupie zakładek obok warstw („Warstwy | Obiekty”).
+  - *Status*: `[x]` Ukończone i przetestowane.
+
+- **[x] `TASK-207`: Ujednolicenie kontrolek – nowoczesne przełączniki ON/OFF (`SwitchToggle`) zamiast checkboxów funkcyjnych**
+  - *Opis*: Stworzenie i wdrożenie dedykowanego, animowanego komponentu przełącznika `SwitchToggle` (styl iOS / Material Dark Theme) dla wszystkich opcji aktywujących i dezaktywujących tryby pracy edytora:
+    - Auto-Tiling w pasku opcji pędzla (`chk_autotile`);
+    - Losowanie wariantów kafelków (`chk_variants`);
+    - Zapobieganie powtórzeniom kafelków obok (`chk_avoid`);
+    - Losowa rotacja (`chk_rot`) i losowe odbicie lustrzane (`chk_flip`);
+    - Ustawienia w oknie `TileRandomizerDialog` (włączanie losowania, brak powtórzeń obok, stałe ziarno Seed);
+    - Ustawienia w `PreferencesDialog` (siatka na starcie, wskaźnik HUD, szachownica przezroczystości, Snap do siatki, pomijanie okna importu pojedynczego pliku);
+    - Opcje przezroczystości w oknach `MapSettingsDialog` i `ExportDialog`;
+    - Podgląd siatki w `TilesetSlicerDialog`;
+    - Automatyczne stosowanie parametrów w oknie konfiguracji biblioteki `TilesetPaletteWidget`.
+    Checkboxy zachowano ściśle do operacji selekcyjnych na listach/tabelach. Przełączniki zapewniają czytelne stany ON/OFF/hover/disabled, płynną animację przesuwania suwaka, obsługę myszką i klawiaturą (Spacja/Enter) oraz pełną integrację z zapamiętywaniem stanu i testami jednostkowymi.
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 8 nowymi testami w `test_switch_toggle.py`, łącznie 181 testów w projekcie).
+
+- **[x] `TASK-208`: Ujednolicenie systemu ikon w całej aplikacji na podstawie wektorowego zestawu SVG (`icons/`)**
+  - *Opis*: Kompleksowy audyt i wdrożenie profesjonalnego, scentralizowanego systemu ikon wektorowych SVG (`icons.py` / `IconFactory`) na bazie 6,545 ikon Tabler SVG z katalogu `icons/outline` i `icons/filled`.
+    - Usunięcie z całego interfejsu amatorskich emotikonów tekstowych (emoji) z przycisków, drzew, nagłówków, menu i zakładek;
+    - Dynamiczne kolorowanie ikon w locie (`QSvgRenderer`) pod ciemny motyw z obsługą stanów: normalny (`#d4d4d8`), aktywny/hover (`#ffffff`), zaznaczony (`#3b82f6`), wyłączony (`#52525b`);
+    - Pełne wsparcie dla High-DPI i ostrych krawędzi bez zniekształceń (dwukrotny supersampling i buforowanie `QPixmap`);
+    - Wdrożenie we wszystkich komponentach aplikacji: Toolbar główny, Przybornik narzędzi (`Toolbox`), Panel warstw (`LayerPanel`), Paleta i Biblioteka tilesetów (`TilesetPaletteWidget`), Pasek zakładek map (`MapTabBar`), Pasek opcji pędzla (`BrushOptionsBar`), Szybkie menu podręczne (`QuickActionMenu`), Okna dialogowe (`AutotileDialog`, `PathGeneratorDialog`, `TileRandomizerDialog`, `PreferencesDialog`, `TilesetSlicerDialog`);
+    - Zachowanie 100% kompatybilności wstecznej z istniejącym API drzew i widgetów.
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (wszystkie 181 testów przechodzi pomyślnie).
+
+- **[x] `TASK-209`: Ujednolicenie pasków narzędzi – integracja opcji edycji w górnym pasku i usunięcie niższego paska**
+  - *Opis*: Przeniesienie wszystkich kontrolek związanych z edycją mapy (Auto-Tiling, Generator Ścieżek, Losowe warianty, wielkość pędzla, losowy obrót, odbicie i ziarno Seed) do wspólnego głównego paska narzędzi (`QToolBar`), obok opcji widoku (Siatka, Dopasuj widok):
+    - Całkowite usunięcie osobnego, niższego paska opcji pędzla z układu centralnego (`central_layout`), co odzyskuje pełną przestrzeń roboczą dla płótna edytora mapy i paska zakładek;
+    - Usunięcie duplikatów akcji dialogowych (przycisków otwierających konfiguratory) – scalenie ich w logiczne grupy z przełącznikami i listami reguł;
+    - Zachowanie przełączników ON/OFF (`SwitchToggle`) o kompaktowej geometrii dopasowanej do wysokości paska narzędzi (wysokość 24px, pill 32x18);
+    - Dodanie precyzyjnych separatorów pionowych dzielących grupy: Rozmiar, Auto-Tiling / Ścieżki, Warianty / Bez powtórzeń, Transformacje losowe / Seed;
+    - Usunięcie niepotrzebnego wpisu włączania/wyłączania starego paska z menu Widok.
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 5 nowymi testami w `test_toolbar_unification.py`, łącznie 193 testy w projekcie).
+
+- **[x] `TASK-210`: Rozszerzenie systemu ikon – tworzenie brakujących zasobów wektorowych SVG i 100% eliminacja emoji**
+  - *Opis*: Projektowanie i wygenerowanie dedykowanych wektorowych ikon SVG spójnych ze stylistyką Tabler Icons (viewBox 0 0 24 24, stroke 2, round linecap/join) dla funkcji niemających odpowiedników w bazowym zestawie:
+    - `autotile.svg`: Dedykowana ikona Auto-Tilingu (kafelek centralny z 4 kierunkowymi złączami brzegów);
+    - `path-generator.svg`: Dedykowana ikona Generatora Ścieżek (zakręt 2D ścieżki kafelkowej z podziałem segmentów);
+    - `tile-variants.svg`: Dedykowana ikona losowych wariantów kafelków (kaskada kafelków z oznaczeniami wariantów);
+    - `tileset-slice.svg`: Dedykowana ikona konfiguratora siatki i krojenia arkuszy (Slicer) – siatka z cięciem noża;
+    - `stamp-save.svg`: Dedykowana ikona zapisywania stempla kafelkowego z zaznaczenia do biblioteki;
+    - `map-object.svg`: Dedykowana ikona swobodnego obiektu mapy (obiekt 2D z narożnymi uchwytami transformacji);
+    - `save-as.svg`: Dedykowana ikona „Zapisz jako...” (dyskietka ze wskaźnikiem nowego pliku);
+    - `grid-3x3-template.svg`: Dedykowana ikona szablonu 3x3 do autotilingu i ścieżek;
+    - `hud-coords.svg`: Dedykowana ikona wskaźnika współrzędnych HUD na płótnie;
+    - `map-edit.svg`: Dedykowana ikona profilu „Edycja mapy”.
+    - Rejestracja w `IconFactory.ICON_NAME_MAP` i obsługa w całym interfejsie;
+    - Zastąpienie prowizorycznych ikon (np. pędzla do zmiany nazwy) właściwymi odpowiednikami (`pencil`, `slicer`, `folder-share`);
+    - Całkowita eliminacja amatorskich znaków emoji z przycisków, drzew, nagłówków i okien dialogowych;
+    - Dodanie ikon do wszystkich przycisków akcji i dialogów (`Anuluj`, `Zamknij`, `Wybierz kolor`, `Przeglądaj...`).
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 6 nowymi testami w `test_icon_system_expansion.py`, łącznie 203 testy w projekcie).
 
 ---
 
@@ -202,6 +275,16 @@ Faza poświęcona usunięciu fikcyjnych elementów ("wydmuszek"), naprawie podst
 - **[x] `TASK-407`: Automatyczne zapisywanie i odtwarzanie konfiguracji aplikacji i biblioteki tilesetów (ConfigManager)**
   - *Opis*: Moduł `ConfigManager` zapewniający atomowy zapis JSON (`~/.config/tileset_map_maker/app_config.json`): zapis/odczyt geometrii okna, stanu splittera, preferencji globalnego importu oraz pełnej zaimportowanej biblioteki tilesetów (struktura folderów, ścieżki plików, konfiguracje siatek `TilesetConfig`, stan rozwinięcia i aktywny tileset).
   - *Status*: `[x]` Ukończone i przetestowane.
+
+- **[x] `TASK-408`: Stabilność widoku podglądu tilesetu – eliminacja resetowania zoomu/panu i pamięć stanu per tileset**
+  - *Opis*: Naprawa błędu automatycznego resetowania zoomu i pozycji widoku arkusza przy zaznaczaniu kafelków:
+    - Rozdzielenie stanu widoku (zoom, przesunięcie pan, pozycja viewportu) od stanu selekcji kafelków;
+    - Usunięcie wywołania `fit_to_view()` ze ścieżki obsługi selekcji (`_on_asset_selected`, `set_active_asset`, `set_asset`);
+    - Dodanie dedykowanej metody `set_selected_sub_tile` aktualizującej zaznaczenie bez dotykania transformacji widoku;
+    - Wprowadzenie pamięci stanu widoku per tileset (`tileset_view_states`): po przełączeniu na inny tileset i powrocie przywracany jest dokładnie poprzedni zoom i offset;
+    - Zachowanie przycisku „Dopasuj widok arkusza do okna podglądu” (`btn_fit`) jako jedynego mechanizmu dopasowującego arkusz na żądanie użytkownika;
+    - Odporność na zmianę rozmiaru panelu oraz przełączanie narzędzi w przyborniku.
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 7 dedykowanymi testami w `test_tileset_view_stability.py`).
 
 ---
 
@@ -299,21 +382,25 @@ Faza poświęcona usunięciu fikcyjnych elementów ("wydmuszek"), naprawie podst
 
 ## FAZA 9 – Zaawansowane pędzle, stemple i auto-tiling
 
-- **[x] `TASK-901`: Silnik Auto-Tiling z 8-sąsiedzkim bitmaskingiem**
-  - *Opis*: Automatyczny dobór krawędzi, narożników zewnętrznych i wewnętrznych podczas malowania terenu.
-  - *Status*: `[x]` Ukończone.
+- **[x] `TASK-901`: Silnik Auto-Tiling z 8-sąsiedzkim bitmaskingiem i adaptacją krawędzi**
+  - *Opis*: Automatyczny dobór krawędzi, narożników zewnętrznych i wewnętrznych podczas malowania terenu. Pełna obsługa 8 kierunków (N, NE, E, SE, S, SW, W, NW) oraz masek kardynalnych (4-sąsiedzkich) zapobiegająca degradacji do kafelków centralnych przy braku przekątnych. Obsługa granic mapy (pustka nie jest terenem łączącym), dynamiczna aktualizacja sąsiadów zarówno przy malowaniu (`BrushTool`), jak i usuwaniu kafelków (`EraserTool`).
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 15 testami scenariuszowymi).
 
-- **[x] `TASK-902`: Konfigurator reguł Auto-Tiling (`AutoTileDialog`)**
-  - *Opis*: Przypisywanie kafelków do szablonu 3x3 dla różnych typów podłoża.
-  - *Status*: `[x]` Ukończone.
+- **[x] `TASK-902`: Konfigurator reguł Auto-Tiling (`AutoTileDialog`) i integracja pędzla**
+  - *Opis*: Interaktywny dialog konfiguracji zestawów reguł Auto-Tile z podglądem na żywo wyciętych tekstur 3x3, automatycznym pobieraniem współrzędnych z aktywnego zaznaczenia w palecie tilesetów, wyborem docelowego zestawu na pasku opcji pędzla (`BrushOptionsBar`), trwałym zapisem w konfiguracji aplikacji (`app_config.json`) oraz w plikach projektów (`.tmmap`).
+  - *Status*: `[x]` Ukończone i przetestowane w 100%.
 
 - **[x] `TASK-903`: Trwała biblioteka stempli (`StampManager`)**
   - *Opis*: Zapisywanie zaznaczonego wycinka mapy jako stempel, obracanie i wklejanie.
   - *Status*: `[x]` Ukończone.
 
-- **[x] `TASK-904`: Wielowariantowy pędzel z losowym obrotem, odbiciem i ziarnem (Seed)**
-  - *Opis*: Pasek opcji pędzla z kontrolkami losowości dla naturalnego wyglądu terenu.
-  - *Status*: `[x]` Ukończone.
+- **[x] `TASK-904`: Zaawansowany system losowania wariantów kafelków (Tile Variation Randomizer)**
+  - *Opis*: System dynamicznego, niezależnego losowania wariantów kafelków podczas malowania pędzlem i wypełniania wiadrem (`FillTool`). Obsługa grup wariantów (tworzenie z zaznaczenia pojedynczego lub bloków wielokafelkowych, np. 6 wariantów trawy), konfigurowalne wagi prawdopodobieństwa dla każdego wariantu z wyrównywaniem szans, opcja zapobiegania powtórzeniom sąsiednich kafelków (`avoid_adjacent`), deterministyczne ziarno losowości (`Seed`), masowe przelosowywanie zaznaczonego obszaru mapy oraz pełna integracja z historią Undo/Redo i zapisem w plikach `.tmmap` (brak re-rollu po ponownym otwarciu).
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 13 scenariuszami w `test_tile_randomizer.py`).
+
+- **[x] `TASK-905`: Generator Ścieżek (Path Generator) z ręczną konfiguracją ról i integracją z Auto-Tiling**
+  - *Opis*: Dedykowany generator i konfigurator ścieżek z ręcznym przypisywaniem poszczególnych ról (linie proste H/V, narożniki TL/TR/BL/BR i uniwersalny, rozgałęzienia T, skrzyżowanie 4-stronne, zakończenie, środek/izolowany). Kafelki mogą pochodzić z dowolnych, nieprzylegających pozycji w tilesecie oraz z różnych tilesetów. Obsługa szablonów 4-kafelkowego, 6-kafelkowego oraz pełnego (Custom) z inteligentną kaskadą fallbacków dla brakujących ról. Wizualizacja połączeń na żywo w oknie dialogowym (`PathPreviewWidget`) z rysowaniem realnych wycinków grafik PNG oraz oznaczeniami brakujących ról. Rysowanie ścieżek pędzlem na płótnie mapy z natychmiastowym łączeniem kardynalnym (N, S, W, E), propagacją falową (ripple update), pełnym wsparciem wielowarstwowości, Undo/Redo, zapisem w plikach projektów `.tmmap` oraz trwałą konfiguracją w `app_config.json`.
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (pokryte 16 scenariuszami w `test_path_generator.py`, łącznie 173 testy jednostkowe/integracyjne zaliczone).
 
 ---
 
@@ -434,3 +521,47 @@ Faza poświęcona usunięciu fikcyjnych elementów ("wydmuszek"), naprawie podst
     4. Dodano automatyczne dopasowanie widoku (`fit_to_view()`) przy wyborze aktywnego arkusza oraz szczegółową diagnostykę renderowania (`logging`).
     5. Zaimplementowano pakiet testów izolowanych `tests/test_isolated_tileset_render.py` (Testy A, B, C, D, E, F) na autentycznych grafikach PNG.
   - *Status*: `[x]` Ukończone (106/106 testów przechodzi).
+
+- **[x] `TASK-211`: Ujednolicenie przycisków paska narzędzi i personalizacja ich układu**
+  - *Opis*:
+    1. **Ujednolicenie przełączników (ToolbarToggleButton):** Zastąpiono przełączniki iOS-style checkowalnymi przyciskami ikonowymi (`ToolbarToggleButton` dziedziczącym po `SwitchToggle` dla 100% kompatybilności wstecznej). W stanie nieaktywnym przyciski mają neutralne ciemne tło (`#27272a`), obramowanie `#3f3f46` i neutralny tekst/ikonę. W stanie aktywnym otrzymują wyraziste podświetlenie w odcieniu błękitu (`#2563eb`, obramowanie `#93c5fd`, tekst/ikona `#ffffff`). Zastosowano do: Auto-Tile, Losowe warianty, Bez powtórzeń, Losowy obrót, Losowe odbicie.
+    2. **Spójny system kontrolek:** Wszystkie kontrolki paska narzędzi (przyciski, przełączniki, pola spinbox, combobox, pola tekstowe seed) otrzymały ujednoliconą wysokość 26px, zaokrąglenie rogów 4px, jednolitą paletę kolorystyczną oraz spójne stany `hover`, `pressed`, `checked` i `disabled`.
+    3. **Podział na 9 logicznych kategorii:** Utworzono kategorie: `Projekt` (Nowy, Otwórz, Zapisz, Eksport), `Historia` (Cofnij, Ponów), `Widok` (Siatka, Dopasuj, Paleta), `Pędzel` (Rozmiar pędzla, Zapisz stempel), `Auto-Tiling` (Auto-Tile, Reguły, Konfigurator reguł), `Ścieżki` (Generator ścieżek), `Losowe warianty` (Warianty, Licznik, + Z zazn., Bez powtórzeń, Opcje wariantów), `Transformacje` (Obrót, Odbicie, Ziarno seed), `System` (Ustawienia, Skróty, Reset UI).
+    4. **Menedżer paska narzędzi (`ToolbarManager`):** Dynamiczne budowanie paska, obsługa zmiany kolejności kategorii, zmiany kolejności elementów wewnątrz kategorii, przenoszenia przycisków między kategoriami oraz ukrywania/pokazywania całych kategorii lub pojedynczych kontrolek.
+    5. **Interfejs personalizacji (`ToolbarCustomizerDialog`):** Dedykowane okno personalizacji paska narzędzi ("Dostosuj pasek narzędzi...") z dwiema zsynchronizowanymi listami (kategorie i elementy), obsługą przeciągania myszką Drag & Drop, przyciskami "W górę" / "W dół", przenoszeniem między kategoriami, podglądem na żywo ("Zastosuj") oraz przyciskiem "Przywróć domyślne".
+    6. **Menu kontekstowe paska:** Podręczne menu pod prawym przyciskiem myszy na pasku narzędzi umożliwiające szybkie włączanie/wyłączanie widoczności dowolnej kategorii, bezpośrednie otwarcie okna personalizacji oraz przywrócenie domyślnego układu.
+    7. **Trwałość konfiguracji:** Zapis i odczyt spersonalizowanego układu w `ConfigManager` (`toolbar_layout`) oraz automatyczne przywracanie przy uruchomieniu aplikacji z bezpiecznym fallbackiem do ustawień fabrycznych.
+    8. **Weryfikacja testowa:** Zaimplementowano pakiet testów `tests/test_toolbar_customization.py` (8 testów) oraz pomyślnie zweryfikowano pełny zestaw testów projektu (211/211 testów przechodzi).
+  - *Status*: `[x]` Ukończone i przetestowane (211/211 testów OK).
+
+- **[x] `TASK-212`: Naprawa niebieskich przycisków, drugi pasek narzędzi, responsywny ToolPanel, rozmiar gumki i Randomizer**
+  - *Opis*:
+    1. **Wyraziste niebieskie podświetlenie aktywnych przycisków:** Rozwiązano problem podświetlenia przycisków takich jak Auto-Tile, Randomizer, Bez powtórzeń, Obrót, Odbicie czy narzędzia w przyborniku. Stan aktywny (`checked`) otrzymał wyrazisty, nasycony błękit (`background-color: #2563eb`) z subtelnym obramowaniem (`#93c5fd`), a w stanie hover `#1d4ed8` / `#bfdbfe`. W `IconFactory.get_icon()` dla stanu `QIcon.State.On` oraz w `ToolbarToggleButton` ikona i tekst są renderowane w czystej bieli (`#ffffff`), co gwarantuje doskonały kontrast, pełną czytelność piktogramów i jednoznaczny stan włączenia.
+    2. **Zmiana nazwy na Randomizer:** W całym interfejsie (przełącznik, podpowiedzi, konfiguratory, kategorie, menu) zastąpiono nazwę „Warianty” nazwą „Randomizer” (`Tile Randomizer`). Licznik wariantów otrzymał estetyczną, spójną kontrolkę badge o wysokości 26px.
+    3. **Dodatkowy pasek narzędzi (Secondary Toolbar):** Dodano drugi pasek narzędzi poniżej głównego paska (`SecondaryToolBar`), dzięki czemu rozbudowany zestaw narzędzi nie tłoczy się w jednym wierszu. W `ToolbarManager` i `ToolbarCustomizerDialog` dodano pełną obsługę przypisywania i przenoszenia kategorii między paskiem głównym i dodatkowym (przycisk *⇄ Przenieś kategorię na drugi pasek*), niezależną zmianę kolejności na obu paskach, przełącznik widoczności drugiego paska oraz podmenu w menu kontekstowym.
+    4. **Responsywny przybornik narzędzi (`ToolPanel`):** Wdrożono adaptacyjny układ narzędzi. Gdy panel zostanie spłaszczony (np. zmniejszenie wysokości poniżej 250px, przeciągnięcie do pozycji poziomej lub zadokowanie na górze/dole), kontrolki automatycznie reorganizują się w układ poziomy (`QHBoxLayout` / siatka 2x5). Po przywróceniu wysokości panel natychmiast wraca do układu pionowego.
+    5. **Konfigurowalna wielkość gumki:** W `BrushSettings` dodano parametr `eraser_size` (1-10). `EraserTool` usuwa kafelki i obiekty w pełnym footprintzie odpowiadającym wybranemu rozmiarowi. W pasku opcji (`BrushOptionsBar`) kontrolka rozmiaru automatycznie dostosowuje etykietę i wartość do aktywnego narzędzia: dla gumki wyświetla `Gumka: [rozmiar]`, a dla pędzla `Pędzel: [rozmiar]`.
+    6. **Weryfikacja testowa:** Zaktualizowano i rozszerzono pakiet testów `tests/test_toolbar_customization.py` (9 testów) oraz zweryfikowano pełny zestaw testów aplikacji (212/212 testów przechodzi pomyślnie).
+  - *Status*: `[x]` Ukończone i przetestowane (212/212 testów OK).
+
+- **[x] `TASK-213`: Swobodne przeciąganie przycisków i kategorii bezpośrednio na paskach narzędzi (Drag & Drop)**
+  - *Opis*:
+    1. **Bezpośrednie przeciąganie przycisków (In-Place Drag & Drop):** Zastąpiono system list i strzałek bezpośrednim przeciąganiem przycisków myszą wprost na paskach narzędzi (`CustomizableToolBar`). Każdy przycisk można chwycić i wstawić w dowolne miejsce: na początek, na koniec, pomiędzy dowolne dwa przyciski (np. A, B, C, D -> przeciągnij D między A i B -> A, D, B, C), w obrębie kategorii, pomiędzy różnymi kategoriami oraz pomiędzy paskiem głównym a dodatkowym.
+    2. **Wizualizacja miejsca docelowego:** Wdrożono dynamiczny wskaźnik wstawienia rysowany bezpośrednio na pasku: pionową, jaskrawoniebieską linię (`#3b82f6` z poświatą `#93c5fd`) zwieńczoną trójkątnymi strzałkami (górną wskazującą w dół i dolną wskazującą w górę), jednoznacznie wskazującą szczelinę wstawienia. Przeciągany element jest wizualnie odróżniony (półprzezroczysty duch 30% na pasku + 85% pod kursorem myszy).
+    3. **Przeciąganie całych kategorii:** W trybie personalizacji każda kategoria otrzymuje interaktywny uchwyt `CategoryGripWidget` (`⋮⋮ Tytuł`). Przeciągnięcie uchwytu przesuwa całą grupę przycisków przed lub za inną kategorię lub przenosi ją na drugi pasek bez przypadkowego klikania przycisków wewnątrz.
+    4. **Interaktywny tryb personalizacji:** Dodano wygodny tryb edycji aktywowany z menu kontekstowego paska (PPM), menu Widok (`Ctrl+Alt+T`) lub dedykowanego przycisku. W trybie edycji paski zyskują subtelne kreskowane obramowanie (`#3b82f6`), kursor zmienia się w otwartą dłoń (`OpenHandCursor`), a na górze obszaru roboczego pojawia się estetyczny baner informacyjny (`ToolbarEditModeBanner`) z przyciskami *✓ Zakończ personalizację* oraz *↺ Przywróć domyślne*.
+    5. **Bezpieczeństwo kliknięć i anulowanie:** W trybie edycji `ToolbarItemDragFilter` przechwytuje pojedyncze kliknięcia, uniemożliwiając przypadkowe uruchomienie akcji (tworzenia projektu, zapisu itp.). Poza trybem edycji przyciski działają natychmiast i w 100% standardowo. Wciśnięcie klawisza `Esc` lub upuszczenie poza dozwolonym obszarem natychmiast bezpiecznie anuluje przeciąganie lub zamyka tryb edycji bez skutków ubocznych.
+    6. **Trwałość konfiguracji:** Po każdej zmianie kolejności układ zapisywany jest w `ConfigManager` (`toolbar_layout`) i wiernie odtwarzany po restarcie aplikacji.
+    7. **Weryfikacja testowa:** Zaimplementowano pakiet 11 testów jednostkowych w `tests/test_toolbar_drag_drop.py` pokrywający wszystkie 9 praktycznych scenariuszy testowych (przesunięcie na początek, między dwa przyciski, na koniec, sekwencje przesunięć, między kategoriami, reorganizacja kategorii, anulowanie, restart, klikanie w/poza trybem edycji, wskaźnik wstawienia). Wszystkie 223 testy projektu przechodzą pomyślnie.
+  - *Status*: `[x]` Ukończone i przetestowane (223/223 testów OK).
+
+- **[x] `TASK-214`: Kompleksowy audyt i naprawa pasków narzędzi, przycisków, widoczności kontrolek i odporności personalizacji**
+  - *Opis*:
+    1. **Eliminacja ukrywania kontrolek widgetowych przy przebudowie paska:** Wyeliminowano błąd, w którym `item.widget.setParent(None)` podczas `build_toolbar()` powodował niejawne ukrycie widgetów przez Qt (`setVisible(False)`). Przy ponownym dodaniu kontrolek (`Auto-Tile`, `Randomizer`, `Rozmiar`, `Bez powtórzeń`, `Obrót`, `Odbicie`) dodano jawne `item.widget.show()`, co gwarantuje natychmiastową widoczność, klikalność i prawidłowe podświetlanie przełączników po jakiejkolwiek modyfikacji układu lub restarcie.
+    2. **Wersjonowanie i migracja schematu pasków (`TOOLBAR_LAYOUT_VERSION = 2`):** Dodano system migracji konfiguracji, deduplikację elementów (`seen_items`), usuwanie przestarzałych identyfikatorów oraz automatyczne odzyskiwanie niezarejestrowanych lub zgubionych kontrolek do ich domyślnych kategorii.
+    3. **Ochrona przed wyciekami filtrów zdarzeń i wiszącymi referencjami C++:** W `_populate_single_toolbar()` wdrożono czyszczenie istniejących filtrów `ToolbarItemDragFilter` przed instalacją nowych. W `on_drag_finished()` zabezpieczono usuwane przyciski akcji za pomocą `sip.isdeleted()` i obsługi wyjątków, eliminując błędy `RuntimeError: wrapped C/C++ object has been deleted`.
+    4. **Separacja wierszy pasków i synchronizacja widoczności:** W `MainWindow._init_toolbar()` dodano `insertToolBarBreak(self.secondary_toolbar)`, gwarantując, że drugi pasek zawsze znajduje się w osobnym, dedykowanym wierszu poniżej paska głównego. Połączono sygnał `visibilityChanged` dodatkowego paska z menedżerem oraz zsynchronizowano stan po `restoreState()`.
+    5. **Aktualizacja referencji projektu i historii w panelach:** W `ObjectListPanel` dodano metody `set_project()` i `set_history_manager()`, zapobiegając pracy na odłączonych referencjach projektu po otwarciu nowego pliku lub wczytaniu mapy.
+    6. **Izolacja konfiguracji i testów:** W `ConfigManager` dodano opcjonalny parametr `config_path`, a w `MainWindow` możliwość wstrzyknięcia instancji `config_manager`, zapobiegając zanieczyszczeniu globalnego pliku konfiguracyjnego `~/.config/app_config.json` podczas testów jednostkowych.
+    7. **Weryfikacja testowa:** Zaimplementowano pakiet testów `tests/test_audit_toolbar_and_controls.py` (7 kompleksowych testów weryfikujących trwałość, migrację, wycieki filtrów, odporność na usunięte obiekty C++, synchronizację pasków, trwałość niebieskiego podświetlenia oraz aktualizację referencji w panelu obiektów). Wszystkie 230 testów projektu przechodzi pomyślnie.
+  - *Status*: `[x]` Ukończone i przetestowane w 100% (230/230 testów OK).
