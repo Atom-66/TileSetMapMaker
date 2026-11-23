@@ -129,7 +129,9 @@ class AutoTileEngine:
             return None
 
         mask = self.compute_mask(layer, col, row, ruleset, project)
-        if hasattr(ruleset, "get_weighted_tile_for_mask"):
+        if getattr(ruleset, "pattern_enabled", False):
+            tile_data = ruleset.get_pattern_tile(mask, col, row)
+        elif hasattr(ruleset, "get_weighted_tile_for_mask"):
             tile_data = ruleset.get_weighted_tile_for_mask(mask, col, row)
         else:
             tile_data = ruleset.get_tile_for_mask(mask)

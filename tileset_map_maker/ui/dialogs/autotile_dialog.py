@@ -1,6 +1,6 @@
 import os
 from typing import Optional, Dict, Tuple
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtCore import Qt, QRect, QAbstractTableModel, QModelIndex
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
     QWidget,
     QGroupBox,
     QFrame,
+    QTableView,
+    QHeaderView,
 )
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen
 
@@ -37,6 +39,46 @@ from ...models.asset import Asset, AssetType, SelectedSubTile
 from ...core.config_manager import ConfigManager
 from ..icons import IconFactory
 from ...core.localization import tr
+
+
+PATTERN_MASKS = (
+    (CARD_CORNER_TL, CARD_EDGE_TOP, CARD_CORNER_TR),
+    (CARD_EDGE_LEFT, CARD_CENTER, CARD_EDGE_RIGHT),
+    (CARD_CORNER_BL, CARD_EDGE_BOTTOM, CARD_CORNER_BR),
+)
+
+
+class PatternModel(QAbstractTableModel):
+    def __init__(self, dialog):
+        super().__init__(dialog)
+        self.dialog = dialog
+        self.ruleset = None
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() or not isinstance(self.ruleset, AutoTileRuleSet) else self.ruleset.pattern_height
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() or not isinstance(self.ruleset, AutoTileRuleSet) else self.ruleset.pattern_width
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid() or not isinstance(self.ruleset, AutoTileRuleSet):
+            return None
+        x, y = index.column(), index.row()
+        tile = self.ruleset.pattern_tiles.get((x, y))
+        if not self.ruleset.pattern_enabled and x < 3 and y < 3:
+            tile = self.ruleset.tile_mappings.get(PATTERN_MASKS[y][x])
+        if role == Qt.ItemDataRole.DecorationRole and tile:
+            return self.dialog.asset_manager.get_tile_pixmap(*tile)
+        if role == Qt.ItemDataRole.DisplayRole and not tile:
+            return "—"
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return f"{x}, {y}"
+        return None
+
+    def refresh(self, ruleset):
+        self.beginResetModel()
+        self.ruleset = ruleset
+        self.endResetModel()
 
 
 class AutoTileDialog(QDialog):
@@ -147,14 +189,14 @@ class AutoTileDialog(QDialog):
 
         lbl_col = QLabel(tr("dialog.autotile.start_col"))
         self.spin_col = QSpinBox()
-        self.spin_col.setRange(0, 500)
+        self.spin_col.setRange(0, 2_147_483_647)
         self.spin_col.setValue(0)
         coords_bar.addWidget(lbl_col)
         coords_bar.addWidget(self.spin_col)
 
         lbl_row = QLabel(tr("dialog.autotile.start_row"))
         self.spin_row = QSpinBox()
-        self.spin_row.setRange(0, 500)
+        self.spin_row.setRange(0, 2_147_483_647)
         self.spin_row.setValue(0)
         coords_bar.addWidget(lbl_row)
         coords_bar.addWidget(self.spin_row)
@@ -166,6 +208,16 @@ class AutoTileDialog(QDialog):
         coords_bar.addWidget(btn_use_sel)
 
         form_tpl.addRow(tr("dialog.autotile.block_start"), coords_bar)
+        self.spin_pattern_width = QSpinBox()
+        self.spin_pattern_height = QSpinBox()
+        for spin in (self.spin_pattern_width, self.spin_pattern_height):
+            spin.setRange(1, 2_147_483_647)
+            spin.setValue(3)
+            spin.setKeyboardTracking(False)
+            spin.setToolTip(tr("autotile.resize_tooltip"))
+            spin.valueChanged.connect(self._resize_pattern)
+        form_tpl.addRow(tr("autotile.pattern_width"), self.spin_pattern_width)
+        form_tpl.addRow(tr("autotile.pattern_height"), self.spin_pattern_height)
         tpl_layout.addLayout(form_tpl)
 
         btn_apply = QPushButton(f" {tr('dialog.autotile.apply_template')}")
@@ -222,6 +274,18 @@ class AutoTileDialog(QDialog):
             self.preview_labels[(cx, cy)] = lbl_thumb
 
         prev_layout.addWidget(grid_widget)
+        self.legacy_grid_widget = grid_widget
+        self.pattern_view = QTableView()
+        self.pattern_model = PatternModel(self)
+        self.pattern_view.setModel(self.pattern_model)
+        self.pattern_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.pattern_view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.pattern_view.horizontalHeader().setDefaultSectionSize(54)
+        self.pattern_view.verticalHeader().setDefaultSectionSize(54)
+        self.pattern_view.setIconSize(QPixmap(44, 44).size())
+        self.pattern_view.setToolTip(tr("autotile.assign_tooltip"))
+        self.pattern_view.doubleClicked.connect(self._assign_pattern_tile)
+        prev_layout.addWidget(self.pattern_view)
         btn_test_variants = QPushButton("Podgląd kolejnego wariantu")
         btn_test_variants.clicked.connect(self._test_variants)
         prev_layout.addWidget(btn_test_variants)
@@ -265,13 +329,16 @@ class AutoTileDialog(QDialog):
             )
 
     def _save_preset(self) -> None:
-        self._save_rule(show_msg=False)
+        if not self._save_rule(show_msg=False):
+            return
         ruleset = self.autotile_engine.get_ruleset(
             self.combo_rules.currentData()
         )
         if ruleset:
             self.autotile_engine.save_ruleset_preset(ruleset.name, ruleset)
-            ConfigManager().save_autotile_rules(self.autotile_engine)
+            if not ConfigManager().save_autotile_rules(self.autotile_engine):
+                QMessageBox.warning(self, tr("dialog.autotile.error_title"), tr("autotile.save_failed"))
+                return
             self._populate_presets_combo()
             QMessageBox.information(
                 self, "Preset zapisany", f"Zapisano preset '{ruleset.name}'."
@@ -322,7 +389,45 @@ class AutoTileDialog(QDialog):
             self.txt_name.setText(r.name)
             self.txt_terrain.setText(r.terrain_type)
             self.txt_connects.setText(", ".join(r.connects_with))
+            for spin, value in ((self.spin_pattern_width, getattr(r, "pattern_width", 3)),
+                                (self.spin_pattern_height, getattr(r, "pattern_height", 3))):
+                spin.blockSignals(True)
+                spin.setValue(value)
+                spin.blockSignals(False)
             self._update_preview_grid(r)
+
+    def _enable_pattern(self, ruleset: AutoTileRuleSet) -> None:
+        if not ruleset.pattern_enabled:
+            ruleset.pattern_tiles = {
+                (x, y): ruleset.tile_mappings[mask]
+                for y, row in enumerate(PATTERN_MASKS)
+                for x, mask in enumerate(row)
+                if mask in ruleset.tile_mappings
+            }
+            ruleset.pattern_enabled = True
+
+    def _resize_pattern(self) -> None:
+        ruleset = self.autotile_engine.get_ruleset(self.combo_rules.currentData())
+        if not isinstance(ruleset, AutoTileRuleSet):
+            return
+        self._enable_pattern(ruleset)
+        ruleset.resize_pattern(self.spin_pattern_width.value(), self.spin_pattern_height.value())
+        self._update_preview_grid(ruleset)
+
+    def _assign_pattern_tile(self, index: QModelIndex) -> None:
+        ruleset = self.autotile_engine.get_ruleset(self.combo_rules.currentData())
+        asset = self.asset_manager.get_asset(self.combo_tileset.currentData())
+        if not isinstance(ruleset, AutoTileRuleSet) or not asset or not asset.tileset_config:
+            QMessageBox.information(self, tr("dialog.autotile.info_title"), tr("autotile.assign_select"))
+            return
+        col, row = self.spin_col.value(), self.spin_row.value()
+        grid = asset.tileset_config.compute_grid(asset.width, asset.height)
+        if col >= grid["cols"] or row >= grid["rows"]:
+            QMessageBox.warning(self, tr("dialog.autotile.error_title"), tr("autotile.pattern_outside"))
+            return
+        self._enable_pattern(ruleset)
+        ruleset.set_pattern_tile(index.column(), index.row(), (asset.id, *asset.tileset_config.get_tile_rect(col, row)))
+        self._update_preview_grid(ruleset)
 
     def _create_new_rule(self) -> None:
         new_r = AutoTileRuleSet(
@@ -363,6 +468,12 @@ class AutoTileDialog(QDialog):
         if isinstance(sel, SelectedSubTile):
             self.spin_col.setValue(sel.col)
             self.spin_row.setValue(sel.row)
+            for spin, value in ((self.spin_pattern_width, sel.cols_count),
+                                (self.spin_pattern_height, sel.rows_count)):
+                spin.blockSignals(True)
+                spin.setValue(value)
+                spin.blockSignals(False)
+            self._resize_pattern()
             # Find tileset in combo
             for i in range(self.combo_tileset.count()):
                 if self.combo_tileset.itemData(i) == sel.asset_id:
@@ -392,7 +503,7 @@ class AutoTileDialog(QDialog):
 
         rid = self.combo_rules.currentData()
         r = self.autotile_engine.get_ruleset(rid)
-        if not r:
+        if not isinstance(r, AutoTileRuleSet):
             return
 
         cfg = ts_asset.tileset_config
@@ -400,19 +511,32 @@ class AutoTileDialog(QDialog):
         start_row = self.spin_row.value()
 
         sx, sy, _, _ = cfg.get_tile_rect(start_col, start_row)
-
-        r.setup_standard_3x3_box(
-            asset_id=ts_asset.id,
-            start_x=sx,
-            start_y=sy,
-            tile_w=cfg.tile_width,
-            tile_h=cfg.tile_height,
-            spacing_x=cfg.spacing_x,
-            spacing_y=cfg.spacing_y,
-        )
+        width, height = self.spin_pattern_width.value(), self.spin_pattern_height.value()
+        grid = cfg.compute_grid(ts_asset.width, ts_asset.height)
+        if start_col + width > grid["cols"] or start_row + height > grid["rows"]:
+            QMessageBox.warning(self, tr("dialog.autotile.error_title"), tr("autotile.pattern_outside"))
+            return
+        if width == 3 and height == 3 and not r.pattern_enabled:
+            r.setup_standard_3x3_box(
+                asset_id=ts_asset.id,
+                start_x=sx,
+                start_y=sy,
+                tile_w=cfg.tile_width,
+                tile_h=cfg.tile_height,
+                spacing_x=cfg.spacing_x,
+                spacing_y=cfg.spacing_y,
+            )
+        else:
+            r.resize_pattern(width, height)
+            r.pattern_tiles.clear()
+            for y in range(height):
+                for x in range(width):
+                    r.set_pattern_tile(x, y, (ts_asset.id, *cfg.get_tile_rect(start_col + x, start_row + y)))
+            r.default_tile = r.pattern_tiles[(width // 2, height // 2)]
 
         self._update_preview_grid(r)
-        self._save_rule(show_msg=False)
+        if not self._save_rule(show_msg=False):
+            return
         QMessageBox.information(
             self,
             tr("dialog.autotile.success_title"),
@@ -425,6 +549,8 @@ class AutoTileDialog(QDialog):
         )
 
     def _update_preview_grid(self, ruleset: AutoTileRuleSet) -> None:
+        self.pattern_model.refresh(ruleset)
+        self.legacy_grid_widget.setVisible(not getattr(ruleset, "pattern_enabled", False))
         pos_to_mask = {
             (0, 0): CARD_CORNER_TL,
             (1, 0): CARD_EDGE_TOP,
@@ -483,11 +609,11 @@ class AutoTileDialog(QDialog):
             p.end()
             lbl.setPixmap(pix)
 
-    def _save_rule(self, show_msg: bool = True) -> None:
+    def _save_rule(self, show_msg: bool = True) -> bool:
         rid = self.combo_rules.currentData()
         r = self.autotile_engine.get_ruleset(rid)
         if not r:
-            return
+            return False
 
         r.name = self.txt_name.text().strip() or tr("dialog.autotile.default_name")
         r.terrain_type = self.txt_terrain.text().strip() or "Grass"
@@ -496,7 +622,9 @@ class AutoTileDialog(QDialog):
         self.autotile_engine.active_ruleset_id = r.id
 
         # Persist to ConfigManager
-        ConfigManager().save_autotile_rules(self.autotile_engine)
+        if not ConfigManager().save_autotile_rules(self.autotile_engine):
+            QMessageBox.warning(self, tr("dialog.autotile.error_title"), tr("autotile.save_failed"))
+            return False
         self._populate_rules_combo()
 
         if show_msg:
@@ -505,3 +633,4 @@ class AutoTileDialog(QDialog):
                 tr("dialog.autotile.saved_title"),
                 tr("dialog.autotile.saved", name=r.name),
             )
+        return True

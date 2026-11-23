@@ -1099,6 +1099,15 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             changes = self.autotile_engine.recalculate_project(self.project)
             if changes:
+                from ..core.history import MapTileBatchesCommand
+                by_map = {}
+                for key, layer_changes in changes.items():
+                    map_id, layer_id = key.split(":", 1)
+                    by_map.setdefault(map_id, {})[layer_id] = layer_changes
+                for map_id, layer_changes in by_map.items():
+                    self.get_map_history(map_id).push(
+                        MapTileBatchesCommand(self.project, map_id, layer_changes)
+                    )
                 self.project.is_modified = True
                 self.canvas.update()
                 self.statusBar().showMessage(

@@ -64,11 +64,58 @@ class AutoTileRuleSet:
         self.mapping_variants: Dict[
             int, List[Tuple[float, Tuple[str, int, int, int, int]]]
         ] = {}
+        self.pattern_width = 3
+        self.pattern_height = 3
+        self.pattern_tiles: Dict[Tuple[int, int], Tuple[str, int, int, int, int]] = {}
+        self.pattern_enabled = False
+
+    def resize_pattern(self, width: int, height: int) -> None:
+        if width < 1 or height < 1:
+            raise ValueError("Pattern dimensions must be positive")
+        self.pattern_width = width
+        self.pattern_height = height
+        self.pattern_tiles = {
+            (x, y): tile for (x, y), tile in self.pattern_tiles.items()
+            if x < width and y < height
+        }
+        if self.pattern_enabled and self.default_tile not in self.pattern_tiles.values():
+            self.default_tile = next(iter(self.pattern_tiles.values()), None)
+
+    def set_pattern_tile(
+        self, x: int, y: int, tile: Tuple[str, int, int, int, int]
+    ) -> None:
+        if not (0 <= x < self.pattern_width and 0 <= y < self.pattern_height):
+            raise ValueError("Pattern coordinate outside its dimensions")
+        self.pattern_tiles[(x, y)] = tile
+        self.pattern_enabled = True
+        if self.default_tile is None:
+            self.default_tile = tile
+
+    def get_pattern_tile(
+        self, mask: int, col: int, row: int, test_index: Optional[int] = None
+    ) -> Optional[Tuple[str, int, int, int, int]]:
+        def axis(size: int, position: int, before: bool, after: bool) -> int:
+            if size == 1:
+                return 0
+            if not before and after:
+                return 0
+            if before and not after:
+                return size - 1
+            if size == 2:
+                return position % size
+            return 1 + position % (size - 2)
+
+        x = axis(self.pattern_width, col, bool(mask & MASK_W), bool(mask & MASK_E))
+        y = axis(self.pattern_height, row, bool(mask & MASK_N), bool(mask & MASK_S))
+        base = self.pattern_tiles.get((x, y)) or self.default_tile
+        return self._weighted_tile(base, mask, col, row, test_index)
 
     @property
     def asset_id(self) -> str:
         if self.default_tile:
             return self.default_tile[0]
+        for tile in self.pattern_tiles.values():
+            return tile[0]
         for tile in self.tile_mappings.values():
             return tile[0]
         return ""
@@ -97,6 +144,16 @@ class AutoTileRuleSet:
         test_index: Optional[int] = None,
     ) -> Optional[Tuple[str, int, int, int, int]]:
         base = self.get_tile_for_mask(mask)
+        return self._weighted_tile(base, mask, col, row, test_index)
+
+    def _weighted_tile(
+        self,
+        base: Optional[Tuple[str, int, int, int, int]],
+        mask: int,
+        col: int,
+        row: int,
+        test_index: Optional[int],
+    ) -> Optional[Tuple[str, int, int, int, int]]:
         variants = self.mapping_variants.get(mask, [])
         if not variants or base is None:
             return base
@@ -204,6 +261,9 @@ class AutoTileRuleSet:
         (0,2)=BL, (1,2)=Bottom, (2,2)=BR
         Registers both 8-neighbor and 4-neighbor cardinal masks plus linear fallbacks.
         """
+        self.pattern_enabled = False
+        self.pattern_tiles.clear()
+        self.pattern_width = self.pattern_height = 3
         def _t(cx: int, cy: int) -> Tuple[str, int, int, int, int]:
             sx = start_x + cx * (tile_w + spacing_x)
             sy = start_y + cy * (tile_h + spacing_y)
@@ -268,6 +328,13 @@ class AutoTileRuleSet:
                 ]
                 for mask, variants in self.mapping_variants.items()
             },
+            "pattern_width": self.pattern_width,
+            "pattern_height": self.pattern_height,
+            "pattern_enabled": self.pattern_enabled,
+            "pattern_tiles": [
+                {"x": x, "y": y, "tile": list(tile)}
+                for (x, y), tile in self.pattern_tiles.items()
+            ],
         }
 
     @classmethod
@@ -288,4 +355,8 @@ class AutoTileRuleSet:
                 for entry in variants
                 if entry.get("tile")
             ]
+        rs.resize_pattern(int(data.get("pattern_width", 3)), int(data.get("pattern_height", 3)))
+        for entry in data.get("pattern_tiles", []):
+            rs.set_pattern_tile(int(entry["x"]), int(entry["y"]), tuple(entry["tile"]))
+        rs.pattern_enabled = bool(data.get("pattern_enabled", False))
         return rs

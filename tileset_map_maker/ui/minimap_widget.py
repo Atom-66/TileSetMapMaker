@@ -71,7 +71,7 @@ class MinimapWidget(QWidget):
             show_grid=False,
             show_selection=False,
             preview_items=[],
-            render_checkerboard=True,
+            render_checkerboard=False,
             ignore_hidden_layers=True,
         )
         self.render_engine.render(painter, self.project, options)

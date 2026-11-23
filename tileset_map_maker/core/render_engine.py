@@ -119,20 +119,20 @@ class RenderEngine:
 
         return QRect(int(min_x), int(min_y), int(max_x - min_x), int(max_y - min_y))
 
-    def draw_checkerboard(self, painter: QPainter, rect: QRect, square_size: int = 16) -> None:
+    def draw_checkerboard(self, painter: QPainter, rect: QRectF, square_size: int = 16) -> None:
         c1 = QColor("#1e1e24")
         c2 = QColor("#282830")
         painter.fillRect(rect, c1)
 
         painter.setBrush(QBrush(c2))
         painter.setPen(Qt.PenStyle.NoPen)
-        for y in range(rect.top(), rect.bottom(), square_size):
-            start_offset = 0 if ((y - rect.top()) // square_size) % 2 == 0 else square_size
-            for x in range(rect.left() + start_offset, rect.right(), square_size * 2):
-                w = min(square_size, rect.right() - x)
-                h = min(square_size, rect.bottom() - y)
-                if w > 0 and h > 0:
-                    painter.drawRect(x, y, w, h)
+        first_y = math.floor(rect.top() / square_size) * square_size
+        first_x = math.floor(rect.left() / square_size) * square_size
+        painter.setClipRect(rect, Qt.ClipOperation.IntersectClip)
+        for y in range(first_y, math.ceil(rect.bottom()), square_size):
+            for x in range(first_x, math.ceil(rect.right()), square_size):
+                if (x // square_size + y // square_size) % 2:
+                    painter.drawRect(QRectF(x, y, square_size, square_size))
 
     def draw_item(self, painter: QPainter, item: MapItem, tile_size: int) -> None:
         self.metrics.count_drawn_item()
@@ -320,19 +320,22 @@ class RenderEngine:
         clip_rect: Optional[QRectF] = None,
     ) -> None:
         w_px, h_px = self.get_map_dimensions_px(project)
-        map_rect = QRect(0, 0, w_px, h_px)
+        map_rect = QRectF(0, 0, w_px, h_px)
+        visible_rect = map_rect.intersected(clip_rect) if clip_rect is not None else map_rect
 
         # 1. Background
         if options.transparent_bg or project.is_bg_transparent:
             if options.render_checkerboard:
-                self.draw_checkerboard(painter, map_rect)
+                painter.save()
+                self.draw_checkerboard(painter, visible_rect)
+                painter.restore()
         else:
             bg_color = (
                 options.custom_bg_color
                 if options.custom_bg_color
                 else QColor(project.background_color)
             )
-            painter.fillRect(map_rect, bg_color)
+            painter.fillRect(visible_rect, bg_color)
 
         # 2. Render Layers in ascending order
         for layer in project.layers:
@@ -408,15 +411,15 @@ class RenderEngine:
             max_y = min(h_px, math.ceil(clip_rect.bottom() / ts) * ts)
 
         for x in range(min_x, max_x + 1, ts):
-            painter.drawLine(x, 0, x, h_px)
+            painter.drawLine(QPointF(x, min_y), QPointF(x, max_y))
 
         for y in range(min_y, max_y + 1, ts):
-            painter.drawLine(0, y, w_px, y)
+            painter.drawLine(QPointF(min_x, y), QPointF(max_x, y))
 
         border_pen = QPen(QColor(80, 130, 255, 120))
         border_pen.setWidth(2)
         painter.setPen(border_pen)
-        painter.drawRect(0, 0, w_px, h_px)
+        painter.drawRect(QRectF(0, 0, w_px, h_px))
         painter.restore()
 
     def draw_selection(self, painter: QPainter, sel_rect: QRect, tile_size: int) -> None:
@@ -427,13 +430,14 @@ class RenderEngine:
 
         painter.save()
         fill_brush = QBrush(QColor(79, 128, 255, 60))
-        painter.fillRect(px_x, px_y, px_w, px_h, fill_brush)
+        rect = QRectF(px_x, px_y, px_w, px_h)
+        painter.fillRect(rect, fill_brush)
 
         pen = QPen(QColor(79, 128, 255, 230))
         pen.setWidth(2)
         pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
-        painter.drawRect(px_x, px_y, px_w, px_h)
+        painter.drawRect(rect)
         painter.restore()
 
     def draw_selection_cells(
@@ -450,7 +454,7 @@ class RenderEngine:
         painter.setBrush(fill)
         for col, row in cells:
             painter.drawRect(
-                QRect(col * tile_size, row * tile_size, tile_size, tile_size)
+                QRectF(col * tile_size, row * tile_size, tile_size, tile_size)
             )
         painter.restore()
 

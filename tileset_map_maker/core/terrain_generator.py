@@ -50,7 +50,11 @@ class TerrainApplyCommand(Command):
                 if mapping:
                     asset_id, source_x, source_y, source_w, source_h = mapping
                 elif ruleset:
-                    tile = ruleset.get_tile_for_mask(0)
+                    tile = (
+                        ruleset.get_pattern_tile(0, col, row)
+                        if getattr(ruleset, "pattern_enabled", False)
+                        else ruleset.get_tile_for_mask(0)
+                    )
                     if not tile:
                         continue
                     asset_id, source_x, source_y, source_w, source_h = tile
@@ -86,6 +90,8 @@ class TerrainApplyCommand(Command):
                 if coord in self.changes:
                     original_before, _ = self.changes[coord]
                     self.changes[coord] = (original_before, after)
+                else:
+                    self.changes[coord] = (before, after)
 
     def undo(self) -> None:
         TileBatchCommand(

@@ -158,7 +158,7 @@ class EraserTool(BaseTool):
         self.is_active = False
 
         if context.autotile_engine and context.active_layer and self.erased_coords:
-            ruleset = context.autotile_engine.get_active_ruleset()
+            ruleset = context.autotile_engine.resolve_layer_ruleset(context.active_layer)
             if ruleset:
                 neighbor_changes = context.autotile_engine.update_neighbors_after_erase(
                     context.active_layer,

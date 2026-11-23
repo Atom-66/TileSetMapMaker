@@ -37,13 +37,13 @@ class MapSettingsDialog(QDialog):
 
         # Map Width (in tiles)
         self.spin_width = QSpinBox()
-        self.spin_width.setRange(1, 2000)
+        self.spin_width.setRange(1, 2_147_483_647)
         self.spin_width.setValue(self.project.map_width)
         form.addRow(tr("dialog.map.width"), self.spin_width)
 
         # Map Height (in tiles)
         self.spin_height = QSpinBox()
-        self.spin_height.setRange(1, 2000)
+        self.spin_height.setRange(1, 2_147_483_647)
         self.spin_height.setValue(self.project.map_height)
         form.addRow(tr("dialog.map.height"), self.spin_height)
 

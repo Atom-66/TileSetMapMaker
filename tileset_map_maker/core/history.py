@@ -65,6 +65,43 @@ class TileBatchCommand(Command):
         self.project.is_modified = True
 
 
+class MapTileBatchesCommand(Command):
+    """Reapply an already computed group of layer changes on one map."""
+
+    def __init__(
+        self,
+        project: Project,
+        map_id: str,
+        changes: Dict[str, Dict[Tuple[int, int], Tuple[Optional[MapItem], Optional[MapItem]]]],
+    ):
+        super().__init__("Przeliczenie Auto-Tiling")
+        self.project = project
+        self.map_id = map_id
+        self.changes = changes
+
+    def _apply(self, index: int) -> None:
+        map_model = self.project.maps.get(self.map_id)
+        if not map_model:
+            return
+        for layer_id, changes in self.changes.items():
+            layer = map_model.get_layer(layer_id)
+            if not layer:
+                continue
+            for (col, row), pair in changes.items():
+                item = pair[index]
+                if item is None:
+                    layer.remove_tile(col, row)
+                else:
+                    layer.set_tile(col, row, item.clone())
+        self.project.is_modified = True
+
+    def execute(self) -> None:
+        self._apply(1)
+
+    def undo(self) -> None:
+        self._apply(0)
+
+
 class ObjectAddCommand(Command):
     """Command to add a freeform object/prop to a layer."""
 

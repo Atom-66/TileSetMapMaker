@@ -147,6 +147,21 @@ niezależnie przez `PROJECT_SCHEMA_VERSION`.
 - generator ścieżek,
 - kopiowanie, wklejanie i usuwanie zaznaczeń.
 
+W Auto-Tilingu można pobrać prostokąt zaznaczony w podglądzie tilesetu albo
+ustawić szerokość i wysokość wzorca oraz początkową kolumnę i wiersz ręcznie.
+Dwukrotne kliknięcie komórki przypisuje jej kafelek z wybranej kolumny i
+wiersza tilesetu. Zmniejszenie wzorca usuwa wyłącznie przypisania poza nowymi
+wymiarami. Nowe wzorce powtarzają wewnętrzne pola zgodnie ze współrzędnymi
+mapy, a pola brzegowe są wybierane według sąsiedztwa; przy rozmiarze 1 lub 2
+nie ma osobnego pola wewnętrznego. Stare reguły 3×3 zachowują swoje maski i
+warianty. Zapis przyciskiem „Zapisz regułę” utrwala także edycję komórek.
+
+Wymiary mapy w ustawieniach są ograniczone zakresem 32-bitowego pola Qt
+(2 147 483 647 komórek na oś), a nie wartościami 500 lub 2000.
+Puste komórki warstw nie są przechowywane. Eksport PNG nadal wymaga pamięci
+na cały obraz, natomiast obecny eksport i import TMX używa gęstych danych CSV;
+te operacje i generator terenu mogą wymagać dużej ilości pamięci dla dużych map.
+
 ### Warstwy i obiekty
 
 - dowolna liczba warstw kafelków i obiektów,
