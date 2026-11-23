@@ -27,6 +27,27 @@ lub:
 python3 -m tileset_map_maker.main
 ```
 
+## Budowanie AppImage i EXE
+
+Gotowe paczki dla obu systemów można zbudować bez lokalnego Windowsa ani Linuxa:
+
+1. Otwórz zakładkę **Actions** w repozytorium i wybierz workflow **Build desktop packages**.
+2. Kliknij **Run workflow**.
+3. Po zakończeniu pobierz artefakty `TileSetMapMaker-AppImage` i `TileSetMapMaker-Windows`.
+
+Możesz też zbudować paczkę lokalnie na odpowiednim systemie. Potrzebny jest Python 3.10+.
+Na Linuxie wymagany jest dodatkowo `appimagetool` dostępny w `PATH`.
+
+```bash
+python -m pip install -r requirements-build.txt
+python build.py
+```
+
+Polecenie domyślnie tworzy format właściwy dla systemu: AppImage na Linuxie lub EXE na
+Windowsie. Można wskazać go jawnie przez `python build.py --target appimage` albo
+`python build.py --target exe`; format EXE buduje się na Windowsie, a AppImage na Linuxie.
+Wyniki znajdziesz w katalogu `dist/`.
+
 ## Główne możliwości
 
 ### Edytor map
