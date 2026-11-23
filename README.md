@@ -35,18 +35,23 @@ Gotowe paczki dla obu systemów można zbudować bez lokalnego Windowsa ani Linu
 2. Kliknij **Run workflow**.
 3. Po zakończeniu pobierz artefakty `TileSetMapMaker-AppImage` i `TileSetMapMaker-Windows`.
 
-Możesz też zbudować paczkę lokalnie na odpowiednim systemie. Potrzebny jest Python 3.10+.
-Na Linuxie wymagany jest dodatkowo `appimagetool` dostępny w `PATH`.
+Możesz też zbudować paczkę lokalnie na odpowiednim systemie. Skrypt tworzy lokalne
+środowisko `.venv` i instaluje w nim wymagane pakiety — nie używa systemowego `pip`.
+Potrzebny jest Python 3.10+. Na Linuxie wymagany jest dodatkowo `appimagetool` dostępny w
+`PATH`.
+
+Linux:
 
 ```bash
-python -m pip install -r requirements-build.txt
-python build.py
+./build-linux.sh
 ```
 
-Polecenie domyślnie tworzy format właściwy dla systemu: AppImage na Linuxie lub EXE na
-Windowsie. Można wskazać go jawnie przez `python build.py --target appimage` albo
-`python build.py --target exe`; format EXE buduje się na Windowsie, a AppImage na Linuxie.
-Wyniki znajdziesz w katalogu `dist/`.
+Windows: uruchom `build-windows.bat`. W razie braku polecenia `py` możesz utworzyć
+środowisko poleceniem `python -m venv .venv` i uruchomić skrypt ponownie.
+
+Wyniki znajdziesz w katalogu `dist/`. Sam builder można też uruchomić z aktywnego
+środowiska przez `python build.py --target appimage` lub `python build.py --target exe`;
+AppImage buduje się na Linuxie, a EXE na Windowsie.
 
 ## Główne możliwości
 
