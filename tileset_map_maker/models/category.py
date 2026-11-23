@@ -52,10 +52,10 @@ class CategoryNode:
 class CategoryTree:
     """Manages the full category tree."""
 
-    def __init__(self):
+    def __init__(self, seed_defaults: bool = False):
         self.root = CategoryNode("")
-        # Seed default categories
-        self.ensure_default_structure()
+        if seed_defaults:
+            self.ensure_default_structure()
 
     def ensure_default_structure(self):
         defaults = [
@@ -127,9 +127,11 @@ class CategoryTree:
 
     def move_category(self, src_path: str, dst_parent_path: str) -> Optional[str]:
         src_node = self.get_node(src_path)
-        dst_parent = self.get_node(dst_parent_path)
-        if not src_node or not dst_parent or not src_node.parent:
+        if not src_node or not src_node.parent:
             return None
+        dst_parent = self.get_node(dst_parent_path)
+        if not dst_parent:
+            dst_parent = self.add_category_path(dst_parent_path)
         # Check that destination is not a descendant of source
         temp = dst_parent
         while temp and temp != self.root:

@@ -20,6 +20,7 @@ from PyQt6.QtGui import QAction, QKeySequence, QIcon
 from ..models.project import Project
 from ..models.asset import Asset, AssetType, SelectedSubTile
 from ..core.asset_manager import AssetManager
+from ..core.config_manager import ConfigManager
 from ..core.render_engine import RenderEngine
 from ..core.history import HistoryManager
 from ..core.project_io import ProjectIO
@@ -54,6 +55,7 @@ class MainWindow(QMainWindow):
         self.resize(1400, 880)
 
         # Core systems
+        self.config_manager = ConfigManager()
         self.asset_manager = AssetManager()
         self.project = Project(map_width=30, map_height=20, tile_size=32)
         self.map_histories: Dict[str, HistoryManager] = {}
@@ -133,7 +135,7 @@ class MainWindow(QMainWindow):
         self.tileset_dock.setObjectName("TilesetPaletteDock")
         self.tileset_dock.setFeatures(dock_features)
         self.tileset_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.BottomDockWidgetArea)
-        self.tileset_palette = TilesetPaletteWidget(self.asset_manager, self.tileset_dock)
+        self.tileset_palette = TilesetPaletteWidget(self.asset_manager, config_manager=self.config_manager, parent=self.tileset_dock)
         self.tileset_dock.setWidget(self.tileset_palette)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tileset_dock)
 
@@ -623,9 +625,6 @@ class MainWindow(QMainWindow):
                         if asset:
                             from ..models.asset import TilesetConfig
                             asset.tileset_config = TilesetConfig(tile_width=tile_w, tile_height=tile_h)
-                            if asset.id not in self.tileset_palette.open_tileset_ids:
-                                self.tileset_palette.open_tileset_ids.append(asset.id)
-                            self.tileset_palette.refresh_tilesets()
                             self.tileset_palette.set_active_asset(asset)
                             self.tool_panel.select_tool_by_key("brush")
                             self.statusBar().showMessage(f"Zaimportowano tileset: {asset.name}", 3000)
@@ -804,10 +803,32 @@ class MainWindow(QMainWindow):
         if state:
             self.restoreState(state)
 
+        # Restore persistent tileset library from ConfigManager
+        active_id, expanded = self.config_manager.restore_tileset_library(self.asset_manager)
+        if hasattr(self, "tileset_palette"):
+            self.tileset_palette.expanded_folders = list(expanded)
+            self.tileset_palette.refresh_tilesets()
+            if active_id:
+                active_asset = self.asset_manager.get_asset(active_id)
+                if active_asset:
+                    self.tileset_palette.set_active_asset(active_asset)
+
     def closeEvent(self, event) -> None:
         settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
-        settings.setValue("geometry", self.saveGeometry())
-        settings.setValue("windowState", self.saveState())
+        geom = self.saveGeometry()
+        state = self.saveState()
+        settings.setValue("geometry", geom)
+        settings.setValue("windowState", state)
         if hasattr(self, "tileset_palette"):
             self.tileset_palette.save_splitter_state()
+            self.tileset_palette._auto_save_library()
+
+        # Save to ConfigManager
+        geom_b64 = geom.toBase64().data().decode("ascii") if geom else ""
+        state_b64 = state.toBase64().data().decode("ascii") if state else ""
+        splitter_b64 = ""
+        if hasattr(self, "tileset_palette") and hasattr(self.tileset_palette, "splitter"):
+            splitter_b64 = self.tileset_palette.splitter.saveState().toBase64().data().decode("ascii")
+        self.config_manager.save_window_state(geom_b64, state_b64, splitter_b64)
+
         super().closeEvent(event)

@@ -262,17 +262,27 @@ class AssetManager(QObject):
         folder_path: str,
         parent_category: str = "",
         skip_duplicates: bool = True,
+        default_tileset_config: Optional[TilesetConfig] = None,
+        force_asset_type: Optional[AssetType] = None,
+        target_category_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Recursively scans a folder and maps directory structure
         into categories and subcategories in the library.
+        Preserves complete nested hierarchy.
         """
+        if target_category_path is not None:
+            parent_category = target_category_path
+
         if not os.path.isdir(folder_path):
             return {
                 "imported_count": 0,
                 "duplicates_count": 0,
+                "skipped_count": 0,
+                "error_count": 1,
                 "errors": [f"Ścieżka nie jest katalogiem: {folder_path}"],
                 "imported": [],
+                "skipped_files": [],
             }
 
         root_name = os.path.basename(folder_path.rstrip(os.sep))
@@ -285,35 +295,117 @@ class AssetManager(QObject):
         imported = []
         duplicates = []
         errors = []
+        skipped_files = []
+
+        # Supported image file extensions
+        valid_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
         for dirpath, _, filenames in os.walk(folder_path):
-            # Calculate relative category path
+            # Calculate relative category path matching folder hierarchy
             rel_dir = os.path.relpath(dirpath, folder_path)
             if rel_dir == ".":
                 cat_path = base_cat
             else:
                 cat_path = f"{base_cat}/{rel_dir}".replace(os.sep, "/")
 
+            # Ensure category node exists even if folder is empty
+            self.category_tree.add_category_path(cat_path)
+
             for filename in sorted(filenames):
                 ext = os.path.splitext(filename)[1].lower()
-                if ext in [".png", ".jpg", ".jpeg", ".bmp", ".webp"]:
-                    full_path = os.path.join(dirpath, filename)
+                full_path = os.path.join(dirpath, filename)
+
+                if ext in valid_extensions:
                     asset, is_dup, err = self.import_single_file(
-                        full_path, target_category_path=cat_path, skip_duplicates=skip_duplicates
+                        full_path,
+                        target_category_path=cat_path,
+                        skip_duplicates=skip_duplicates,
+                        force_asset_type=force_asset_type,
                     )
                     if asset and not is_dup:
+                        if default_tileset_config:
+                            asset.tileset_config = TilesetConfig(
+                                tile_width=default_tileset_config.tile_width,
+                                tile_height=default_tileset_config.tile_height,
+                                margin_x=default_tileset_config.margin_x,
+                                margin_y=default_tileset_config.margin_y,
+                                spacing_x=default_tileset_config.spacing_x,
+                                spacing_y=default_tileset_config.spacing_y,
+                                start_x=default_tileset_config.start_x,
+                                start_y=default_tileset_config.start_y,
+                            )
                         imported.append(asset)
                     elif is_dup:
                         duplicates.append(full_path)
                     elif err:
                         errors.append(f"{filename}: {err}")
+                else:
+                    skipped_files.append(full_path)
+
+        self.categories_changed.emit()
+        self.assets_changed.emit()
 
         return {
             "imported_count": len(imported),
             "duplicates_count": len(duplicates),
+            "skipped_count": len(skipped_files),
+            "error_count": len(errors),
             "errors": errors,
             "imported": imported,
+            "skipped_files": skipped_files,
         }
+
+    def rename_asset(self, asset_id: str, new_name: str) -> bool:
+        """Renames an asset label in the library without altering disk file."""
+        asset = self.get_asset(asset_id)
+        if not asset or not new_name.strip():
+            return False
+        asset.name = new_name.strip()
+        self.assets_changed.emit()
+        return True
+
+    def rename_category(self, old_path: str, new_name: str) -> Optional[str]:
+        """Renames a category folder and updates paths of all containing assets."""
+        new_path = self.category_tree.rename_category(old_path, new_name)
+        if not new_path:
+            return None
+
+        # Update all assets belonging to this category or subcategories
+        for asset in self.assets.values():
+            if asset.category_path == old_path:
+                asset.category_path = new_path
+            elif asset.category_path.startswith(old_path + "/"):
+                suffix = asset.category_path[len(old_path):]
+                asset.category_path = new_path + suffix
+
+        self.categories_changed.emit()
+        self.assets_changed.emit()
+        return new_path
+
+    def delete_category(self, category_path: str, delete_assets: bool = False) -> bool:
+        """
+        Deletes a category folder. If delete_assets is True, removes assets from library.
+        If delete_assets is False, safely moves assets to the parent category.
+        Never touches or deletes source files on disk.
+        """
+        node = self.category_tree.get_node(category_path)
+        if not node or node == self.category_tree.root:
+            return False
+
+        parent_path = node.parent.path if (node.parent and node.parent != self.category_tree.root) else ""
+        all_child_asset_ids = node.get_all_asset_ids()
+
+        for aid in all_child_asset_ids:
+            if delete_assets:
+                self.remove_asset(aid)
+            else:
+                self.move_asset(aid, parent_path)
+
+        success = self.category_tree.delete_category(category_path)
+        if success:
+            self.categories_changed.emit()
+            self.assets_changed.emit()
+        return success
 
     def set_asset_type(
         self,
@@ -371,7 +463,7 @@ class AssetManager(QObject):
         if old_node and asset_id in old_node.asset_ids:
             old_node.asset_ids.remove(asset_id)
 
-        new_cat = new_category_path.strip("/") or "Custom"
+        new_cat = new_category_path.strip("/")
         new_node = self.category_tree.add_category_path(new_cat)
         if asset_id not in new_node.asset_ids:
             new_node.asset_ids.append(asset_id)
