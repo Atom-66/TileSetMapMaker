@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 from typing import Optional
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
@@ -28,6 +29,7 @@ class AutosaveManager(QObject):
         self.asset_manager = asset_manager
         self.interval_ms = interval_ms
         self.enabled = True
+        self._last_autosave_at = 0.0
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.perform_autosave)
@@ -36,6 +38,7 @@ class AutosaveManager(QObject):
 
     def set_project(self, project: Project) -> None:
         self.project = project
+        self._last_autosave_at = 0.0
 
     def set_interval(self, minutes: int) -> None:
         if minutes <= 0:
@@ -55,6 +58,11 @@ class AutosaveManager(QObject):
     def perform_autosave(self) -> Optional[str]:
         if not self.enabled or not self.project.is_modified:
             return None
+        now = time.monotonic()
+        if self.interval_ms > 0 and (
+            now - self._last_autosave_at < self.interval_ms / 1000
+        ):
+            return None
 
         save_path = self.get_autosave_path()
         # Preserve existing modified flag so user still knows project has unsaved edits
@@ -67,6 +75,7 @@ class AutosaveManager(QObject):
         self.project.is_modified = was_modified
 
         if success:
+            self._last_autosave_at = now
             self.autosaved.emit(save_path)
             return save_path
         return None

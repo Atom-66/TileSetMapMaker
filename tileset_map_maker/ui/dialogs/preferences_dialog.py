@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor
 
 from ...core.config_manager import ConfigManager
+from ...core.shortcuts import DEFAULT_SHORTCUTS
 from ...core.localization import get_localization, tr
 from ..widgets.switch_toggle import SwitchToggle
 from ..icons import IconFactory
@@ -304,27 +305,22 @@ class PreferencesDialog(QDialog):
         main_layout.addLayout(btn_layout)
 
     def _populate_shortcuts_table(self) -> None:
+        saved = self.settings.value("keyboard_shortcuts", {}, type=dict)
+        values = dict(DEFAULT_SHORTCUTS)
+        if isinstance(saved, dict):
+            values.update(saved)
+        preferred_order = [
+            "brush", "eraser", "fill", "wand", "selection",
+            "free_object", "eyedropper", "line", "rectangle",
+            "stamp", "radial", "undo", "redo", "copy",
+            "paste_stamp", "delete", "fullscreen",
+            "save_project", "open_project", "export",
+            "new_project", "grid", "fit",
+        ]
         shortcuts = [
-            ("brush", "B"),
-            ("eraser", "E"),
-            ("fill", "G"),
-            ("wand", "W"),
-            ("selection", "S"),
-            ("free_object", "V"),
-            ("eyedropper", "I"),
-            ("line", "L"),
-            ("rectangle", "U"),
-            ("stamp", "T"),
-            ("radial", "Q"),
-            ("undo", "Ctrl+Z"),
-            ("redo", "Ctrl+Y"),
-            ("copy", "Ctrl+C"),
-            ("paste_stamp", "Ctrl+V"),
-            ("delete", "Delete"),
-            ("fullscreen", "F11"),
-            ("save_project", "Ctrl+S"),
-            ("open_project", "Ctrl+O"),
-            ("export", "Ctrl+E"),
+            (key, values[key])
+            for key in preferred_order
+            if key in values
         ]
         self.table_shortcuts.setRowCount(len(shortcuts))
         for r, (action_key, key) in enumerate(shortcuts):
@@ -399,6 +395,13 @@ class PreferencesDialog(QDialog):
                 return
             if key:
                 used_shortcuts[key] = act
+        shortcut_data = {}
+        for r in range(self.table_shortcuts.rowCount()):
+            item = self.table_shortcuts.item(r, 0)
+            shortcut_data[item.data(Qt.ItemDataRole.UserRole)] = (
+                self.table_shortcuts.item(r, 1).text().strip()
+            )
+        self.settings.setValue("keyboard_shortcuts", shortcut_data)
 
         self.settings.setValue("default_tile_size_idx", self.combo_tile_size.currentIndex())
         self.settings.setValue("grid_opacity", self.slider_grid_opacity.value())

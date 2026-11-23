@@ -1,5 +1,10 @@
 import json
+import logging
 import os
+import copy
+import shutil
+import tempfile
+import xml.etree.ElementTree as ET
 from typing import Optional, List, Dict, Any
 from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtCore import Qt
@@ -7,10 +12,81 @@ from PyQt6.QtCore import Qt
 from ..models.project import Project
 from .asset_manager import AssetManager
 from .render_engine import RenderEngine, RenderOptions
+from .external_formats import (
+    ExternalFormatError,
+    TiledTMX,
+    resolve_safe_asset_path,
+    safe_relative_asset_path,
+)
+from .schema import PROJECT_JSON_SCHEMA, schema_errors
+from ..version import PROJECT_SCHEMA_VERSION
 
 
 class ProjectIO:
     """Handles project file serialization/deserialization and PNG exports."""
+
+    FILE_VERSION = PROJECT_SCHEMA_VERSION
+    BACKUP_SUFFIX = ".bak"
+    _last_error: Optional[str] = None
+
+    @classmethod
+    def get_last_error(cls) -> Optional[str]:
+        """Return the most recent actionable project I/O error."""
+        return cls._last_error
+
+    @classmethod
+    def _set_error(cls, message: str) -> None:
+        cls._last_error = message
+        logging.getLogger(__name__).error(message)
+
+    @staticmethod
+    def _validate_and_migrate(data: Any) -> Dict[str, Any]:
+        if not isinstance(data, dict):
+            raise ValueError("Plik projektu musi zawierać obiekt JSON.")
+
+        version = data.get("version")
+        if version not in (None, ProjectIO.FILE_VERSION, "2.0"):
+            raise ValueError(f"Nieobsługiwana wersja pliku projektu: {version!r}.")
+
+        # Older files may contain the project payload at the top level.
+        if "project" not in data and ("maps" in data or "layers" in data):
+            data = {"version": ProjectIO.FILE_VERSION, "project": data}
+
+        project_data = data.get("project")
+        if not isinstance(project_data, dict):
+            raise ValueError("Brak sekcji 'project' w pliku projektu.")
+        if not (isinstance(project_data.get("maps"), list) or
+                isinstance(project_data.get("layers"), list)):
+            raise ValueError("Sekcja 'project' nie zawiera map ani warstw.")
+        return data
+
+    @staticmethod
+    def _atomic_write(file_path: str, data: Dict[str, Any]) -> None:
+        base_dir = os.path.dirname(os.path.abspath(file_path))
+        os.makedirs(base_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(
+            dir=base_dir, prefix=f".{os.path.basename(file_path)}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+
+            if os.path.exists(file_path):
+                shutil.copy2(file_path, f"{file_path}{ProjectIO.BACKUP_SUFFIX}")
+            os.replace(temp_path, file_path)
+            try:
+                dir_fd = os.open(base_dir, os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     @staticmethod
     def save_project(
@@ -21,25 +97,30 @@ class ProjectIO:
     ) -> bool:
         """Saves project, asset library metadata, and autotile rules to a JSON .tmmap file."""
         try:
+            asset_data = copy.deepcopy(asset_manager.to_dict())
             base_dir = os.path.dirname(os.path.abspath(file_path))
-            os.makedirs(base_dir, exist_ok=True)
-
+            for asset in asset_data.get("assets", []):
+                stored_path = asset.get("file_path")
+                if stored_path:
+                    asset["file_path"] = safe_relative_asset_path(
+                        base_dir, stored_path
+                    )
             data = {
-                "version": "1.0",
+                "format": "tileset-map-maker",
+                "version": ProjectIO.FILE_VERSION,
                 "project": project.to_dict(),
-                "assets": asset_manager.to_dict(),
+                "assets": asset_data,
             }
             if autotile_engine:
                 data["autotile"] = autotile_engine.to_dict()
 
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
+            ProjectIO._atomic_write(file_path, data)
             project.file_path = file_path
             project.is_modified = False
+            ProjectIO._last_error = None
             return True
         except Exception as e:
-            print(f"Błąd zapisu projektu: {e}")
+            ProjectIO._set_error(f"Błąd zapisu projektu '{file_path}': {e}")
             return False
 
     @staticmethod
@@ -54,10 +135,25 @@ class ProjectIO:
                 return None
 
             with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+                data = ProjectIO._validate_and_migrate(json.load(f))
 
             if "assets" in data:
-                asset_manager.load_from_dict(data["assets"])
+                assets_data = copy.deepcopy(data["assets"])
+                if isinstance(assets_data, dict):
+                    assets = assets_data.get("assets", [])
+                else:
+                    assets = assets_data
+                base_dir = os.path.dirname(os.path.abspath(file_path))
+                for asset in assets:
+                    stored_path = asset.get("file_path")
+                    if stored_path:
+                        asset["file_path"] = resolve_safe_asset_path(
+                            base_dir, stored_path
+                        )
+                if isinstance(data["assets"], dict):
+                    asset_manager.load_from_dict(assets_data)
+                else:
+                    asset_manager.load_from_dict({"assets": assets})
 
             if autotile_engine and "autotile" in data:
                 autotile_engine.load_from_dict(data["autotile"])
@@ -66,9 +162,10 @@ class ProjectIO:
             project = Project.from_dict(project_data)
             project.file_path = file_path
             project.is_modified = False
+            ProjectIO._last_error = None
             return project
         except Exception as e:
-            print(f"Błąd odczytu projektu: {e}")
+            ProjectIO._set_error(f"Błąd odczytu projektu '{file_path}': {e}")
             return None
 
     @staticmethod
@@ -124,3 +221,267 @@ class ProjectIO:
         except Exception as e:
             print(f"Błąd eksportu PNG: {e}")
             return False
+
+    @staticmethod
+    def validate_project_assets(project: Project, asset_manager: AssetManager) -> List[str]:
+        referenced = {
+            item.asset_id
+            for map_model in project.maps.values()
+            for layer in map_model.layers
+            for item in list(layer.tiles.values()) + layer.objects
+            if item.asset_id
+        }
+        return sorted(
+            asset_id
+            for asset_id in referenced
+            if asset_manager.get_asset(asset_id) is None
+        )
+
+    @classmethod
+    def validate_project(
+        cls, project: Project, asset_manager: AssetManager
+    ) -> List[str]:
+        errors = cls.validate_project_assets(project, asset_manager)
+        for map_model in project.maps.values():
+            if map_model.map_width <= 0 or map_model.map_height <= 0:
+                errors.append(f"Mapa {map_model.name!r} ma niepoprawne wymiary.")
+            for layer in map_model.layers:
+                for (col, row), item in layer.tiles.items():
+                    if not (
+                        0 <= col < map_model.map_width
+                        and 0 <= row < map_model.map_height
+                    ):
+                        errors.append(
+                            f"Warstwa {layer.name!r}: kafelek poza zakresem ({col}, {row})."
+                        )
+                    if not item.asset_id:
+                        errors.append(
+                            f"Warstwa {layer.name!r}: kafelek bez asset_id."
+                        )
+                for obj in layer.objects:
+                    x, y = obj.get_pixel_pos(map_model.tile_size)
+                    if (
+                        x < 0
+                        or y < 0
+                        or x >= map_model.map_width * map_model.tile_size
+                        or y >= map_model.map_height * map_model.tile_size
+                    ):
+                        errors.append(
+                            f"Obiekt {obj.id!r} znajduje się poza mapą."
+                        )
+        return errors
+
+    @classmethod
+    def export_maps_png(
+        cls,
+        project: Project,
+        render_engine: RenderEngine,
+        output_dir: str,
+        **options: Any,
+    ) -> bool:
+        """Export every project map to a separate PNG without changing the active map."""
+        os.makedirs(output_dir, exist_ok=True)
+        previous_map_id = project.active_map_id
+        try:
+            for map_model in project.maps.values():
+                project.active_map_id = map_model.id
+                safe_name = "".join(
+                    ch if ch.isalnum() or ch in ("-", "_") else "_"
+                    for ch in map_model.name
+                ).strip("_") or map_model.id
+                if not cls.export_png(
+                    project,
+                    render_engine,
+                    os.path.join(output_dir, f"{safe_name}.png"),
+                    **options,
+                ):
+                    return False
+            return True
+        finally:
+            project.active_map_id = previous_map_id
+
+    @staticmethod
+    def export_collision_json(project: Project, file_path: str) -> bool:
+        """Export collision, trigger and interaction data for every map."""
+        try:
+            payload = {
+                "version": "1.0",
+                "tile_size": project.tile_size,
+                "maps": [
+                    {
+                        "id": map_model.id,
+                        "name": map_model.name,
+                        "width": map_model.map_width,
+                        "height": map_model.map_height,
+                        "tile_size": map_model.tile_size,
+                        "layers": [
+                            {
+                                "id": layer.id,
+                                "name": layer.name,
+                                "type": layer.layer_type,
+                                "collisions": [
+                                    collision.to_dict()
+                                    for collision in layer.collisions
+                                ],
+                                "objects": [
+                                    {
+                                        "id": obj.id,
+                                        "x": obj.get_pixel_pos(map_model.tile_size)[0],
+                                        "y": obj.get_pixel_pos(map_model.tile_size)[1],
+                                        "type": obj.object_type,
+                                        "z_index": obj.z_index,
+                                        "interaction_label": obj.interaction_label,
+                                        "interaction_radius": obj.interaction_radius,
+                                        "properties": obj.properties,
+                                        "property_types": obj.property_types,
+                                    }
+                                    for obj in layer.objects
+                                    if (
+                                        obj.interaction_label
+                                        or obj.interaction_radius > 0
+                                        or layer.layer_type == "object"
+                                    )
+                                ],
+                            }
+                            for layer in map_model.layers
+                            if layer.layer_type in ("object", "collision")
+                        ],
+                    }
+                    for map_model in project.maps.values()
+                ],
+            }
+            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+            ProjectIO._atomic_write(file_path, payload)
+            ProjectIO._last_error = None
+            return True
+        except Exception as exc:
+            ProjectIO._set_error(
+                f"Błąd eksportu kolizji '{file_path}': {exc}"
+            )
+            return False
+
+    @classmethod
+    def export_public_json(
+        cls,
+        project: Project,
+        asset_manager: AssetManager,
+        file_path: str,
+        autotile_engine: Optional[Any] = None,
+    ) -> bool:
+        try:
+            errors = cls.validate_project(project, asset_manager)
+            if errors:
+                cls._set_error("Eksport zablokowany: " + "; ".join(errors))
+                return False
+            base_dir = os.path.dirname(os.path.abspath(file_path))
+            assets = []
+            for asset in copy.deepcopy(asset_manager.to_dict().get("assets", [])):
+                asset["file_path"] = safe_relative_asset_path(
+                    base_dir, asset.get("file_path", "")
+                )
+                assets.append(asset)
+            payload = {
+                "format": "tileset-map-maker",
+                "version": cls.FILE_VERSION,
+                "project": project.to_dict(),
+                "assets": assets,
+            }
+            if autotile_engine:
+                payload["autotile"] = autotile_engine.to_dict()
+            errors = schema_errors(payload)
+            if errors:
+                cls._set_error("Eksport narusza schemat: " + "; ".join(errors))
+                return False
+            cls._atomic_write(file_path, payload)
+            cls._last_error = None
+            return True
+        except Exception as exc:
+            cls._set_error(f"Błąd eksportu JSON '{file_path}': {exc}")
+            return False
+
+    @classmethod
+    def export_bundle(
+        cls,
+        project: Project,
+        asset_manager: AssetManager,
+        render_engine: RenderEngine,
+        output_dir: str,
+        autotile_engine: Optional[Any] = None,
+    ) -> bool:
+        try:
+            if cls.validate_project(project, asset_manager):
+                cls._set_error("Eksport pakietu zablokowany przez walidację.")
+                return False
+            os.makedirs(os.path.join(output_dir, "assets"), exist_ok=True)
+            map_dir = os.path.join(output_dir, "maps")
+            os.makedirs(map_dir, exist_ok=True)
+            for asset in asset_manager.assets.values():
+                if not os.path.isfile(asset.file_path):
+                    continue
+                extension = os.path.splitext(asset.file_path)[1]
+                destination = os.path.join(
+                    output_dir,
+                    "assets",
+                    f"{asset.id}{extension}",
+                )
+                shutil.copy2(asset.file_path, destination)
+            if not cls.export_maps_png(
+                project, render_engine, map_dir, transparent_bg=True
+            ):
+                return False
+            public_path = os.path.join(output_dir, "project.json")
+            if not cls.export_public_json(
+                project, asset_manager, public_path, autotile_engine
+            ):
+                return False
+            with open(public_path, "r", encoding="utf-8") as handle:
+                bundle_manifest = json.load(handle)
+            for manifest_asset in bundle_manifest["assets"]:
+                source = asset_manager.get_asset(manifest_asset["id"])
+                if source and os.path.isfile(source.file_path):
+                    extension = os.path.splitext(source.file_path)[1]
+                    manifest_asset["file_path"] = (
+                        f"assets/{source.id}{extension}"
+                    )
+            cls._atomic_write(public_path, bundle_manifest)
+            if not cls.export_collision_json(
+                project, os.path.join(output_dir, "gameplay.json")
+            ):
+                return False
+            return True
+        except Exception as exc:
+            cls._set_error(f"Błąd eksportu pakietu '{output_dir}': {exc}")
+            return False
+
+    @classmethod
+    def export_tmx(
+        cls,
+        project: Project,
+        asset_manager: AssetManager,
+        file_path: str,
+    ) -> bool:
+        try:
+            TiledTMX.export_project(project, asset_manager, file_path)
+            cls._last_error = None
+            return True
+        except (ExternalFormatError, OSError, ValueError) as exc:
+            cls._set_error(f"Błąd eksportu TMX '{file_path}': {exc}")
+            return False
+
+    @classmethod
+    def import_tmx(
+        cls, file_path: str, asset_manager: AssetManager
+    ) -> Optional[Project]:
+        try:
+            project = TiledTMX.import_project(file_path, asset_manager)
+            project.file_path = None
+            project.is_modified = True
+            cls._last_error = None
+            return project
+        except (ET.ParseError, ExternalFormatError, OSError, ValueError) as exc:
+            cls._set_error(f"Błąd importu TMX '{file_path}': {exc}")
+            return None
+
+    @staticmethod
+    def get_public_schema() -> Dict[str, Any]:
+        return copy.deepcopy(PROJECT_JSON_SCHEMA)

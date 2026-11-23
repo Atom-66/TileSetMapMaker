@@ -1,6 +1,7 @@
 import os
+import sys
 from typing import Optional, List, Dict
-from PyQt6.QtCore import Qt, QSize, QSettings
+from PyQt6.QtCore import Qt, QSize, QSettings, QTimer
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -29,6 +30,9 @@ from ..core.autosave_manager import AutosaveManager
 from ..core.autotile_engine import AutoTileEngine
 from ..core.set_manager import SetManager
 from ..core.stamp_manager import StampManager
+from ..core.app_services import DiagnosticService, InterfaceProfileService
+from ..core.shortcuts import ShortcutManager
+from ..models.terrain import TerrainGenerator
 from ..core.tools.select_tool import SelectTool
 from ..core.tools.wand import WandTool
 from ..core.tools.object_tool import ObjectTool
@@ -48,6 +52,8 @@ from .drag_safety import DragSafetyManager
 from .dialogs.autotile_dialog import AutoTileDialog
 from .dialogs.path_generator_dialog import PathGeneratorDialog
 from .dialogs.tileset_import_dialog import TilesetImportDialog
+from .dialogs.terrain_generator_dialog import TerrainGeneratorDialog
+from .notification_center import NotificationBanner
 from ..core.localization import init_localization, tr, retranslate_application
 
 
@@ -60,6 +66,7 @@ class MainWindow(QMainWindow):
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         super().__init__()
         self.drag_safety = DragSafetyManager(QApplication.instance())
+        self.diagnostics = DiagnosticService()
         self.config_manager = config_manager or ConfigManager()
         self.localization = init_localization(self.config_manager)
         self.localization.languageChanged.connect(self._apply_language)
@@ -74,6 +81,10 @@ class MainWindow(QMainWindow):
         self.set_manager = SetManager()
         self.stamp_manager = StampManager()
         self.autotile_engine = AutoTileEngine()
+        self.terrain_generator = TerrainGenerator()
+        shortcut_settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
+        self.shortcut_manager = ShortcutManager(shortcut_settings)
+        self.profile_service = InterfaceProfileService(shortcut_settings)
         self.autosave_manager = AutosaveManager(self.project, self.asset_manager, parent=self)
         self.autosave_manager.autosaved.connect(self._on_autosaved)
 
@@ -86,6 +97,11 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._update_status_bar()
         self._apply_language(self.localization.get_language())
+        if "unittest" not in sys.modules and not shortcut_settings.value(
+            "onboarding_completed", False, type=bool
+        ):
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(250, self.show_onboarding)
 
     def _init_ui(self) -> None:
         central_container = QWidget()
@@ -93,6 +109,7 @@ class MainWindow(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         self.central_layout = central_layout
+        self.notification_banner = NotificationBanner(central_container)
 
         # Contextual Brush Options Ribbon (Top of Canvas)
         self.canvas = MapCanvas(
@@ -128,6 +145,7 @@ class MainWindow(QMainWindow):
         mid_layout.addWidget(self.canvas, 1)
 
         central_layout.addWidget(mid_widget, 1)
+        central_layout.addWidget(self.notification_banner)
         self.setCentralWidget(central_container)
 
         # Initial tool setup
@@ -160,7 +178,7 @@ class MainWindow(QMainWindow):
         self.tool_dock.setObjectName("ToolDock")
         self.tool_dock.setFeatures(dock_features)
         self.tool_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        self.tool_dock.setFixedWidth(44)
+        self.tool_dock.setMinimumWidth(44)
         self.tool_dock.setWidget(self.tool_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tool_dock)
 
@@ -247,12 +265,26 @@ class MainWindow(QMainWindow):
         self.lbl_status_zoom = QLabel(f"{tr('status.zoom')}: 200%")
         self.lbl_status_layer = QLabel(f"{tr('status.layer')}: Ground")
         self.lbl_status_asset = QLabel(f"{tr('status.asset')}: {tr('status.none')}")
+        self.lbl_status_performance = QLabel("Render: -- ms | RAM: -- MB")
 
         self.status_bar.addWidget(self.lbl_status_pos)
         self.status_bar.addWidget(self.lbl_status_size)
         self.status_bar.addWidget(self.lbl_status_zoom)
         self.status_bar.addWidget(self.lbl_status_layer)
         self.status_bar.addWidget(self.lbl_status_asset)
+        self.status_bar.addPermanentWidget(self.lbl_status_performance)
+        self.performance_timer = QTimer(self)
+        self.performance_timer.setInterval(1000)
+        self.performance_timer.timeout.connect(self._update_performance_status)
+        self.performance_timer.start()
+
+    def _update_performance_status(self) -> None:
+        summary = self.render_engine.metrics.summary()
+        self.lbl_status_performance.setText(
+            f"Render: {summary['last_render_ms']:.1f} ms "
+            f"({summary['last_visible_items']} elem.) | "
+            f"RAM: {summary['memory_mb']:.0f} MB"
+        )
 
     def _init_toolbar(self) -> None:
         self.toolbar = CustomizableToolBar("Główny pasek narzędzi", toolbar_id="main", parent=self)
@@ -326,6 +358,13 @@ class MainWindow(QMainWindow):
         self.act_fit.triggered.connect(self.canvas.fit_to_view)
         self.addAction(self.act_fit)
 
+        self.act_command_search = QAction(
+            IconFactory.get_icon("search", 20), "Szukaj polecenia...", self
+        )
+        self.act_command_search.setShortcut("Ctrl+K")
+        self.act_command_search.triggered.connect(self.open_command_search)
+        self.addAction(self.act_command_search)
+
         self.act_palette = self.tileset_dock.toggleViewAction()
         self.act_palette.setIcon(IconFactory.get_icon("palette", 20))
         self.act_palette.setText("Paleta")
@@ -350,6 +389,13 @@ class MainWindow(QMainWindow):
         self.act_randomizer = QAction(IconFactory.get_icon("randomizer", 20), "Randomizer", self)
         self.act_randomizer.setToolTip(tr("tooltip.randomizer"))
         self.act_randomizer.triggered.connect(self.brush_options.open_randomizer_dialog)
+
+        self.act_terrain_generator = QAction(
+            IconFactory.get_icon("terrain", 20), "Generator terenu", self
+        )
+        self.act_terrain_generator.triggered.connect(
+            self.open_terrain_generator_dialog
+        )
 
         # 5. System actions
         self.act_settings = QAction(IconFactory.get_icon("settings", 20), "Ustawienia", self)
@@ -412,6 +458,7 @@ class MainWindow(QMainWindow):
 
         # Load layout configuration (or safe default)
         self.toolbar_manager.load_layout()
+        self._apply_shortcuts()
 
         # Banner for interactive Drag & Drop customization mode
         self.toolbar_edit_banner = ToolbarEditModeBanner(self.toolbar_manager, parent=self)
@@ -426,6 +473,9 @@ class MainWindow(QMainWindow):
         menu_file = mb.addMenu("&Plik")
         menu_file.addAction(self.act_new)
         menu_file.addAction(self.act_open)
+        act_open_last = QAction(IconFactory.get_icon("open", 16), "Otwórz ostatnią sesję", self)
+        act_open_last.triggered.connect(self.open_last_session)
+        menu_file.addAction(act_open_last)
         menu_file.addAction(self.act_save)
         act_save_as = QAction(IconFactory.get_icon("save-as", 16), "Zapisz jako...", self)
         act_save_as.setShortcut("Ctrl+Shift+S")
@@ -433,6 +483,16 @@ class MainWindow(QMainWindow):
         menu_file.addAction(act_save_as)
         menu_file.addSeparator()
         menu_file.addAction(self.act_export)
+        act_export_tmx = QAction(
+            IconFactory.get_icon("export", 16), "Eksportuj Tiled TMX...", self
+        )
+        act_export_tmx.triggered.connect(self.export_tmx_dialog)
+        menu_file.addAction(act_export_tmx)
+        act_export_bundle = QAction(
+            IconFactory.get_icon("export", 16), "Eksportuj pakiet projektu...", self
+        )
+        act_export_bundle.triggered.connect(self.export_bundle_dialog)
+        menu_file.addAction(act_export_bundle)
         menu_file.addSeparator()
         act_exit = QAction(IconFactory.get_icon("exit", 16), "Zamknij program", self)
         act_exit.setShortcut("Ctrl+Q")
@@ -524,6 +584,19 @@ class MainWindow(QMainWindow):
         menu_view.addAction(self.tool_dock.toggleViewAction())
 
         menu_view.addSeparator()
+        menu_view.addAction(self.act_command_search)
+        act_save_profile = QAction("Zapisz profil interfejsu...", self)
+        act_save_profile.triggered.connect(self.save_interface_profile)
+        menu_view.addAction(act_save_profile)
+        act_load_profile = QAction("Wczytaj profil interfejsu...", self)
+        act_load_profile.triggered.connect(self.load_interface_profile)
+        menu_view.addAction(act_load_profile)
+        act_onboarding = QAction("Samouczek pierwszego uruchomienia", self)
+        act_onboarding.triggered.connect(self.show_onboarding)
+        menu_view.addAction(act_onboarding)
+        act_diagnostics = QAction("Eksportuj diagnostykę...", self)
+        act_diagnostics.triggered.connect(self.export_diagnostics)
+        menu_view.addAction(act_diagnostics)
         menu_view.addAction(self._make_widget_toggle_action("Pasek zakładek map", self.map_tab_bar))
         menu_view.addAction(self.toolbar.toggleViewAction())
         menu_view.addAction(self.secondary_toolbar.toggleViewAction())
@@ -557,10 +630,10 @@ class MainWindow(QMainWindow):
         menu_view.addAction(self.act_fit)
         menu_view.addSeparator()
         menu_view.addAction(self.act_reset_ui)
-        act_full = QAction(IconFactory.get_icon("fullscreen", 16), "Pełny obszar roboczy (F11)", self)
-        act_full.setShortcut("F11")
-        act_full.triggered.connect(self._toggle_fullscreen_workspace)
-        menu_view.addAction(act_full)
+        self.act_full = QAction(IconFactory.get_icon("fullscreen", 16), "Pełny obszar roboczy (F11)", self)
+        self.act_full.setShortcut("F11")
+        self.act_full.triggered.connect(self._toggle_fullscreen_workspace)
+        menu_view.addAction(self.act_full)
 
         # 4. Narzędzia
         menu_tools = mb.addMenu("&Narzędzia")
@@ -574,6 +647,7 @@ class MainWindow(QMainWindow):
         menu_tools.addAction(self.act_autotile)
         menu_tools.addAction(self.act_path_gen)
         menu_tools.addAction(self.act_randomizer)
+        menu_tools.addAction(self.act_terrain_generator)
         menu_tools.addAction(self.act_save_stamp)
 
         # 5. Pomoc
@@ -634,11 +708,13 @@ class MainWindow(QMainWindow):
             Qt.Key.Key_I: "eyedropper",
             Qt.Key.Key_T: "stamp",
         }
+        self.tool_shortcut_actions = {}
         for key, name in tool_keys.items():
             act = QAction(self)
             act.setShortcut(QKeySequence(key))
             act.triggered.connect(lambda checked, n=name: self.tool_panel.select_tool_by_key(n))
             self.addAction(act)
+            self.tool_shortcut_actions[name] = act
 
         act_copy = QAction(self)
         act_copy.setShortcut(QKeySequence.StandardKey.Copy)
@@ -654,18 +730,59 @@ class MainWindow(QMainWindow):
         act_delete.setShortcut(QKeySequence.StandardKey.Delete)
         act_delete.triggered.connect(self._delete_selection)
         self.addAction(act_delete)
+        self._apply_shortcuts()
+        tool_shortcut_map = {
+            "brush": "brush",
+            "eraser": "eraser",
+            "fill": "fill",
+            "line": "line",
+            "rect": "rectangle",
+            "select": "selection",
+            "wand": "wand",
+            "object": "free_object",
+            "eyedropper": "eyedropper",
+            "stamp": "stamp",
+        }
+        self.shortcut_manager.register_many(
+            {
+                shortcut_key: self.tool_shortcut_actions[tool_name]
+                for tool_name, shortcut_key in tool_shortcut_map.items()
+            }
+        )
+
+    def _apply_shortcuts(self) -> None:
+        actions = {
+            "new_project": getattr(self, "act_new", None),
+            "open_project": getattr(self, "act_open", None),
+            "save_project": getattr(self, "act_save", None),
+            "undo": getattr(self, "act_undo", None),
+            "redo": getattr(self, "act_redo", None),
+            "fullscreen": getattr(self, "act_full", None),
+            "grid": getattr(self, "act_grid", None),
+            "fit": getattr(self, "act_fit", None),
+            "export": getattr(self, "act_export", None),
+        }
+        self.shortcut_manager.register_many(
+            {key: action for key, action in actions.items() if action}
+        )
 
     def _connect_events(self) -> None:
         self.tool_panel.tool_changed.connect(self._on_tool_changed)
         if hasattr(self, "tool_dock") and hasattr(self.tool_panel, "on_dock_location_changed"):
-            self.tool_dock.dockLocationChanged.connect(self.tool_panel.on_dock_location_changed)
             self.tool_dock.dockLocationChanged.connect(self._update_tool_dock_width)
             self.tool_dock.topLevelChanged.connect(self._update_tool_dock_width)
+            self.tool_panel.orientation_changed.connect(
+                lambda _orientation: QTimer.singleShot(0, self._update_tool_dock_width)
+            )
         self.canvas.quick_tool_requested.connect(self.tool_panel.select_tool_by_key)
         self.layer_panel.layer_changed.connect(self._on_layers_modified)
         self.canvas.cursor_moved.connect(self._on_cursor_moved)
         self.canvas.zoom_changed.connect(self._on_zoom_changed)
         self.canvas.files_dropped.connect(self._on_files_dropped)
+        self.canvas.object_selected.connect(
+            self.properties_panel.set_selected_item
+        )
+        self.properties_panel.object_changed.connect(self.canvas.update)
 
         self.asset_manager.asset_selected.connect(self._on_asset_selected)
         self.history_manager.history_changed.connect(self._on_history_changed)
@@ -695,14 +812,16 @@ class MainWindow(QMainWindow):
 
     def _update_tool_dock_width(self, *args) -> None:
         area = self.dockWidgetArea(self.tool_dock)
+        self.tool_dock.setMinimumWidth(44)
+        self.tool_dock.setMaximumWidth(16777215)
+        self.tool_dock.setMaximumHeight(16777215)
         if self.tool_dock.isFloating():
-            self.tool_dock.setMinimumWidth(44)
-            self.tool_dock.setMaximumWidth(16777215)
-        elif area in (Qt.DockWidgetArea.LeftDockWidgetArea, Qt.DockWidgetArea.RightDockWidgetArea):
-            self.tool_dock.setFixedWidth(44)
+            self.tool_panel.on_dock_location_changed(
+                Qt.DockWidgetArea.NoDockWidgetArea
+            )
         else:
-            self.tool_dock.setMinimumWidth(44)
-            self.tool_dock.setMaximumWidth(16777215)
+            self.tool_panel.on_dock_location_changed(area)
+        QTimer.singleShot(0, self.tool_panel.updateGeometry)
 
     def get_map_history(self, map_id: str) -> HistoryManager:
         if map_id not in self.map_histories:
@@ -977,6 +1096,14 @@ class MainWindow(QMainWindow):
     def open_autotile_dialog(self) -> None:
         dlg = AutoTileDialog(self.autotile_engine, self.asset_manager, self)
         if dlg.exec():
+            changes = self.autotile_engine.recalculate_project(self.project)
+            if changes:
+                self.project.is_modified = True
+                self.canvas.update()
+                self.statusBar().showMessage(
+                    f"Przeliczono Auto-Tiling: {sum(len(v) for v in changes.values())} kafelków",
+                    3000,
+                )
             if hasattr(self, "brush_options") and hasattr(self.brush_options, "refresh_rulesets"):
                 self.brush_options.refresh_rulesets()
 
@@ -990,10 +1117,30 @@ class MainWindow(QMainWindow):
             if hasattr(self, "config_manager"):
                 self.config_manager.save_autotile_rules(self.autotile_engine)
 
+    def open_terrain_generator_dialog(self) -> None:
+        dialog = TerrainGeneratorDialog(
+            self.project,
+            self.autotile_engine,
+            self.terrain_generator,
+            self.history_manager,
+            self,
+        )
+        dialog.generated.connect(
+            lambda _result: (
+                self.canvas.update(),
+                self.layer_panel.refresh_layers(),
+                self._update_title(),
+            )
+        )
+        dialog.exec()
+        self.config_manager.save_terrain_generator(self.terrain_generator)
+
     def _on_autosaved(self, path: str) -> None:
         self.statusBar().showMessage(f"Autozapis wykonany ({os.path.basename(path)})", 2500)
 
     def new_project(self) -> None:
+        if not self._confirm_unsaved_changes():
+            return
         self.project = Project(
             name=tr("dialog.project.new_name"),
             map_width=30,
@@ -1015,35 +1162,95 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._update_status_bar()
 
-    def open_project(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            tr("dialog.project.open_title"),
-            "",
-            tr("dialog.project.file_filter"),
-        )
-        if path:
-            proj = ProjectIO.load_project(path, self.asset_manager, autotile_engine=self.autotile_engine)
-            if proj:
-                self.project = proj
-                self.map_histories.clear()
-                self._set_active_history_manager(self.get_map_history(self.project.active_map_id))
-                self.autosave_manager.set_project(self.project)
-                self.canvas.set_project(self.project)
-                self.layer_panel.set_project(self.project)
-                self.map_tab_bar.set_project(self.project)
-                self.properties_panel.set_project(self.project)
-                if hasattr(self, "minimap_widget") and self.minimap_widget:
-                    self.minimap_widget.set_project(self.project)
-                self.tileset_palette.refresh_tilesets()
-                self._update_title()
-                self._update_status_bar()
-            else:
-                QMessageBox.critical(
+    def open_project(self, path: Optional[str] = None) -> None:
+        if not path and not self._confirm_unsaved_changes():
+            return
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                tr("dialog.project.open_title"),
+                self.config_manager.get_last_project_path(),
+                "Projekty (*.tmmap *.json);;Tiled (*.tmx);;Wszystkie pliki (*.*)",
+            )
+        if not path:
+            return
+
+        if os.path.splitext(path)[1].casefold() == ".tmx":
+            proj = ProjectIO.import_tmx(path, self.asset_manager)
+        else:
+            proj = ProjectIO.load_project(
+                path, self.asset_manager, autotile_engine=self.autotile_engine
+            )
+        if proj:
+            self.project = proj
+            self.map_histories.clear()
+            self._set_active_history_manager(
+                self.get_map_history(self.project.active_map_id)
+            )
+            self.autosave_manager.set_project(self.project)
+            self.canvas.set_project(self.project)
+            self.layer_panel.set_project(self.project)
+            self.map_tab_bar.set_project(self.project)
+            self.properties_panel.set_project(self.project)
+            if hasattr(self, "minimap_widget") and self.minimap_widget:
+                self.minimap_widget.set_project(self.project)
+            self.tileset_palette.refresh_tilesets()
+            self.config_manager.set_last_project_path(path)
+            self._update_title()
+            self._update_status_bar()
+            self.notification_banner.show_message(
+                f"Otwarto projekt '{proj.name}'.", "success"
+            )
+        else:
+            self.diagnostics.logger.error(
+                ProjectIO.get_last_error() or "Nie udało się otworzyć projektu"
+            )
+            self.notification_banner.show_message(
+                "Nie udało się otworzyć projektu.",
+                "error",
+                lambda: QMessageBox.critical(
                     self,
-                    tr("dialog.export.error_title"),
-                    tr("dialog.project.open_error"),
-                )
+                    "Błąd projektu",
+                    ProjectIO.get_last_error()
+                    or "Nie udało się otworzyć projektu.",
+                ),
+            )
+            QMessageBox.critical(
+                self,
+                tr("dialog.export.error_title"),
+                tr("dialog.project.open_error"),
+            )
+
+    def open_last_session(self) -> None:
+        path = self.config_manager.get_last_project_path()
+        if not path or not os.path.exists(path):
+            QMessageBox.information(
+                self,
+                tr("dialog.project.open_title"),
+                "Brak ostatnio używanego projektu do otwarcia.",
+            )
+            return
+        if self._confirm_unsaved_changes():
+            self.open_project(path)
+
+    def _confirm_unsaved_changes(self) -> bool:
+        if not self.project.is_modified:
+            return True
+        answer = QMessageBox.question(
+            self,
+            tr("dialog.map.save"),
+            "Bieżący projekt zawiera niezapisane zmiany. Zapisać je?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if answer == QMessageBox.StandardButton.Cancel:
+            return False
+        if answer == QMessageBox.StandardButton.Save:
+            self.save_project()
+            return not self.project.is_modified
+        return True
 
     def save_project(self) -> None:
         if not self.project.file_path:
@@ -1065,9 +1272,26 @@ class MainWindow(QMainWindow):
         )
         if ok:
             self.autosave_manager.cleanup_autosave(self.project.file_path)
+            self.config_manager.set_last_project_path(self.project.file_path)
             self._update_title()
             self.statusBar().showMessage(tr("dialog.project.saved"), 3000)
+            self.notification_banner.show_message(
+                "Projekt zapisano pomyślnie.", "success"
+            )
         else:
+            self.diagnostics.logger.error(
+                ProjectIO.get_last_error() or "Nie udało się zapisać projektu"
+            )
+            self.notification_banner.show_message(
+                "Nie udało się zapisać projektu.",
+                "error",
+                lambda: QMessageBox.critical(
+                    self,
+                    "Błąd zapisu",
+                    ProjectIO.get_last_error()
+                    or "Nie udało się zapisać projektu.",
+                ),
+            )
             QMessageBox.critical(
                 self,
                 tr("dialog.export.error_title"),
@@ -1085,6 +1309,39 @@ class MainWindow(QMainWindow):
         dlg = ExportDialog(self.project, self.render_engine, self)
         dlg.exec()
 
+    def export_tmx_dialog(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Eksport Tiled TMX",
+            f"{self.project.name}.tmx",
+            "Tiled Map (*.tmx)",
+        )
+        if path and not ProjectIO.export_tmx(
+            self.project, self.asset_manager, path
+        ):
+            QMessageBox.critical(
+                self,
+                "Eksport TMX",
+                ProjectIO.get_last_error() or "Nie udało się wyeksportować TMX.",
+            )
+
+    def export_bundle_dialog(self) -> None:
+        output_dir = QFileDialog.getExistingDirectory(
+            self, "Katalog eksportu pakietu projektu", ""
+        )
+        if output_dir and not ProjectIO.export_bundle(
+            self.project,
+            self.asset_manager,
+            self.render_engine,
+            output_dir,
+            self.autotile_engine,
+        ):
+            QMessageBox.critical(
+                self,
+                "Eksport pakietu",
+                ProjectIO.get_last_error() or "Nie udało się wyeksportować pakietu.",
+            )
+
     def open_shortcuts_dialog(self) -> None:
         dlg = ShortcutsDialog(self)
         dlg.exec()
@@ -1093,6 +1350,9 @@ class MainWindow(QMainWindow):
         dlg = PreferencesDialog(self)
         if dlg.exec():
             settings = dlg.settings
+            saved = settings.value("keyboard_shortcuts", {}, type=dict)
+            if isinstance(saved, dict):
+                self.shortcut_manager.set_shortcuts(saved)
             show_hud = settings.value("show_hud", True, type=bool)
             show_grid = settings.value("show_grid", True, type=bool)
             op = settings.value("grid_opacity", 35, type=int)
@@ -1104,6 +1364,100 @@ class MainWindow(QMainWindow):
             if as_idx < len(intervals):
                 self.autosave_manager.set_interval(intervals[as_idx])
             self.canvas.update()
+
+    def open_command_search(self) -> None:
+        actions = [
+            action
+            for action in self.findChildren(QAction)
+            if not action.isSeparator() and action.text()
+        ]
+        labels = sorted({action.text().replace("&", "") for action in actions})
+        if not labels:
+            return
+        selected, ok = QInputDialog.getItem(
+            self, "Szukaj polecenia", "Wybierz polecenie:", labels, 0, True
+        )
+        if not ok or not selected:
+            return
+        target = next(
+            (
+                action
+                for action in actions
+                if action.text().replace("&", "") == selected
+            ),
+            None,
+        )
+        if target and target.isEnabled():
+            target.trigger()
+
+    def save_interface_profile(self) -> None:
+        name, ok = QInputDialog.getText(
+            self, "Profil interfejsu", "Nazwa profilu:"
+        )
+        if ok and name.strip():
+            layout = self.toolbar_manager.get_layout_dict()
+            self.profile_service.save(
+                name.strip(),
+                self.saveGeometry(),
+                self.saveState(LAYOUT_VERSION),
+                layout,
+            )
+            self.notification_banner.show_message(
+                f"Zapisano profil interfejsu '{name.strip()}'.", "success"
+            )
+
+    def load_interface_profile(self) -> None:
+        names = self.profile_service.names()
+        if not names:
+            QMessageBox.information(
+                self, "Profile interfejsu", "Brak zapisanych profili."
+            )
+            return
+        name, ok = QInputDialog.getItem(
+            self, "Profil interfejsu", "Wybierz profil:", names, 0, False
+        )
+        if not ok or not name:
+            return
+        data = self.profile_service.get(name)
+        if data:
+            from PyQt6.QtCore import QByteArray
+            self.restoreGeometry(
+                QByteArray.fromBase64(data.get("geometry", "").encode("ascii"))
+            )
+            self.restoreState(
+                QByteArray.fromBase64(data.get("state", "").encode("ascii")),
+                LAYOUT_VERSION,
+            )
+            toolbar_layout = data.get("toolbar_layout")
+            if toolbar_layout:
+                self.toolbar_manager.apply_layout(toolbar_layout)
+
+    def export_diagnostics(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Eksport raportu diagnostycznego",
+            "tileset-map-maker-diagnostics.json",
+            "JSON (*.json)",
+        )
+        if path:
+            self.diagnostics.export_report(path)
+            self.notification_banner.show_message(
+                "Raport diagnostyczny został zapisany.", "success"
+            )
+
+    def show_onboarding(self) -> None:
+        QMessageBox.information(
+            self,
+            "Witaj w TileSet Map Maker",
+            "1. Utwórz lub otwórz mapę.\n"
+            "2. Zaimportuj tileset z panelu biblioteki.\n"
+            "3. Wybierz kafelek i maluj pędzlem.\n"
+            "4. Użyj Ctrl+K, aby szybko odnaleźć polecenie.\n"
+            "5. Zapisz układ jako profil w menu Widok.",
+        )
+        QSettings("TileSetMapMaker", "TileSetMapMaker").setValue(
+            "onboarding_completed", True
+        )
 
     def _reset_dock_layout(self) -> None:
         """Restores the standard professional Photoshop/Tiled layout."""
@@ -1414,6 +1768,7 @@ class MainWindow(QMainWindow):
 
         # Restore persistent autotile rules
         self.config_manager.restore_autotile_rules(self.autotile_engine)
+        self.config_manager.restore_terrain_generator(self.terrain_generator)
         if hasattr(self, "brush_options") and hasattr(self.brush_options, "refresh_rulesets"):
             self.brush_options.refresh_rulesets()
 
@@ -1432,6 +1787,24 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
+        if self.project.is_modified and self.isVisible():
+            answer = QMessageBox.question(
+                self,
+                tr("dialog.map.save"),
+                "Projekt zawiera niezapisane zmiany. Zapisać przed zamknięciem?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
+            )
+            if answer == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            if answer == QMessageBox.StandardButton.Save:
+                self.save_project()
+                if self.project.is_modified:
+                    event.ignore()
+                    return
         self.drag_safety.cancel_all("window closing")
         settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
         geom = self.saveGeometry()
@@ -1447,6 +1820,7 @@ class MainWindow(QMainWindow):
 
         # Save brush settings to ConfigManager
         self.config_manager.save_brush_settings(self.canvas.tool_context.brush_settings)
+        self.config_manager.save_terrain_generator(self.terrain_generator)
 
         # Save toolbar layout
         if hasattr(self, "toolbar_manager"):

@@ -10,8 +10,12 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QScrollArea,
     QFrame,
+    QLineEdit,
+    QDoubleSpinBox,
 )
+from PyQt6.QtCore import pyqtSignal
 from ..models.project import Project
+from ..models.layer import MapItem
 from ..models.asset import Asset, AssetType, SelectedSubTile
 from ..core.asset_manager import AssetManager
 from ..core.localization import tr, get_localization
@@ -175,6 +179,30 @@ class PropertiesPanel(QWidget):
         self.form_sel.addRow("Zasób:", self.lbl_sel_name)
         self.form_sel.addRow("Pozycja źródłowa:", self.lbl_sel_pos)
         self.form_sel.addRow("Rozmiar źródłowy:", self.lbl_sel_size)
+        self.txt_object_type = QLineEdit()
+        self.txt_interaction = QLineEdit()
+        self.spin_interaction_radius = QDoubleSpinBox()
+        self.spin_interaction_radius.setRange(0.0, 10000.0)
+        self.spin_interaction_radius.setSuffix(" px")
+        self.txt_object_properties = QLineEdit()
+        self.txt_object_properties.setPlaceholderText(
+            "hp=100:integer, name=Goblin:string"
+        )
+        for label, field in (
+            ("Typ obiektu:", self.txt_object_type),
+            ("Interakcja:", self.txt_interaction),
+            ("Promień:", self.spin_interaction_radius),
+            ("Właściwości:", self.txt_object_properties),
+        ):
+            self.form_sel.addRow(label, field)
+        self.txt_object_type.editingFinished.connect(self._save_object_properties)
+        self.txt_interaction.editingFinished.connect(self._save_object_properties)
+        self.spin_interaction_radius.editingFinished.connect(
+            self._save_object_properties
+        )
+        self.txt_object_properties.editingFinished.connect(
+            self._save_object_properties
+        )
         v_sel_layout.addLayout(self.form_sel)
 
         c_layout.addWidget(self.grp_sel)
@@ -280,6 +308,24 @@ class PropertiesPanel(QWidget):
 
             if self.asset_manager:
                 sub_pixmap = self.asset_manager.get_pixmap(asset.id)
+        elif isinstance(self.selected_item, MapItem):
+            obj = self.selected_item
+            self.lbl_sel_type.setText(obj.object_type or "Obiekt")
+            self.lbl_sel_name.setText(obj.id)
+            self.lbl_sel_pos.setText(
+                f"X: {obj.free_x if obj.free_x is not None else obj.col}, "
+                f"Y: {obj.free_y if obj.free_y is not None else obj.row}"
+            )
+            self.lbl_sel_size.setText(
+                f"{obj.dest_w * abs(obj.scale_x):.1f} × "
+                f"{obj.dest_h * abs(obj.scale_y):.1f}"
+            )
+            self.txt_object_type.setText(obj.object_type)
+            self.txt_interaction.setText(obj.interaction_label)
+            self.spin_interaction_radius.setValue(obj.interaction_radius)
+            self.txt_object_properties.setText(
+                self._format_properties(obj.properties, obj.property_types)
+            )
         else:
             self.lbl_sel_type.setText(tr("properties.no_selection"))
             self.lbl_sel_name.setText("-")
@@ -288,3 +334,60 @@ class PropertiesPanel(QWidget):
 
         preview_pix = create_checkerboard_preview(sub_pixmap, 120, 120)
         self.lbl_preview_img.setPixmap(preview_pix)
+        is_object = isinstance(self.selected_item, MapItem)
+        for field in (
+            self.txt_object_type,
+            self.txt_interaction,
+            self.spin_interaction_radius,
+            self.txt_object_properties,
+        ):
+            field.setEnabled(is_object)
+
+    @staticmethod
+    def _format_properties(
+        properties: dict, property_types: dict
+    ) -> str:
+        return ", ".join(
+            f"{key}={value}:{property_types.get(key, 'string')}"
+            for key, value in properties.items()
+        )
+
+    def _save_object_properties(self) -> None:
+        if not isinstance(self.selected_item, MapItem):
+            return
+        obj = self.selected_item
+        obj.object_type = self.txt_object_type.text().strip()
+        obj.interaction_label = self.txt_interaction.text().strip()
+        obj.interaction_radius = self.spin_interaction_radius.value()
+        properties = {}
+        property_types = {}
+        for entry in self.txt_object_properties.text().split(","):
+            entry = entry.strip()
+            if not entry or "=" not in entry:
+                continue
+            name, raw_value = entry.split("=", 1)
+            value_text = raw_value.strip()
+            property_type = "string"
+            if ":" in value_text:
+                value_text, property_type = value_text.rsplit(":", 1)
+                property_type = property_type.strip().lower()
+            try:
+                if property_type == "integer":
+                    value = int(value_text)
+                elif property_type == "float":
+                    value = float(value_text)
+                elif property_type == "boolean":
+                    value = value_text.casefold() in ("true", "1", "yes")
+                else:
+                    property_type = "string"
+                    value = value_text
+            except ValueError:
+                property_type = "string"
+                value = value_text
+            properties[name.strip()] = value
+            property_types[name.strip()] = property_type
+        obj.properties = properties
+        obj.property_types = property_types
+        self.project.is_modified = True
+        self.object_changed.emit()
+    object_changed = pyqtSignal()

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict, Any, Set
 from ...models.layer import MapItem, Layer, ItemType
 from ...models.project import Project
 from ...models.asset import Asset, SelectedSubTile, AssetType

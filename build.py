@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from tileset_map_maker.version import APP_VERSION
 
 
 ROOT = Path(__file__).resolve().parent
@@ -29,6 +30,8 @@ def build_executable() -> None:
             "--onefile",
             "--name",
             APP_NAME,
+            "--version-file",
+            str(ROOT / "build-version.txt"),
             "--add-data",
             f"icons{os.pathsep}icons",
             "run_app.py",
@@ -138,6 +141,24 @@ def main() -> int:
         help="format do zbudowania (domyślnie: format bieżącego systemu)",
     )
     args = parser.parse_args()
+    if args.target == "exe":
+        (ROOT / "build-version.txt").write_text(
+            "VSVersionInfo(\n"
+            "  ffi=FixedFileInfo(\n"
+            f"    filevers=({', '.join(APP_VERSION.split('.'))}, 0),\n"
+            f"    prodvers=({', '.join(APP_VERSION.split('.'))}, 0),\n"
+            "    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0,\n"
+            "    date=(0, 0)),\n"
+            "  kids=[StringFileInfo([StringTable('040904E4', [\n"
+            "    StringStruct('ProductName', 'TileSet Map Maker'),\n"
+            f"    StringStruct('ProductVersion', '{APP_VERSION}'),\n"
+            f"    StringStruct('FileVersion', '{APP_VERSION}'),\n"
+            "    StringStruct('CompanyName', 'Atom-66'),\n"
+            "    StringStruct('FileDescription', 'TileSet Map Maker')])]),\n"
+            "    VarFileInfo([VarStruct('Translation', [0x409, 1252])])]\n"
+            ")\n",
+            encoding="utf-8",
+        )
 
     try:
         if args.target == "exe":

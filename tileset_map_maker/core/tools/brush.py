@@ -15,7 +15,7 @@ class BrushTool(BaseTool):
         super().__init__("Pędzel", shortcut="B")
         self.session_changes: Dict[Tuple[int, int], Tuple[Optional[MapItem], Optional[MapItem]]] = {}
         self.placed_objects: List[MapItem] = []
-        self.painted_coords: List[Tuple[int, int]] = []
+        self.painted_coords: set[Tuple[int, int]] = set()
 
     def on_press(self, col: int, row: int, context: ToolContext) -> None:
         layer = context.active_layer
@@ -39,6 +39,8 @@ class BrushTool(BaseTool):
             return
 
         bs = context.brush_settings
+        if bs.random_variant and bs.consume_gap():
+            return
         radius = (bs.size - 1) // 2
 
         # Footprint iteration (brush size)
@@ -76,7 +78,9 @@ class BrushTool(BaseTool):
 
                             if bs.auto_tile_enabled and context.autotile_engine:
                                 item.is_auto_tiled = True
-                                ruleset = context.autotile_engine.get_active_ruleset()
+                                ruleset = (
+                                    context.autotile_engine.resolve_layer_ruleset(layer)
+                                )
                                 if ruleset:
                                     item.terrain_type = ruleset.terrain_type
                                     init_tile = ruleset.default_tile or ruleset.get_tile_for_mask(0)
@@ -90,7 +94,7 @@ class BrushTool(BaseTool):
 
                             layer.set_tile(item.col, item.row, item)
                             self.session_changes[coord] = (prev_clone, item.clone())
-                            self.painted_coords.append(coord)
+                            self.painted_coords.add(coord)
 
     def on_release(self, col: int, row: int, context: ToolContext) -> None:
         if not self.is_active:
@@ -100,7 +104,9 @@ class BrushTool(BaseTool):
         # Apply auto-tiling ripple if enabled
         bs = context.brush_settings
         if bs.auto_tile_enabled and context.autotile_engine and context.active_layer:
-            ruleset = context.autotile_engine.get_active_ruleset()
+            ruleset = context.autotile_engine.resolve_layer_ruleset(
+                context.active_layer
+            )
             if ruleset:
                 autotile_changes = context.autotile_engine.apply_autotile_stroke(
                     context.active_layer,

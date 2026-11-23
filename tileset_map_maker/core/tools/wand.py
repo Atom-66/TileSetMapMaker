@@ -55,6 +55,7 @@ class WandTool(BaseTool):
                         queue.append((nx, ny))
 
         self.selected_cells = visited
+        context.selected_cells.clear()
         context.selected_cells = set(self.selected_cells)
 
         if visited:

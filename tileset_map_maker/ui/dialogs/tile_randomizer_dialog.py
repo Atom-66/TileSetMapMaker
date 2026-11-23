@@ -105,6 +105,21 @@ class TileRandomizerDialog(QDialog):
         seed_layout.addStretch()
 
         top_layout.addLayout(seed_layout)
+        gap_layout = QHBoxLayout()
+        self.spin_gap_min = QSpinBox()
+        self.spin_gap_min.setRange(0, 50)
+        self.spin_gap_min.setValue(self.settings.gap_min)
+        self.spin_gap_max = QSpinBox()
+        self.spin_gap_max.setRange(0, 50)
+        self.spin_gap_max.setValue(self.settings.gap_max)
+        self.spin_gap_min.valueChanged.connect(self._update_gap_range)
+        self.spin_gap_max.valueChanged.connect(self._update_gap_range)
+        gap_layout.addWidget(QLabel("Odstęp od:"))
+        gap_layout.addWidget(self.spin_gap_min)
+        gap_layout.addWidget(QLabel("do:"))
+        gap_layout.addWidget(self.spin_gap_max)
+        gap_layout.addStretch()
+        top_layout.addLayout(gap_layout)
         layout.addWidget(top_group)
 
         # 2. Variants Table Group
@@ -208,6 +223,14 @@ class TileRandomizerDialog(QDialog):
         self.settings.random_variant = checked
         self.variants_updated.emit()
 
+    def _update_gap_range(self) -> None:
+        if self.spin_gap_max.value() < self.spin_gap_min.value():
+            self.spin_gap_max.setValue(self.spin_gap_min.value())
+        self.settings.gap_min = self.spin_gap_min.value()
+        self.settings.gap_max = self.spin_gap_max.value()
+        self.settings._remaining_gap = 0
+        self.variants_updated.emit()
+
     def _on_avoid_toggled(self, checked: bool) -> None:
         self.settings.avoid_adjacent = checked
         self.variants_updated.emit()
@@ -280,17 +303,14 @@ class TileRandomizerDialog(QDialog):
         aid = getattr(sub_tile, "asset_id", None)
         if not aid:
             return None
-        pix = self.asset_manager.get_pixmap(aid)
-        if not pix or pix.isNull():
-            return None
-
         sx = getattr(sub_tile, "sub_x", 0)
         sy = getattr(sub_tile, "sub_y", 0)
         sw = getattr(sub_tile, "sub_w", 32)
         sh = getattr(sub_tile, "sub_h", 32)
-
-        cropped = pix.copy(sx, sy, sw, sh)
-        return cropped
+        pix = self.asset_manager.get_tile_pixmap(aid, sx, sy, sw, sh)
+        if not pix or pix.isNull():
+            return None
+        return pix
 
     def _on_weight_changed(self, variant: TileVariant, new_weight: float) -> None:
         variant.weight = max(0.01, float(new_weight))

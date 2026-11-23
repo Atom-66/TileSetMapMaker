@@ -8,6 +8,98 @@ class ItemType(str, Enum):
     OBJECT = "object"
 
 
+class ObjectPropertyType(str, Enum):
+    STRING = "string"
+    INTEGER = "integer"
+    FLOAT = "float"
+    BOOLEAN = "boolean"
+
+
+class CollisionShape(str, Enum):
+    RECTANGLE = "rectangle"
+    ELLIPSE = "ellipse"
+
+
+class CollisionObject:
+    """Runtime-independent collision or trigger geometry in map pixels."""
+
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        shape: CollisionShape = CollisionShape.RECTANGLE,
+        collision_id: Optional[str] = None,
+        blocking: bool = True,
+        trigger: bool = False,
+        interaction_label: str = "",
+        properties: Optional[Dict[str, Any]] = None,
+    ):
+        self.id = collision_id or str(uuid.uuid4())
+        self.x = float(x)
+        self.y = float(y)
+        self.width = max(1.0, float(width))
+        self.height = max(1.0, float(height))
+        self.shape = shape if isinstance(shape, CollisionShape) else CollisionShape(shape)
+        self.blocking = bool(blocking)
+        self.trigger = bool(trigger)
+        self.interaction_label = interaction_label
+        self.properties = dict(properties or {})
+
+    def clone(self) -> "CollisionObject":
+        return CollisionObject(
+            self.x, self.y, self.width, self.height,
+            shape=self.shape,
+            blocking=self.blocking,
+            trigger=self.trigger,
+            interaction_label=self.interaction_label,
+            properties=self.properties,
+        )
+
+    def intersects_point(self, x: float, y: float) -> bool:
+        left, top = self.x, self.y
+        right, bottom = self.x + self.width, self.y + self.height
+        if not (left <= x <= right and top <= y <= bottom):
+            return False
+        if self.shape == CollisionShape.ELLIPSE:
+            rx = self.width / 2
+            ry = self.height / 2
+            nx = (x - (left + rx)) / max(rx, 0.0001)
+            ny = (y - (top + ry)) / max(ry, 0.0001)
+            return nx * nx + ny * ny <= 1.0
+        return True
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+            "shape": self.shape.value,
+            "blocking": self.blocking,
+            "trigger": self.trigger,
+            "interaction_label": self.interaction_label,
+            "properties": self.properties,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CollisionObject":
+        return cls(
+            x=data.get("x", 0),
+            y=data.get("y", 0),
+            width=data.get("width", 1),
+            height=data.get("height", 1),
+            shape=data.get("shape", CollisionShape.RECTANGLE.value),
+            collision_id=data.get("id"),
+            blocking=data.get("blocking", True),
+            trigger=data.get("trigger", False),
+            interaction_label=data.get("interaction_label", ""),
+            properties=data.get("properties", {}),
+        )
+
+
 class MapItem:
     """An individual tile or prop placed on a layer with full transform support."""
 
@@ -39,6 +131,11 @@ class MapItem:
         group_id: Optional[str] = None,
         terrain_type: Optional[str] = None,
         is_auto_tiled: bool = False,
+        object_type: str = "",
+        properties: Optional[Dict[str, Any]] = None,
+        property_types: Optional[Dict[str, str]] = None,
+        interaction_label: str = "",
+        interaction_radius: float = 0.0,
     ):
         self.id = item_id or str(uuid.uuid4())
         self.asset_id = asset_id
@@ -66,6 +163,11 @@ class MapItem:
         self.group_id = group_id
         self.terrain_type = terrain_type
         self.is_auto_tiled = is_auto_tiled
+        self.object_type = object_type
+        self.properties = dict(properties or {})
+        self.property_types = dict(property_types or {})
+        self.interaction_label = interaction_label
+        self.interaction_radius = max(0.0, float(interaction_radius))
 
     def get_pixel_pos(self, tile_size: int) -> Tuple[float, float]:
         """Returns pixel (x, y) accounting for free_x/y or grid alignment."""
@@ -100,6 +202,11 @@ class MapItem:
             group_id=self.group_id,
             terrain_type=self.terrain_type,
             is_auto_tiled=self.is_auto_tiled,
+            object_type=self.object_type,
+            properties=self.properties,
+            property_types=self.property_types,
+            interaction_label=self.interaction_label,
+            interaction_radius=self.interaction_radius,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -130,6 +237,11 @@ class MapItem:
             "group_id": self.group_id,
             "terrain_type": self.terrain_type,
             "is_auto_tiled": self.is_auto_tiled,
+            "object_type": self.object_type,
+            "properties": self.properties,
+            "property_types": self.property_types,
+            "interaction_label": self.interaction_label,
+            "interaction_radius": self.interaction_radius,
         }
 
     @classmethod
@@ -161,6 +273,11 @@ class MapItem:
             group_id=data.get("group_id"),
             terrain_type=data.get("terrain_type"),
             is_auto_tiled=data.get("is_auto_tiled", False),
+            object_type=data.get("object_type", ""),
+            properties=data.get("properties", {}),
+            property_types=data.get("property_types", {}),
+            interaction_label=data.get("interaction_label", ""),
+            interaction_radius=data.get("interaction_radius", 0.0),
         )
 
 
@@ -177,7 +294,9 @@ class Layer:
         group_id: Optional[str] = None,
         is_group: bool = False,
         auto_tiling_enabled: bool = True,
+        autotile_ruleset_id: Optional[str] = None,
         blend_mode: str = "normal",
+        layer_type: str = "tile",
     ):
         self.id = layer_id or str(uuid.uuid4())
         self.name = name
@@ -187,12 +306,15 @@ class Layer:
         self.group_id = group_id
         self.is_group = is_group
         self.auto_tiling_enabled = auto_tiling_enabled
+        self.autotile_ruleset_id = autotile_ruleset_id
         self.blend_mode = blend_mode.lower() if blend_mode else "normal"
+        self.layer_type = layer_type if layer_type in ("tile", "object", "collision") else "tile"
 
         # Tiles indexed by (col, row)
         self.tiles: Dict[Tuple[int, int], MapItem] = {}
         # Freeform objects / props
         self.objects: List[MapItem] = []
+        self.collisions: List[CollisionObject] = []
 
     def set_tile(self, col: int, row: int, item: Optional[MapItem]) -> Optional[MapItem]:
         prev = self.tiles.get((col, row))
@@ -227,9 +349,31 @@ class Layer:
                 return obj
         return None
 
+    def add_collision(self, collision: CollisionObject) -> None:
+        self.collisions.append(collision)
+
+    def remove_collision(self, collision_id: str) -> Optional[CollisionObject]:
+        for index, collision in enumerate(self.collisions):
+            if collision.id == collision_id:
+                return self.collisions.pop(index)
+        return None
+
+    def get_collision(self, collision_id: str) -> Optional[CollisionObject]:
+        for collision in self.collisions:
+            if collision.id == collision_id:
+                return collision
+        return None
+
+    def is_walkable(self, x: float, y: float) -> bool:
+        return not any(
+            collision.blocking and collision.intersects_point(x, y)
+            for collision in self.collisions
+        )
+
     def clear(self) -> None:
         self.tiles.clear()
         self.objects.clear()
+        self.collisions.clear()
 
     def clone(self, new_name: Optional[str] = None) -> "Layer":
         cloned = Layer(
@@ -240,12 +384,16 @@ class Layer:
             group_id=self.group_id,
             is_group=self.is_group,
             auto_tiling_enabled=self.auto_tiling_enabled,
+            autotile_ruleset_id=self.autotile_ruleset_id,
             blend_mode=self.blend_mode,
+            layer_type=self.layer_type,
         )
         for coord, item in self.tiles.items():
             cloned.tiles[coord] = item.clone()
         for obj in self.objects:
             cloned.objects.append(obj.clone())
+        for collision in self.collisions:
+            cloned.collisions.append(collision.clone())
         return cloned
 
     def to_dict(self) -> Dict[str, Any]:
@@ -258,12 +406,15 @@ class Layer:
             "group_id": self.group_id,
             "is_group": self.is_group,
             "auto_tiling_enabled": self.auto_tiling_enabled,
+            "autotile_ruleset_id": self.autotile_ruleset_id,
             "blend_mode": self.blend_mode,
+            "layer_type": self.layer_type,
             "tiles": [
                 {"col": c, "row": r, "item": item.to_dict()}
                 for (c, r), item in self.tiles.items()
             ],
             "objects": [obj.to_dict() for obj in self.objects],
+            "collisions": [collision.to_dict() for collision in self.collisions],
         }
 
     @classmethod
@@ -277,11 +428,15 @@ class Layer:
             group_id=data.get("group_id"),
             is_group=data.get("is_group", False),
             auto_tiling_enabled=data.get("auto_tiling_enabled", True),
+            autotile_ruleset_id=data.get("autotile_ruleset_id"),
             blend_mode=data.get("blend_mode", "normal"),
+            layer_type=data.get("layer_type", "tile"),
         )
         for tile_data in data.get("tiles", []):
             item = MapItem.from_dict(tile_data["item"])
             layer.tiles[(tile_data["col"], tile_data["row"])] = item
         for obj_data in data.get("objects", []):
             layer.objects.append(MapItem.from_dict(obj_data))
+        for collision_data in data.get("collisions", []):
+            layer.collisions.append(CollisionObject.from_dict(collision_data))
         return layer

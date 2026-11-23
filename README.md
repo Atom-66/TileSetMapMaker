@@ -11,9 +11,16 @@ profesjonalnymi, ale pozostaje autorskim interfejsem dostosowanym do tej aplikac
 
 Wymagania:
 
-- Python 3
+- Python 3.10 lub nowszy,
 - PyQt6
 - Pillow
+
+Zalecana instalacja zależności do pracy lokalnej:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-build.txt
+```
 
 Z katalogu projektu uruchom:
 
@@ -25,6 +32,12 @@ lub:
 
 ```bash
 python3 -m tileset_map_maker.main
+```
+
+Sprawdzenie uruchamiania bez otwierania pętli aplikacji:
+
+```bash
+QT_QPA_PLATFORM=offscreen python3 run_app.py --smoke-test
 ```
 
 ## Budowanie AppImage i EXE
@@ -47,12 +60,29 @@ Linux:
 ./build-linux.sh
 ```
 
-Windows: uruchom `build-windows.bat`. W razie braku polecenia `py` możesz utworzyć
-środowisko poleceniem `python -m venv .venv` i uruchomić skrypt ponownie.
+Windows: uruchom `build-windows.bat`. Skrypt używa Python Launcher (`py`), a jeśli go
+nie ma, automatycznie próbuje polecenia `python` z `PATH`. Wymaga Pythona 3.10+.
+Jeśli istniejące `.venv` było utworzone starszym Pythonem, usuń ten katalog i uruchom
+skrypt ponownie.
 
 Wyniki znajdziesz w katalogu `dist/`. Sam builder można też uruchomić z aktywnego
 środowiska przez `python build.py --target appimage` lub `python build.py --target exe`;
 AppImage buduje się na Linuxie, a EXE na Windowsie.
+
+## Tworzenie wydania
+
+Wersję aplikacji przechowuje stała `APP_VERSION` w
+`tileset_map_maker/version.py`. Proces wydania:
+
+1. Zmień `APP_VERSION` zgodnie ze schematem semantycznym.
+2. Uruchom pełną serię:
+   `QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -p "test_*.py" -q`.
+3. Uruchom smoke test: `QT_QPA_PLATFORM=offscreen python3 run_app.py --smoke-test`.
+4. Zbuduj paczki lokalnie albo uruchom workflow **Build desktop packages**.
+5. Oznacz zatwierdzenie tagiem `vX.Y.Z` i opublikuj artefakty AppImage/EXE.
+
+Build Windows osadza wersję produktu z `APP_VERSION`. Schemat projektu jest wersjonowany
+niezależnie przez `PROJECT_SCHEMA_VERSION`.
 
 ## Główne możliwości
 
@@ -171,6 +201,33 @@ Standardowe projekty są zapisywane jako JSON w rozszerzeniu `.tmmap`. Zapis zaw
 
 Aplikacja odczytuje starsze, jednomapowe projekty i uaktualnia ich strukturę do modelu
 wielomapowego podczas wczytywania.
+
+### Schemat i interoperacyjność
+
+Publiczny schemat eksportu 1.0 znajduje się w
+[`schema/tmm-project-1.0.schema.json`](schema/tmm-project-1.0.schema.json).
+Plik musi mieć `format: "tileset-map-maker"` i `version: "1.0"`. Eksporter waliduje
+referencje do zasobów, zakresy kafelków oraz pozycje obiektów. Ścieżki zasobów wewnątrz
+katalogu projektu są zapisywane relatywnie; import relatywny nie może wyjść ponad katalog
+pliku źródłowego.
+
+Eksport pakietu tworzy `project.json`, `gameplay.json`, katalog `maps/` z PNG oraz
+`assets/` z kopiami użytych grafik.
+
+Obsługiwany jest TMX 1.10 w orientacji ortogonalnej z kodowaniem warstw `CSV`. Mapowane
+są:
+
+- wymiary mapy i rozmiar kafelka,
+- regularne tilesety i współrzędne wycinka,
+- warstwy, widoczność i krycie,
+- kafelki oraz poziome/pionowe odbicia,
+- swobodne obiekty, obrót, typ, właściwości i identyfikatory,
+- punkty interakcji i promień działania,
+- prostokątne/eliptyczne kolizje, blokowanie i triggery.
+
+Właściwości specyficzne dla edytora są zapisywane w przestrzeni
+`tileset_map_maker.*`. Nie są deklarowane: warstwy nieskończone, base64/zlib/zstd,
+mapy izometryczne, TSX z kolekcją obrazów ani kompatybilność RPG Maker.
 
 ## Testy
 

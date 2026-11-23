@@ -54,6 +54,7 @@ class AutoTileDialog(QDialog):
         self.setWindowTitle(tr("dialog.autotile.title"))
         self.resize(600, 620)
         self.preview_labels: Dict[Tuple[int, int], QLabel] = {}
+        self.variant_test_round = 0
 
         self._ensure_initial_rule()
         self._init_ui()
@@ -113,6 +114,18 @@ class AutoTileDialog(QDialog):
         form.addRow(tr("dialog.autotile.connects"), self.txt_connects)
 
         rule_layout.addLayout(form)
+
+        preset_bar = QHBoxLayout()
+        self.combo_presets = QComboBox()
+        self._populate_presets_combo()
+        preset_bar.addWidget(self.combo_presets, 1)
+        btn_load_preset = QPushButton("Wczytaj preset")
+        btn_load_preset.clicked.connect(self._load_preset)
+        preset_bar.addWidget(btn_load_preset)
+        btn_save_preset = QPushButton("Zapisz jako preset")
+        btn_save_preset.clicked.connect(self._save_preset)
+        preset_bar.addWidget(btn_save_preset)
+        rule_layout.addLayout(preset_bar)
         layout.addWidget(group_rule)
 
         # 2. Template Setup Group
@@ -209,6 +222,9 @@ class AutoTileDialog(QDialog):
             self.preview_labels[(cx, cy)] = lbl_thumb
 
         prev_layout.addWidget(grid_widget)
+        btn_test_variants = QPushButton("Podgląd kolejnego wariantu")
+        btn_test_variants.clicked.connect(self._test_variants)
+        prev_layout.addWidget(btn_test_variants)
         layout.addWidget(group_preview)
 
         # 4. Action Buttons
@@ -239,6 +255,65 @@ class AutoTileDialog(QDialog):
         if self.combo_rules.count() > 0:
             self.combo_rules.setCurrentIndex(active_idx)
         self.combo_rules.blockSignals(False)
+
+    def _populate_presets_combo(self) -> None:
+        self.combo_presets.clear()
+        self.combo_presets.addItem("Brak presetu", "")
+        for preset_id, data in self.autotile_engine.presets.items():
+            self.combo_presets.addItem(
+                data.get("name", preset_id), preset_id
+            )
+
+    def _save_preset(self) -> None:
+        self._save_rule(show_msg=False)
+        ruleset = self.autotile_engine.get_ruleset(
+            self.combo_rules.currentData()
+        )
+        if ruleset:
+            self.autotile_engine.save_ruleset_preset(ruleset.name, ruleset)
+            ConfigManager().save_autotile_rules(self.autotile_engine)
+            self._populate_presets_combo()
+            QMessageBox.information(
+                self, "Preset zapisany", f"Zapisano preset '{ruleset.name}'."
+            )
+
+    def _load_preset(self) -> None:
+        preset_id = self.combo_presets.currentData()
+        if not preset_id:
+            return
+        ruleset = self.autotile_engine.create_ruleset_from_preset(preset_id)
+        if ruleset:
+            self.autotile_engine.active_ruleset_id = ruleset.id
+            self._populate_rules_combo()
+            self._load_current_rule()
+
+    def _test_variants(self) -> None:
+        ruleset = self.autotile_engine.get_ruleset(
+            self.combo_rules.currentData()
+        )
+        if not ruleset or not hasattr(ruleset, "get_weighted_tile_for_mask"):
+            return
+        self.variant_test_round += 1
+        for (cx, cy), mask in {
+            (0, 0): CARD_CORNER_TL,
+            (1, 0): CARD_EDGE_TOP,
+            (2, 0): CARD_CORNER_TR,
+            (0, 1): CARD_EDGE_LEFT,
+            (1, 1): CARD_CENTER,
+            (2, 1): CARD_EDGE_RIGHT,
+            (0, 2): CARD_CORNER_BL,
+            (1, 2): CARD_EDGE_BOTTOM,
+            (2, 2): CARD_CORNER_BR,
+        }.items():
+            tile = ruleset.get_weighted_tile_for_mask(
+                mask, cx, cy, self.variant_test_round
+            )
+            if tile:
+                pixmap = self.asset_manager.get_tile_pixmap(*tile)
+                if pixmap:
+                    self.preview_labels[(cx, cy)].setPixmap(
+                        pixmap.scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio)
+                    )
 
     def _load_current_rule(self) -> None:
         rid = self.combo_rules.currentData()
@@ -370,9 +445,10 @@ class AutoTileDialog(QDialog):
             tile_data = ruleset.get_tile_for_mask(mask)
             if tile_data:
                 aid, sx, sy, sw, sh = tile_data
-                full_pix = self.asset_manager.get_pixmap(aid)
-                if full_pix and not full_pix.isNull():
-                    cropped = full_pix.copy(sx, sy, sw, sh)
+                cropped = self.asset_manager.get_tile_pixmap(
+                    aid, sx, sy, sw, sh
+                )
+                if cropped and not cropped.isNull():
                     scaled = cropped.scaled(
                         44,
                         44,

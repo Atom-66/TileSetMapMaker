@@ -1,4 +1,5 @@
 import math
+from collections import OrderedDict
 from typing import Optional, List, Tuple
 from PyQt6.QtCore import QRect, QRectF, QPointF, Qt
 from PyQt6.QtGui import (
@@ -14,6 +15,7 @@ from PyQt6.QtGui import (
 from ..models.project import Project
 from ..models.layer import Layer, MapItem, ItemType
 from .asset_manager import AssetManager
+from .performance_metrics import PerformanceMetrics
 
 
 class RenderOptions:
@@ -25,6 +27,7 @@ class RenderOptions:
         grid_color: QColor = QColor(255, 255, 255, 35),
         show_selection: bool = True,
         selection_rect: Optional[QRect] = None,
+        selection_cells: Optional[List[Tuple[int, int]]] = None,
         selected_object_ids: Optional[List[str]] = None,
         preview_items: Optional[List[MapItem]] = None,
         preview_opacity: float = 0.65,
@@ -39,6 +42,7 @@ class RenderOptions:
         self.grid_color = grid_color
         self.show_selection = show_selection
         self.selection_rect = selection_rect
+        self.selection_cells = selection_cells
         self.selected_object_ids = selected_object_ids or []
         self.preview_items = preview_items or []
         self.preview_opacity = preview_opacity
@@ -58,6 +62,12 @@ class RenderEngine:
 
     def __init__(self, asset_manager: AssetManager):
         self.asset_manager = asset_manager
+        self.metrics = PerformanceMetrics()
+        self._tile_pixmap_cache: OrderedDict[
+            Tuple[str, int, int, int, int], QPixmap
+        ] = OrderedDict()
+        self._tile_cache_limit = 2048
+        self._tile_cache_limit_bytes = 64 * 1024 * 1024
 
     def get_map_dimensions_px(self, project: Project) -> Tuple[int, int]:
         w_px = project.map_width * project.tile_size
@@ -125,12 +135,22 @@ class RenderEngine:
                     painter.drawRect(x, y, w, h)
 
     def draw_item(self, painter: QPainter, item: MapItem, tile_size: int) -> None:
+        self.metrics.count_drawn_item()
         pixmap = self.asset_manager.get_pixmap(item.asset_id)
         if not pixmap or pixmap.isNull():
             return
 
         px_x, px_y = item.get_pixel_pos(tile_size)
-        source_rect = QRectF(item.source_x, item.source_y, item.source_w, item.source_h)
+        source_rect = QRectF(
+            item.source_x, item.source_y, item.source_w, item.source_h
+        )
+        cache_key = (
+            item.asset_id,
+            item.source_x,
+            item.source_y,
+            item.source_w,
+            item.source_h,
+        )
 
         has_transform = (
             abs(item.rotation % 360) > 0.001
@@ -159,11 +179,34 @@ class RenderEngine:
                 item.dest_w,
                 item.dest_h,
             )
-            painter.drawPixmap(target, pixmap, source_rect)
+            if cache_key in self._tile_pixmap_cache:
+                tile_pixmap = self._tile_pixmap_cache.pop(cache_key)
+                self._tile_pixmap_cache[cache_key] = tile_pixmap
+            else:
+                tile_pixmap = pixmap.copy(
+                    item.source_x,
+                    item.source_y,
+                    item.source_w,
+                    item.source_h,
+                )
+                self._tile_pixmap_cache[cache_key] = tile_pixmap
+                self._evict_tile_cache()
+            painter.drawPixmap(target, tile_pixmap, QRectF(tile_pixmap.rect()))
             painter.restore()
         else:
             dest_rect = QRectF(px_x, px_y, item.dest_w, item.dest_h)
             painter.drawPixmap(dest_rect, pixmap, source_rect)
+
+    def _evict_tile_cache(self) -> None:
+        while len(self._tile_pixmap_cache) > 1 and (
+            len(self._tile_pixmap_cache) > self._tile_cache_limit
+            or sum(
+                pixmap.width() * pixmap.height() * 4
+                for pixmap in self._tile_pixmap_cache.values()
+            )
+            > self._tile_cache_limit_bytes
+        ):
+            self._tile_pixmap_cache.popitem(last=False)
 
     def render_layer(
         self,
@@ -198,10 +241,19 @@ class RenderEngine:
             max_col = int(math.ceil(clip_rect.right() / ts)) + 1
             min_row = int(math.floor(clip_rect.top() / ts)) - 1
             max_row = int(math.ceil(clip_rect.bottom() / ts)) + 1
-            for r in range(min_row, max_row + 1):
-                for c in range(min_col, max_col + 1):
-                    item = layer.tiles.get((c, r))
-                    if item:
+            visible_cell_count = max(0, max_col - min_col + 1) * max(
+                0, max_row - min_row + 1
+            )
+            if visible_cell_count < len(layer.tiles):
+                for r in range(min_row, max_row + 1):
+                    for c in range(min_col, max_col + 1):
+                        item = layer.tiles.get((c, r))
+                        if item:
+                            self.draw_item(painter, item, ts)
+            else:
+                for item in layer.tiles.values():
+                    rect = self.calculate_item_bounding_rect(item, ts)
+                    if rect.intersects(clip_rect):
                         self.draw_item(painter, item, ts)
         else:
             sorted_tiles = sorted(layer.tiles.values(), key=lambda t: (t.row, t.col))
@@ -218,9 +270,49 @@ class RenderEngine:
                     continue
             self.draw_item(painter, obj, ts)
 
+        if layer.layer_type == "collision":
+            painter.save()
+            for collision in layer.collisions:
+                collision_rect = QRectF(
+                    collision.x,
+                    collision.y,
+                    collision.width,
+                    collision.height,
+                )
+                if clip_rect is not None and not collision_rect.intersects(clip_rect):
+                    continue
+                color = QColor(
+                    239, 68, 68, 90
+                ) if collision.blocking else QColor(59, 130, 246, 70)
+                painter.setBrush(QBrush(color))
+                painter.setPen(QPen(color.lighter(150), 2))
+                if collision.shape.value == "ellipse":
+                    painter.drawEllipse(collision_rect)
+                else:
+                    painter.drawRect(collision_rect)
+            painter.restore()
+
         painter.restore()
 
     def render(
+        self,
+        painter: QPainter,
+        project: Project,
+        options: RenderOptions,
+        clip_rect: Optional[QRectF] = None,
+    ) -> None:
+        self.metrics.begin_render()
+        try:
+            self._render(
+                painter=painter,
+                project=project,
+                options=options,
+                clip_rect=clip_rect,
+            )
+        finally:
+            self.metrics.end_render()
+
+    def _render(
         self,
         painter: QPainter,
         project: Project,
@@ -246,6 +338,11 @@ class RenderEngine:
         for layer in project.layers:
             if layer.is_group:
                 continue
+            if (
+                project.isolated_layer_id is not None
+                and layer.id != project.isolated_layer_id
+            ):
+                continue
             if options.only_layer_ids and layer.id not in options.only_layer_ids:
                 continue
 
@@ -267,17 +364,32 @@ class RenderEngine:
 
         # 4. Grid overlay
         if options.show_grid:
-            self.draw_grid(painter, project, options.grid_color)
+            self.draw_grid(painter, project, options.grid_color, clip_rect)
 
         # 5. Selection overlay (Tile Marquee)
-        if options.show_selection and options.selection_rect:
-            self.draw_selection(painter, options.selection_rect, project.tile_size)
+        if options.show_selection and (
+            options.selection_rect or options.selection_cells
+        ):
+            if options.selection_cells:
+                self.draw_selection_cells(
+                    painter, options.selection_cells, project.tile_size
+                )
+            elif options.selection_rect:
+                self.draw_selection(
+                    painter, options.selection_rect, project.tile_size
+                )
 
         # 6. Selected Objects Bounding Handles
         if options.selected_object_ids:
             self.draw_selected_objects(painter, project, options.selected_object_ids)
 
-    def draw_grid(self, painter: QPainter, project: Project, grid_color: QColor) -> None:
+    def draw_grid(
+        self,
+        painter: QPainter,
+        project: Project,
+        grid_color: QColor,
+        clip_rect: Optional[QRectF] = None,
+    ) -> None:
         ts = project.tile_size
         w_px, h_px = self.get_map_dimensions_px(project)
 
@@ -287,10 +399,18 @@ class RenderEngine:
         pen.setStyle(Qt.PenStyle.SolidLine)
         painter.setPen(pen)
 
-        for x in range(0, w_px + 1, ts):
+        if clip_rect is None:
+            min_x, max_x, min_y, max_y = 0, w_px, 0, h_px
+        else:
+            min_x = max(0, int(clip_rect.left() // ts) * ts)
+            max_x = min(w_px, math.ceil(clip_rect.right() / ts) * ts)
+            min_y = max(0, int(clip_rect.top() // ts) * ts)
+            max_y = min(h_px, math.ceil(clip_rect.bottom() / ts) * ts)
+
+        for x in range(min_x, max_x + 1, ts):
             painter.drawLine(x, 0, x, h_px)
 
-        for y in range(0, h_px + 1, ts):
+        for y in range(min_y, max_y + 1, ts):
             painter.drawLine(0, y, w_px, y)
 
         border_pen = QPen(QColor(80, 130, 255, 120))
@@ -314,6 +434,24 @@ class RenderEngine:
         pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.drawRect(px_x, px_y, px_w, px_h)
+        painter.restore()
+
+    def draw_selection_cells(
+        self,
+        painter: QPainter,
+        cells,
+        tile_size: int,
+    ) -> None:
+        painter.save()
+        fill = QColor(59, 130, 246, 55)
+        pen = QPen(QColor(96, 165, 250, 230))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(fill)
+        for col, row in cells:
+            painter.drawRect(
+                QRect(col * tile_size, row * tile_size, tile_size, tile_size)
+            )
         painter.restore()
 
     def draw_selected_objects(

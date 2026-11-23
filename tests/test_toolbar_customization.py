@@ -13,6 +13,7 @@ from tileset_map_maker.ui.toolbar_manager import (
     ToolbarItemDef,
 )
 from tileset_map_maker.ui.main_window import MainWindow
+from tileset_map_maker.ui.tool_panel import ToolPanel
 from tileset_map_maker.models.project import Project
 from tileset_map_maker.core.tools.base import ToolContext
 from tileset_map_maker.core.tools.eraser import EraserTool
@@ -224,32 +225,29 @@ class TestToolbarCustomization(unittest.TestCase):
             localization.set_language(original_language, persist=False)
 
     def test_tool_panel_responsive_horizontal_layout(self):
-        """Verify ToolPanel switches to horizontal layout when flattened (height < 250 or width > height)."""
-        win = MainWindow()
-        win.show()
-        tp = win.tool_panel
+        """A floating panel adapts to actual tall and flat resize events."""
+        tp = ToolPanel()
+        tp.on_dock_location_changed(Qt.DockWidgetArea.NoDockWidgetArea)
+        tp.resize(50, 450)
+        tp.show()
         app.processEvents()
-        self.assertLessEqual(win.tool_dock.widget().width(), 52)
+        app.processEvents()
         for button in tp.buttons.values():
             button_rect = button.geometry()
             self.assertGreaterEqual(button_rect.left(), 0)
             self.assertLessEqual(button_rect.right(), tp.width())
-
-        # Normal tall dimensions -> Vertical orientation
-        tp.resize(50, 450)
-        tp.resizeEvent(None)
         self.assertEqual(tp.current_orientation, Qt.Orientation.Vertical)
 
-        # Flattened dimensions -> Horizontal orientation
-        tp.resize(450, 60)
-        tp.resizeEvent(None)
+        tp.resize(450, 100)
+        app.processEvents()
+        app.processEvents()
         self.assertEqual(tp.current_orientation, Qt.Orientation.Horizontal)
 
         # Dock area change simulation
         tp.on_dock_location_changed(Qt.DockWidgetArea.TopDockWidgetArea)
         self.assertEqual(tp.current_orientation, Qt.Orientation.Horizontal)
 
-        win.close()
+        tp.close()
 
     def test_eraser_size_setting_and_footprint(self):
         """Verify EraserTool respects configurable eraser_size for multi-tile erasing."""

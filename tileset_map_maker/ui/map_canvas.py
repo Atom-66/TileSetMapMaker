@@ -24,7 +24,7 @@ from ..core.history import HistoryManager
 from ..core.tools.base import BaseTool, ToolContext
 from ..core.tools.eraser import EraserTool
 from ..core.tools.object_tool import ObjectTool
-from ..core.tools.select_tool import StampTool
+from ..core.tools.select_tool import StampTool, SelectTool
 from .quick_action_menu import QuickActionMenu
 from .styles import get_canvas_theme_colors
 
@@ -40,6 +40,7 @@ class MapCanvas(QWidget):
     files_dropped = pyqtSignal(list)      # paths of dropped files/folders
     viewport_changed = pyqtSignal()
     quick_tool_requested = pyqtSignal(str)
+    object_selected = pyqtSignal(object)
 
     def __init__(
         self,
@@ -210,6 +211,7 @@ class MapCanvas(QWidget):
             grid_color=self._theme_grid_color(theme_colors["grid"]),
             show_selection=True,
             selection_rect=sel_rect,
+            selection_cells=list(self.tool_context.selected_cells),
             selected_object_ids=self.tool_context.selected_object_ids,
             preview_items=previews,
             render_checkerboard=True,
@@ -330,6 +332,13 @@ class MapCanvas(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.active_tool:
                 self.active_tool.on_press(col, row, self.tool_context)
+                if isinstance(self.active_tool, ObjectTool):
+                    selected = (
+                        layer.get_object(self.active_tool.selected_ids[0])
+                        if layer and self.active_tool.selected_ids
+                        else None
+                    )
+                    self.object_selected.emit(selected)
                 self.update()
             event.accept()
 
@@ -447,15 +456,26 @@ class MapCanvas(QWidget):
             if isinstance(self.active_tool, ObjectTool):
                 self.active_tool.rotate_selected(90.0, self.tool_context)
                 self.update()
+            elif isinstance(self.active_tool, SelectTool):
+                self.active_tool.rotate_selection_clockwise(self.tool_context)
+                self.update()
             elif isinstance(self.active_tool, StampTool):
                 self.active_tool.rotate_clockwise(self.tool_context)
                 self.update()
-        elif event.key() == Qt.Key.Key_H and isinstance(self.active_tool, ObjectTool):
-            self.active_tool.flip_selected(horizontal=True, context=self.tool_context)
-            self.update()
-        elif event.key() == Qt.Key.Key_V and isinstance(self.active_tool, ObjectTool):
-            self.active_tool.flip_selected(horizontal=False, context=self.tool_context)
-            self.update()
+        elif event.key() == Qt.Key.Key_H:
+            if isinstance(self.active_tool, ObjectTool):
+                self.active_tool.flip_selected(horizontal=True, context=self.tool_context)
+                self.update()
+            elif isinstance(self.active_tool, SelectTool):
+                self.active_tool.flip_selection_horizontal(self.tool_context)
+                self.update()
+        elif event.key() == Qt.Key.Key_V:
+            if isinstance(self.active_tool, ObjectTool):
+                self.active_tool.flip_selected(horizontal=False, context=self.tool_context)
+                self.update()
+            elif isinstance(self.active_tool, SelectTool):
+                self.active_tool.flip_selection_vertical(self.tool_context)
+                self.update()
         elif event.key() == Qt.Key.Key_Plus and isinstance(self.active_tool, ObjectTool):
             self.active_tool.scale_selected(1.2, self.tool_context)
             self.update()

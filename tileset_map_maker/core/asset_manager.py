@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple, Set, Any
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import QObject, pyqtSignal, Qt
@@ -29,12 +30,32 @@ class AssetManager(QObject):
         self.recent_asset_ids: List[str] = []
 
         # In-memory pixmap and image cache for fast drawing, thumbnails and hit-testing
-        self._pixmap_cache: Dict[str, QPixmap] = {}
-        self._image_cache: Dict[str, QImage] = {}
-        self._thumbnail_cache: Dict[Tuple[str, int], QPixmap] = {}
+        self._pixmap_cache: OrderedDict[str, QPixmap] = OrderedDict()
+        self._image_cache: OrderedDict[str, QImage] = OrderedDict()
+        self._thumbnail_cache: OrderedDict[Tuple[str, int], QPixmap] = OrderedDict()
+        self._tile_region_cache: OrderedDict[
+            Tuple[str, int, int, int, int], QPixmap
+        ] = OrderedDict()
+        self._texture_cache_limit_bytes = 128 * 1024 * 1024
+        self._search_index: Dict[str, str] = {}
+        self._search_index_dirty = True
+        self._missing_asset_ids: Set[str] = set()
 
     def get_asset(self, asset_id: str) -> Optional[Asset]:
         return self.assets.get(asset_id)
+
+    def invalidate_search_index(self) -> None:
+        self._search_index_dirty = True
+        self._search_index.clear()
+
+    def _ensure_search_index(self) -> None:
+        if not self._search_index_dirty:
+            return
+        self._search_index = {
+            asset_id: f"{asset.name}\n{asset.category_path}".casefold()
+            for asset_id, asset in self.assets.items()
+        }
+        self._search_index_dirty = False
 
     def select_asset(self, asset: Optional[Asset], sub_tile: Optional[SelectedSubTile] = None) -> None:
         if sub_tile is not None:
@@ -86,10 +107,18 @@ class AssetManager(QObject):
 
     def get_pixmap(self, asset_id: str) -> Optional[QPixmap]:
         if asset_id in self._pixmap_cache:
-            return self._pixmap_cache[asset_id]
+            pixmap = self._pixmap_cache.pop(asset_id)
+            self._pixmap_cache[asset_id] = pixmap
+            return pixmap
+        if asset_id in self._missing_asset_ids:
+            return None
+
         asset = self.get_asset(asset_id)
         if not asset or not os.path.exists(asset.file_path):
             logger.warning(f"get_pixmap: asset {asset_id} not found or file does not exist: {getattr(asset, 'file_path', None)}")
+            self._missing_asset_ids.add(asset_id)
+            if len(self._missing_asset_ids) > 4096:
+                self._missing_asset_ids.pop()
             return None
 
         # 1. Try native Qt QPixmap load
@@ -117,6 +146,10 @@ class AssetManager(QObject):
 
         if not pixmap.isNull():
             self._pixmap_cache[asset_id] = pixmap
+            self._evict_texture_cache(
+                self._pixmap_cache,
+                lambda cached: cached.width() * cached.height() * 4,
+            )
             logger.info(
                 f"[TEXTURE_LOADED] Asset '{asset.name}' (id: {asset.id[:8]}...): "
                 f"Path: {asset.file_path} | Size: {pixmap.width()}x{pixmap.height()} px | HasAlpha: {pixmap.hasAlpha()}"
@@ -124,16 +157,45 @@ class AssetManager(QObject):
             return pixmap
 
         logger.error(f"[TEXTURE_FAILED] Could not load texture for asset '{asset.name}' from {asset.file_path}")
+        self._missing_asset_ids.add(asset_id)
+        if len(self._missing_asset_ids) > 4096:
+            self._missing_asset_ids.pop()
         return None
+
+    def get_tile_pixmap(
+        self, asset_id: str, x: int, y: int, width: int, height: int
+    ) -> Optional[QPixmap]:
+        """Return a cached source rectangle, avoiding repeated tileset copies."""
+        cache_key = (asset_id, x, y, width, height)
+        if cache_key in self._tile_region_cache:
+            pixmap = self._tile_region_cache.pop(cache_key)
+            self._tile_region_cache[cache_key] = pixmap
+            return pixmap
+        source = self.get_pixmap(asset_id)
+        if not source or source.isNull():
+            return None
+        tile = source.copy(x, y, width, height)
+        if tile.isNull():
+            return None
+        self._tile_region_cache[cache_key] = tile
+        while len(self._tile_region_cache) > 4096:
+            self._tile_region_cache.popitem(last=False)
+        return tile
 
     def get_image(self, asset_id: str) -> Optional[QImage]:
         """Returns QImage for pixel-level sampling and alpha hit-testing."""
         if asset_id in self._image_cache:
-            return self._image_cache[asset_id]
+            image = self._image_cache.pop(asset_id)
+            self._image_cache[asset_id] = image
+            return image
         pixmap = self.get_pixmap(asset_id)
         if pixmap and not pixmap.isNull():
             img = pixmap.toImage()
             self._image_cache[asset_id] = img
+            self._evict_texture_cache(
+                self._image_cache,
+                lambda cached: cached.width() * cached.height() * 4,
+            )
             return img
         return None
 
@@ -154,6 +216,14 @@ class AssetManager(QObject):
         )
         self._thumbnail_cache[cache_key] = thumb
         return thumb
+
+    def _evict_texture_cache(self, cache, size_of) -> None:
+        while (
+            len(cache) > 1
+            and sum(size_of(value) for value in cache.values())
+            > self._texture_cache_limit_bytes
+        ):
+            cache.popitem(last=False)
 
     def auto_detect_tileset_config(self, asset: Asset) -> TilesetConfig:
         """
@@ -221,6 +291,7 @@ class AssetManager(QObject):
                 asset.asset_type = AssetType.SINGLE_IMAGE
 
         self.assets[asset.id] = asset
+        self.invalidate_search_index()
         self.hash_to_id[content_hash] = asset.id
         cat_node.asset_ids.append(asset.id)
 
@@ -361,6 +432,7 @@ class AssetManager(QObject):
         if not asset or not new_name.strip():
             return False
         asset.name = new_name.strip()
+        self.invalidate_search_index()
         self.assets_changed.emit()
         return True
 
@@ -377,6 +449,7 @@ class AssetManager(QObject):
             elif asset.category_path.startswith(old_path + "/"):
                 suffix = asset.category_path[len(old_path):]
                 asset.category_path = new_path + suffix
+        self.invalidate_search_index()
 
         self.categories_changed.emit()
         self.assets_changed.emit()
@@ -429,6 +502,7 @@ class AssetManager(QObject):
         asset = self.assets.pop(asset_id, None)
         if not asset:
             return False
+        self.invalidate_search_index()
         if asset.content_hash in self.hash_to_id:
             del self.hash_to_id[asset.content_hash]
         if asset_id in self.recent_asset_ids:
@@ -441,6 +515,12 @@ class AssetManager(QObject):
 
         # Clear caches
         self._pixmap_cache.pop(asset_id, None)
+        self._image_cache.pop(asset_id, None)
+        for key in [
+            key for key in self._tile_region_cache if key[0] == asset_id
+        ]:
+            self._tile_region_cache.pop(key, None)
+        self._missing_asset_ids.discard(asset_id)
         for (aid, size) in list(self._thumbnail_cache.keys()):
             if aid == asset_id:
                 del self._thumbnail_cache[(aid, size)]
@@ -468,6 +548,7 @@ class AssetManager(QObject):
         if asset_id not in new_node.asset_ids:
             new_node.asset_ids.append(asset_id)
         asset.category_path = new_cat
+        self.invalidate_search_index()
 
         self.assets_changed.emit()
         self.categories_changed.emit()
@@ -482,7 +563,7 @@ class AssetManager(QObject):
         asset_type: Optional[AssetType] = None,
     ) -> List[Asset]:
         """Filters and searches assets."""
-        q = query.strip().lower()
+        q = query.strip().casefold()
 
         if only_recent:
             results = [
@@ -499,8 +580,9 @@ class AssetManager(QObject):
             results = list(self.assets.values())
 
         filtered = []
+        self._ensure_search_index()
         for asset in results:
-            if q and (q not in asset.name.lower() and q not in asset.category_path.lower()):
+            if q and q not in self._search_index.get(asset.id, ""):
                 continue
             if only_favorites and not asset.is_favorite:
                 continue
@@ -522,6 +604,8 @@ class AssetManager(QObject):
         self.hash_to_id.clear()
         self._pixmap_cache.clear()
         self._thumbnail_cache.clear()
+        self._tile_region_cache.clear()
+        self._missing_asset_ids.clear()
 
         if "category_tree" in data:
             self.category_tree = CategoryTree.from_dict(data["category_tree"])
@@ -539,6 +623,7 @@ class AssetManager(QObject):
             if asset.id not in node.asset_ids:
                 node.asset_ids.append(asset.id)
 
+        self.invalidate_search_index()
         self.recent_asset_ids = list(data.get("recent_asset_ids", []))
         self.assets_changed.emit()
         self.categories_changed.emit()

@@ -7,8 +7,26 @@ on:
       - "v*"
 
 jobs:
+  tests:
+    name: Test desktop application
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+      - name: Run tests in one process
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests -p "test_*.py" -q
+
   appimage:
     name: Build AppImage
+    needs: tests
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +56,7 @@ jobs:
 
   windows-exe:
     name: Build Windows EXE
+    needs: tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

@@ -69,6 +69,11 @@ class ExportDialog(QDialog):
         ])
         form.addRow(tr("dialog.export.scale"), self.combo_scale)
 
+        self.combo_scope = QComboBox()
+        self.combo_scope.addItem("Aktywna mapa")
+        self.combo_scope.addItem("Wszystkie mapy")
+        form.addRow("Zakres:", self.combo_scope)
+
         # Export area
         self.combo_area = QComboBox()
         self.combo_area.addItems([
@@ -162,6 +167,21 @@ class ExportDialog(QDialog):
                 tr("dialog.export.invalid_path"),
             )
             return
+        missing_assets = ProjectIO.validate_project_assets(
+            self.project, self.render_engine.asset_manager
+        )
+        if missing_assets:
+            answer = QMessageBox.question(
+                self,
+                tr("dialog.export.error_title"),
+                "Projekt odwołuje się do brakujących zasobów:\n"
+                + "\n".join(missing_assets[:10])
+                + "\n\nKontynuować eksport?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
 
         scales = [1.0, 2.0, 4.0, 8.0]
         scale = scales[self.combo_scale.currentIndex()]
@@ -174,16 +194,27 @@ class ExportDialog(QDialog):
             if lid:
                 only_layers = [lid]
 
-        ok = ProjectIO.export_png(
-            project=self.project,
-            render_engine=self.render_engine,
-            file_path=out_path,
-            transparent_bg=trans,
-            custom_bg_color=None if trans else self.custom_bg_hex,
-            only_layer_ids=only_layers,
-            crop_to_content=crop,
-            scale=scale,
-        )
+        export_options = {
+            "transparent_bg": trans,
+            "custom_bg_color": None if trans else self.custom_bg_hex,
+            "only_layer_ids": only_layers,
+            "crop_to_content": crop,
+            "scale": scale,
+        }
+        if self.combo_scope.currentIndex() == 1:
+            ok = ProjectIO.export_maps_png(
+                project=self.project,
+                render_engine=self.render_engine,
+                output_dir=os.path.dirname(out_path) or ".",
+                **export_options,
+            )
+        else:
+            ok = ProjectIO.export_png(
+                project=self.project,
+                render_engine=self.render_engine,
+                file_path=out_path,
+                **export_options,
+            )
 
         if ok:
             QMessageBox.information(

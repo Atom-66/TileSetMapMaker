@@ -1,4 +1,5 @@
 import uuid
+import random
 from typing import Dict, List, Optional, Tuple, Any
 
 # Bitmask flags for 8-neighbor adjacency
@@ -50,6 +51,7 @@ class AutoTileRuleSet:
         ruleset_id: Optional[str] = None,
         connects_with: Optional[List[str]] = None,
         default_tile: Optional[Tuple[str, int, int, int, int]] = None,
+        seed: Optional[int] = None,
     ):
         self.id = ruleset_id or str(uuid.uuid4())
         self.name = name
@@ -58,6 +60,10 @@ class AutoTileRuleSet:
         # Map: bitmask (int) -> (asset_id, source_x, source_y, source_w, source_h)
         self.tile_mappings: Dict[int, Tuple[str, int, int, int, int]] = {}
         self.default_tile = default_tile
+        self.seed = seed
+        self.mapping_variants: Dict[
+            int, List[Tuple[float, Tuple[str, int, int, int, int]]]
+        ] = {}
 
     @property
     def asset_id(self) -> str:
@@ -69,6 +75,46 @@ class AutoTileRuleSet:
 
     def set_mapping(self, mask: int, tile: Tuple[str, int, int, int, int]) -> None:
         self.tile_mappings[mask] = tile
+
+    def add_mapping_variant(
+        self,
+        mask: int,
+        tile: Tuple[str, int, int, int, int],
+        weight: float = 1.0,
+    ) -> None:
+        self.mapping_variants.setdefault(mask, []).append(
+            (max(0.01, float(weight)), tile)
+        )
+
+    def clear_mapping_variants(self, mask: int) -> None:
+        self.mapping_variants.pop(mask, None)
+
+    def get_weighted_tile_for_mask(
+        self,
+        mask: int,
+        col: int = 0,
+        row: int = 0,
+        test_index: Optional[int] = None,
+    ) -> Optional[Tuple[str, int, int, int, int]]:
+        base = self.get_tile_for_mask(mask)
+        variants = self.mapping_variants.get(mask, [])
+        if not variants or base is None:
+            return base
+        candidates = [(1.0, base), *variants]
+        if self.seed is not None:
+            rng = random.Random(
+                (self.seed, col, row, test_index or 0).__hash__()
+            )
+            return rng.choices(
+                [tile for _, tile in candidates],
+                weights=[weight for weight, _ in candidates],
+                k=1,
+            )[0]
+        return random.choices(
+            [tile for _, tile in candidates],
+            weights=[weight for weight, _ in candidates],
+            k=1,
+        )[0]
 
     def get_tile_for_mask(self, mask: int) -> Optional[Tuple[str, int, int, int, int]]:
         """
@@ -214,6 +260,14 @@ class AutoTileRuleSet:
             "connects_with": self.connects_with,
             "tile_mappings": {str(k): list(v) for k, v in self.tile_mappings.items()},
             "default_tile": list(self.default_tile) if self.default_tile else None,
+            "seed": self.seed,
+            "mapping_variants": {
+                str(mask): [
+                    {"weight": weight, "tile": list(tile)}
+                    for weight, tile in variants
+                ]
+                for mask, variants in self.mapping_variants.items()
+            },
         }
 
     @classmethod
@@ -224,7 +278,14 @@ class AutoTileRuleSet:
             ruleset_id=data.get("id"),
             connects_with=data.get("connects_with", []),
             default_tile=tuple(data["default_tile"]) if data.get("default_tile") else None,
+            seed=data.get("seed"),
         )
         for k_str, val in data.get("tile_mappings", {}).items():
             rs.tile_mappings[int(k_str)] = tuple(val)
+        for mask, variants in data.get("mapping_variants", {}).items():
+            rs.mapping_variants[int(mask)] = [
+                (float(entry.get("weight", 1.0)), tuple(entry["tile"]))
+                for entry in variants
+                if entry.get("tile")
+            ]
         return rs

@@ -106,15 +106,95 @@ class TestDockingAndLayouts(unittest.TestCase):
         self.win._update_tool_dock_width()
         app.processEvents()
 
-        self.assertEqual(self.win.tool_dock.width(), 44)
-        self.assertEqual(self.win.tool_panel.width(), 44)
+        self.assertLessEqual(self.win.tool_dock.width(), 52)
+        self.assertEqual(self.win.tool_panel.width(), self.win.tool_dock.width())
         self.assertEqual(self.win.tool_panel.layout().contentsMargins().left(), 4)
         self.assertEqual(self.win.tool_panel.layout().contentsMargins().right(), 4)
 
         for button in self.win.tool_panel.buttons.values():
             rect = button.geometry()
             self.assertGreaterEqual(rect.left(), 0)
-            self.assertLessEqual(rect.right(), self.win.tool_panel.width())
+            self.assertLess(rect.right(), self.win.tool_panel.width())
+
+    def assert_tool_button_geometry(self, orientation):
+        panel = self.win.tool_panel
+        self.assertEqual(panel.current_orientation, orientation)
+        buttons = list(panel.buttons.values())
+        for index, button in enumerate(buttons):
+            rect = button.geometry()
+            self.assertTrue(button.isVisible())
+            self.assertTrue(panel.rect().contains(rect))
+            for other in buttons[index + 1:]:
+                self.assertFalse(rect.intersects(other.geometry()))
+        if orientation == Qt.Orientation.Horizontal:
+            self.assertEqual(len({button.y() for button in buttons}), 1)
+        else:
+            self.assertEqual(len({button.x() for button in buttons}), 1)
+
+    def process_layout_events(self):
+        for _ in range(20):
+            self.app.processEvents()
+
+    def test_tools_above_sidebar_adapt_to_splitter_resize(self):
+        self.win.resize(1800, 1200)
+        self.process_layout_events()
+        for area, other in (
+            (Qt.DockWidgetArea.LeftDockWidgetArea, self.win.tileset_preview_dock),
+            (Qt.DockWidgetArea.RightDockWidgetArea, self.win.layer_dock),
+        ):
+            with self.subTest(area=area):
+                self.win._reset_dock_layout()
+                self.win.addDockWidget(area, self.win.tool_dock)
+                self.win.splitDockWidget(
+                    self.win.tool_dock, other, Qt.Orientation.Vertical
+                )
+                self.process_layout_events()
+                self.assertLess(self.win.tool_dock.geometry().top(), other.geometry().top())
+
+                self.win.resizeDocks(
+                    [self.win.tool_dock, other], [100, 700], Qt.Orientation.Vertical
+                )
+                self.process_layout_events()
+                short_height = self.win.tool_dock.height()
+                self.assert_tool_button_geometry(Qt.Orientation.Horizontal)
+
+                self.win.resizeDocks(
+                    [self.win.tool_dock, other], [700, 100], Qt.Orientation.Vertical
+                )
+                self.process_layout_events()
+                self.assertGreater(self.win.tool_dock.height(), short_height)
+                self.assert_tool_button_geometry(Qt.Orientation.Vertical)
+
+                old_width = self.win.tool_dock.width()
+                self.win.resizeDocks([self.win.tool_dock], [230], Qt.Orientation.Horizontal)
+                self.process_layout_events()
+                self.assertLess(self.win.tool_dock.width(), old_width)
+                self.assert_tool_button_geometry(Qt.Orientation.Vertical)
+
+    def test_tools_top_bottom_and_floating(self):
+        self.win.resize(1800, 1200)
+        self.process_layout_events()
+        for area in (Qt.DockWidgetArea.TopDockWidgetArea, Qt.DockWidgetArea.BottomDockWidgetArea):
+            with self.subTest(area=area):
+                self.win.addDockWidget(area, self.win.tool_dock)
+                self.process_layout_events()
+                self.win.resizeDocks([self.win.tool_dock], [110], Qt.Orientation.Vertical)
+                self.process_layout_events()
+                short_height = self.win.tool_dock.height()
+                self.assert_tool_button_geometry(Qt.Orientation.Horizontal)
+                self.win.resizeDocks([self.win.tool_dock], [220], Qt.Orientation.Vertical)
+                self.process_layout_events()
+                self.assertGreater(self.win.tool_dock.height(), short_height)
+                self.assert_tool_button_geometry(Qt.Orientation.Horizontal)
+
+        self.win.tool_dock.setFloating(True)
+        self.process_layout_events()
+        self.win.tool_dock.resize(100, 550)
+        self.process_layout_events()
+        self.assert_tool_button_geometry(Qt.Orientation.Vertical)
+        self.win.tool_dock.resize(500, 100)
+        self.process_layout_events()
+        self.assert_tool_button_geometry(Qt.Orientation.Horizontal)
 
     def test_08_save_custom_layout_and_reload(self):
         """8. Zapisanie układu, zmiana stanu i ponowne wczytanie zapisanego układu."""

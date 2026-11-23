@@ -30,6 +30,7 @@ class MapModel:
 
         self.layers: List[Layer] = []
         self.active_layer_id: Optional[str] = None
+        self.isolated_layer_id: Optional[str] = None
 
         self.ensure_default_layers()
 
@@ -44,8 +45,14 @@ class MapModel:
         at_index: Optional[int] = None,
         group_id: Optional[str] = None,
         is_group: bool = False,
+        layer_type: str = "tile",
     ) -> Layer:
-        layer = Layer(name=name, group_id=group_id, is_group=is_group)
+        layer = Layer(
+            name=name,
+            group_id=group_id,
+            is_group=is_group,
+            layer_type=layer_type,
+        )
         if at_index is not None and 0 <= at_index <= len(self.layers):
             self.layers.insert(at_index, layer)
         else:
@@ -164,6 +171,13 @@ class MapModel:
     def get_render_order_layers(self) -> List[Layer]:
         return [l for l in self.layers if not l.is_group]
 
+    def isolate_layer(self, layer_id: Optional[str]) -> bool:
+        if layer_id is not None and not self.get_layer(layer_id):
+            return False
+        self.isolated_layer_id = layer_id
+        self.is_modified = True
+        return True
+
     def resize_map(self, new_width: int, new_height: int, anchor: str = "top_left") -> None:
         new_width = max(1, new_width)
         new_height = max(1, new_height)
@@ -190,6 +204,7 @@ class MapModel:
                         item.row = nr
                         new_tiles[(nc, nr)] = item
                 layer.tiles = new_tiles
+                retained_objects = []
                 for obj in layer.objects:
                     obj.col += dx
                     obj.row += dy
@@ -197,6 +212,21 @@ class MapModel:
                         obj.free_x += dx * self.tile_size
                     if obj.free_y is not None:
                         obj.free_y += dy * self.tile_size
+                    if (
+                        -1 <= obj.col <= new_width
+                        and -1 <= obj.row <= new_height
+                    ):
+                        retained_objects.append(obj)
+                layer.objects = retained_objects
+                layer.collisions = [
+                    collision
+                    for collision in layer.collisions
+                    if 0 <= collision.x + dx * self.tile_size < new_width * self.tile_size
+                    and 0 <= collision.y + dy * self.tile_size < new_height * self.tile_size
+                ]
+                for collision in layer.collisions:
+                    collision.x += dx * self.tile_size
+                    collision.y += dy * self.tile_size
         else:
             for layer in self.layers:
                 layer.tiles = {
@@ -204,6 +234,18 @@ class MapModel:
                     for (c, r), item in layer.tiles.items()
                     if c < new_width and r < new_height
                 }
+                layer.objects = [
+                    obj
+                    for obj in layer.objects
+                    if -1 <= obj.col < new_width + 1
+                    and -1 <= obj.row < new_height + 1
+                ]
+                layer.collisions = [
+                    collision
+                    for collision in layer.collisions
+                    if collision.x < new_width * self.tile_size
+                    and collision.y < new_height * self.tile_size
+                ]
 
         self.map_width = new_width
         self.map_height = new_height
@@ -218,8 +260,16 @@ class MapModel:
             background_color=self.background_color,
             is_bg_transparent=self.is_bg_transparent,
         )
-        c.layers = [l.clone(l.name) for l in self.layers]
-        c.active_layer_id = self.active_layer_id
+        id_map = {}
+        c.layers = []
+        for source in self.layers:
+            cloned = source.clone(source.name)
+            id_map[source.id] = cloned.id
+            c.layers.append(cloned)
+        for layer in c.layers:
+            if layer.group_id in id_map:
+                layer.group_id = id_map[layer.group_id]
+        c.active_layer_id = id_map.get(self.active_layer_id)
         return c
 
     def to_dict(self) -> Dict[str, Any]:
@@ -232,6 +282,7 @@ class MapModel:
             "background_color": self.background_color,
             "is_bg_transparent": self.is_bg_transparent,
             "active_layer_id": self.active_layer_id,
+            "isolated_layer_id": self.isolated_layer_id,
             "layers": [layer.to_dict() for layer in self.layers],
         }
 
@@ -248,6 +299,9 @@ class MapModel:
         )
         m.layers = [Layer.from_dict(l_data) for l_data in data.get("layers", [])]
         m.active_layer_id = data.get("active_layer_id")
+        m.isolated_layer_id = data.get("isolated_layer_id")
+        if not m.get_layer(m.isolated_layer_id):
+            m.isolated_layer_id = None
         if not m.layers:
             m.ensure_default_layers()
         if not m.get_active_layer() and m.layers:

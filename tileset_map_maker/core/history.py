@@ -176,6 +176,44 @@ class LayerMoveCommand(Command):
         self.project.move_layer(self.to_index, self.from_index)
 
 
+class LayerClearCommand(Command):
+    """Snapshot and clear every item type on a layer."""
+
+    def __init__(self, project: Project, layer_id: str):
+        layer = project.get_layer(layer_id)
+        super().__init__(f"Wyczyść warstwę '{layer.name if layer else ''}'")
+        self.project = project
+        self.layer_id = layer_id
+        self.tiles = {
+            coord: item.clone()
+            for coord, item in layer.tiles.items()
+        } if layer else {}
+        self.objects = [item.clone() for item in layer.objects] if layer else []
+        self.collisions = [
+            collision.clone() for collision in layer.collisions
+        ] if layer else []
+
+    def execute(self) -> None:
+        layer = self.project.get_layer(self.layer_id)
+        if not layer or layer.locked:
+            return
+        layer.clear()
+        self.project.is_modified = True
+
+    def undo(self) -> None:
+        layer = self.project.get_layer(self.layer_id)
+        if not layer:
+            return
+        layer.tiles = {
+            coord: item.clone() for coord, item in self.tiles.items()
+        }
+        layer.objects = [item.clone() for item in self.objects]
+        layer.collisions = [
+            collision.clone() for collision in self.collisions
+        ]
+        self.project.is_modified = True
+
+
 class HistoryManager(QObject):
     """Manages undo/redo history stacks."""
     history_changed = pyqtSignal(bool, bool, str, str)  # can_undo, can_redo, undo_desc, redo_desc

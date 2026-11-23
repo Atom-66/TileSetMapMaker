@@ -64,9 +64,14 @@ class BrushSettings:
         auto_tile_enabled: bool = False,
         avoid_adjacent: bool = False,
         eraser_size: int = 1,
+        gap_min: int = 0,
+        gap_max: int = 0,
     ):
         self.size = max(1, min(size, 10))
         self.eraser_size = max(1, min(eraser_size, 10))
+        self.gap_min = max(0, min(int(gap_min), 50))
+        self.gap_max = max(self.gap_min, min(int(gap_max), 50))
+        self._remaining_gap = 0
         self.spacing = max(1, spacing)
         self.random_variant = random_variant
         self.random_rotation = random_rotation
@@ -90,6 +95,7 @@ class BrushSettings:
         else:
             self._rng = random.Random()
         self._last_chosen_id = None
+        self._remaining_gap = 0
 
     def set_seed(self, seed: Optional[int]) -> None:
         self.seed = seed
@@ -211,6 +217,8 @@ class BrushSettings:
             "seed": self.seed,
             "auto_tile_enabled": self.auto_tile_enabled,
             "avoid_adjacent": self.avoid_adjacent,
+            "gap_min": self.gap_min,
+            "gap_max": self.gap_max,
             "variants": vars_list,
         }
 
@@ -224,6 +232,10 @@ class BrushSettings:
         self.seed = data.get("seed", None)
         self.auto_tile_enabled = data.get("auto_tile_enabled", False)
         self.avoid_adjacent = data.get("avoid_adjacent", False)
+        self.gap_min = max(0, int(data.get("gap_min", 0)))
+        self.gap_max = max(
+            self.gap_min, min(50, int(data.get("gap_max", self.gap_min)))
+        )
         self.reset_rng()
 
         self.variants.clear()
@@ -231,3 +243,13 @@ class BrushSettings:
             var = TileVariant.from_dict(v_data)
             if var:
                 self.variants.append(var)
+
+    def consume_gap(self) -> bool:
+        """Return True when the current randomizer block should be skipped."""
+        if self.gap_max <= 0:
+            return False
+        if self._remaining_gap > 0:
+            self._remaining_gap -= 1
+            return True
+        self._remaining_gap = self._rng.randint(self.gap_min, self.gap_max)
+        return False

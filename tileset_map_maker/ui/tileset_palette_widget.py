@@ -1,7 +1,9 @@
 import os
 import logging
 from typing import Optional, Tuple, List, Set, Dict, Any
-from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, pyqtSignal, QSize, QSettings, QByteArray
+from PyQt6.QtCore import (
+    Qt, QRect, QRectF, QPointF, pyqtSignal, QSize, QSettings, QByteArray, QTimer,
+)
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -20,6 +22,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
     QSpinBox,
+    QLineEdit,
     QDialogButtonBox,
     QPushButton,
     QApplication,
@@ -662,20 +665,45 @@ class TilesetTreeWidget(QTreeWidget):
             super().dragMoveEvent(event)
 
     def dropEvent(self, event: QDropEvent) -> None:
-        pos = event.position().toPoint()
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
         target_item = self.itemAt(pos)
         target_category = self.palette._get_category_path_for_item(target_item)
 
         # External file/folder drop from OS file manager
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            for u in urls:
-                if u.isLocalFile():
-                    fpath = u.toLocalFile()
+            local_paths = [
+                u.toLocalFile()
+                for u in urls
+                if u.isLocalFile()
+                and os.path.exists(u.toLocalFile())
+            ]
+            for fpath in local_paths:
+                try:
                     if os.path.isdir(fpath):
-                        self.palette.import_folder_from_path(fpath, target_category=target_category)
+                        self.palette.import_folder_from_path(
+                            fpath,
+                            target_category=target_category,
+                            show_message=len(local_paths) == 1,
+                            refresh=False,
+                        )
                     elif os.path.isfile(fpath):
-                        self.palette.import_file_from_path(fpath, target_category=target_category)
+                        self.palette.import_file_from_path(
+                            fpath, target_category=target_category, refresh=False
+                        )
+                except Exception:
+                    logger.exception(
+                        "Nie udało się zaimportować przeciągniętej ścieżki: %s",
+                        fpath,
+                    )
+                    QMessageBox.critical(
+                        self,
+                        "Błąd importu",
+                        f"Nie udało się zaimportować: {fpath}",
+                    )
+            if local_paths:
+                self.palette.refresh_tilesets()
+                self.palette._auto_save_library()
             event.acceptProposedAction()
             return
 
@@ -1053,6 +1081,17 @@ class TilesetPaletteWidget(QWidget):
         lib_header.addWidget(self.btn_settings)
 
         bottom_layout.addLayout(lib_header)
+        self.txt_library_search = QLineEdit(self.bottom_widget)
+        self.txt_library_search.setPlaceholderText("Szukaj w bibliotece…")
+        self.txt_library_search.setClearButtonEnabled(True)
+        self.library_search_timer = QTimer(self)
+        self.library_search_timer.setSingleShot(True)
+        self.library_search_timer.setInterval(75)
+        self.library_search_timer.timeout.connect(self._apply_library_filter)
+        self.txt_library_search.textChanged.connect(
+            lambda _text: self.library_search_timer.start()
+        )
+        bottom_layout.addWidget(self.txt_library_search)
 
         # Hierarchical Tree Widget displaying folders, subfolders and tilesets
         self.tree = TilesetTreeWidget(self, self.bottom_widget)
@@ -1311,6 +1350,37 @@ class TilesetPaletteWidget(QWidget):
             self.lbl_active_title.setText(tr("palette.preview_empty"))
             self.lbl_info.setText(tr("palette.no_tilesets_import_hint"))
 
+        self.tree.blockSignals(False)
+        self._apply_library_filter()
+
+    def _apply_library_filter(self) -> None:
+        query = self.txt_library_search.text().strip().casefold()
+        matching_ids = {
+            asset.id
+            for asset in self.asset_manager.search_assets(
+                query=query, asset_type=AssetType.TILESET
+            )
+        }
+
+        def filter_item(item: QTreeWidgetItem) -> bool:
+            item_type = item.data(0, Qt.ItemDataRole.UserRole)
+            if item_type == "tileset":
+                visible = not query or item.data(
+                    0, Qt.ItemDataRole.UserRole + 1
+                ) in matching_ids
+                item.setHidden(not visible)
+                return visible
+            child_visible = False
+            for child_index in range(item.childCount()):
+                child_visible = filter_item(item.child(child_index)) or child_visible
+            item.setHidden(bool(query) and not child_visible)
+            if child_visible and query:
+                item.setExpanded(True)
+            return child_visible
+
+        self.tree.blockSignals(True)
+        for index in range(self.tree.topLevelItemCount()):
+            filter_item(self.tree.topLevelItem(index))
         self.tree.blockSignals(False)
 
     def _create_tileset_tree_item(self, asset: Asset) -> TilesetTreeItem:
@@ -1580,9 +1650,7 @@ class TilesetPaletteWidget(QWidget):
             self._open_global_settings_dialog()
 
     def _create_folder_action(self, parent_path: Optional[str] = None) -> None:
-        if parent_path is None:
-            curr = self.tree.currentItem()
-            parent_path = self._get_category_path_for_item(curr)
+        parent_path = parent_path or ""
 
         name, ok = QInputDialog.getText(
             self,
@@ -1850,7 +1918,12 @@ class TilesetPaletteWidget(QWidget):
                 ),
             )
 
-    def import_file_from_path(self, file_path: str, target_category: str = "") -> None:
+    def import_file_from_path(
+        self,
+        file_path: str,
+        target_category: str = "",
+        refresh: bool = True,
+    ) -> None:
         """Direct file import from external drag & drop."""
         import_cfg = self._get_import_config()
         asset, is_dup, err = self.asset_manager.import_single_file(
@@ -1871,14 +1944,14 @@ class TilesetPaletteWidget(QWidget):
             )
             if target_category and target_category not in self.expanded_folders:
                 self.expanded_folders.append(target_category)
-            self.refresh_tilesets()
+            if refresh:
+                self.refresh_tilesets()
             self.set_active_asset(asset)
-            self._auto_save_library()
+            if refresh:
+                self._auto_save_library()
 
     def _import_folder_action(self, target_category: Optional[str] = None) -> None:
-        if target_category is None:
-            curr = self.tree.currentItem()
-            target_category = self._get_category_path_for_item(curr)
+        target_category = target_category or ""
 
         folder = QFileDialog.getExistingDirectory(
             self,
@@ -1891,7 +1964,13 @@ class TilesetPaletteWidget(QWidget):
 
         self.import_folder_from_path(folder, target_category=target_category)
 
-    def import_folder_from_path(self, folder_path: str, target_category: str = "") -> None:
+    def import_folder_from_path(
+        self,
+        folder_path: str,
+        target_category: str = "",
+        show_message: bool = True,
+        refresh: bool = True,
+    ) -> None:
         """Recursive folder import mirroring directory structure."""
         import_cfg = self._get_import_config()
         default_config = TilesetConfig(
@@ -1917,26 +1996,29 @@ class TilesetPaletteWidget(QWidget):
             if p not in self.expanded_folders:
                 self.expanded_folders.append(p)
 
-        self.refresh_tilesets()
+        if refresh:
+            self.refresh_tilesets()
 
         if res["imported"]:
             self.set_active_asset(res["imported"][0])
 
-        self._auto_save_library()
+        if refresh:
+            self._auto_save_library()
 
         error_count = res.get("error_count", len(res.get("errors", [])))
-        QMessageBox.information(
-            self,
-            tr("dialog.library.import_folder_done_title"),
-            tr(
-                "dialog.library.import_folder_done",
-                folder=os.path.basename(folder_path),
-                imported=res.get("imported_count", 0),
-                skipped=res.get("skipped_count", 0),
-                duplicates=res.get("duplicates_count", 0),
-                errors=error_count,
-            ),
-        )
+        if show_message:
+            QMessageBox.information(
+                self,
+                tr("dialog.library.import_folder_done_title"),
+                tr(
+                    "dialog.library.import_folder_done",
+                    folder=os.path.basename(folder_path),
+                    imported=res.get("imported_count", 0),
+                    skipped=res.get("skipped_count", 0),
+                    duplicates=res.get("duplicates_count", 0),
+                    errors=error_count,
+                ),
+            )
 
     def _open_global_settings_dialog(self) -> None:
         dlg = GlobalImportSettingsDialog(self.config_manager, self)

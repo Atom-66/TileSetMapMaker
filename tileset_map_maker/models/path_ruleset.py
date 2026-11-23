@@ -26,6 +26,11 @@ ROLE_T_JUNCTION = "t_junction"    # T-junction 3-way
 ROLE_CROSS = "cross"              # 4-way intersection (N + S + W + E)
 ROLE_END = "end"                  # Dead end / endpoint
 ROLE_CENTER = "center"            # Solid path center (fallback / isolated)
+ROLE_EDGE_TOP = "edge_top"
+ROLE_EDGE_BOTTOM = "edge_bottom"
+ROLE_EDGE_LEFT = "edge_left"
+ROLE_EDGE_RIGHT = "edge_right"
+ROLE_START = "start"
 
 ROLE_NAMES = {
     ROLE_STRAIGHT_H: "═ Prosta pozioma",
@@ -39,6 +44,11 @@ ROLE_NAMES = {
     ROLE_CROSS: "╬ Skrzyżowanie (4-kierunkowe)",
     ROLE_END: "🛑 Zakończenie ścieżki",
     ROLE_CENTER: "⏹️ Środek / Izolowany",
+    ROLE_EDGE_TOP: "Góra ścieżki",
+    ROLE_EDGE_BOTTOM: "Dół ścieżki",
+    ROLE_EDGE_LEFT: "Lewa krawędź ścieżki",
+    ROLE_EDGE_RIGHT: "Prawa krawędź ścieżki",
+    ROLE_START: "Początek ścieżki",
 }
 
 TEMPLATE_4_TILE = [ROLE_STRAIGHT_H, ROLE_STRAIGHT_V, ROLE_CORNER_GENERIC, ROLE_CROSS]
@@ -54,6 +64,24 @@ TEMPLATE_CUSTOM = [
     ROLE_CROSS,
     ROLE_END,
     ROLE_CENTER,
+    ROLE_EDGE_TOP,
+    ROLE_EDGE_BOTTOM,
+    ROLE_EDGE_LEFT,
+    ROLE_EDGE_RIGHT,
+    ROLE_START,
+]
+TEMPLATE_3X3 = [
+    ROLE_CORNER_TL,
+    ROLE_EDGE_TOP,
+    ROLE_CORNER_TR,
+    ROLE_EDGE_LEFT,
+    ROLE_CENTER,
+    ROLE_EDGE_RIGHT,
+    ROLE_CORNER_BL,
+    ROLE_EDGE_BOTTOM,
+    ROLE_CORNER_BR,
+    ROLE_START,
+    ROLE_END,
 ]
 
 
@@ -129,6 +157,8 @@ class PathRuleSet:
             return TEMPLATE_4_TILE
         elif self.template_type == "6_tile":
             return TEMPLATE_6_TILE
+        elif self.template_type == "3x3":
+            return TEMPLATE_3X3
         return TEMPLATE_CUSTOM
 
     def get_tile_for_mask(self, mask: int) -> Optional[Tuple[str, int, int, int, int]]:
@@ -165,6 +195,12 @@ class PathRuleSet:
                 return self.roles[ROLE_STRAIGHT_H]
             if has_n and has_s and self.roles.get(ROLE_STRAIGHT_V):
                 return self.roles[ROLE_STRAIGHT_V]
+        if cardinal_count == 3:
+            missing = {MASK_N: ROLE_EDGE_BOTTOM, MASK_S: ROLE_EDGE_TOP,
+                      MASK_W: ROLE_EDGE_RIGHT, MASK_E: ROLE_EDGE_LEFT}
+            for flag, role in missing.items():
+                if not (mask & flag) and self.roles.get(role):
+                    return self.roles[role]
 
         # 3. 2-way Corners / Bends
         if has_e and has_s and not has_n and not has_w:
@@ -198,6 +234,8 @@ class PathRuleSet:
 
         # 5. 1-way Endpoints / Dead ends
         if cardinal_count == 1:
+            if (has_e or has_s) and self.roles.get(ROLE_START):
+                return self.roles[ROLE_START]
             if self.roles.get(ROLE_END):
                 return self.roles[ROLE_END]
             # Smart fallback for endpoints: straight segment matching line direction

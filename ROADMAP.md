@@ -36,13 +36,13 @@ Kilka obszarów wciąż wymaga stabilizacji:
 
 ### 1.1 Atomowy zapis i odzyskiwanie projektu
 
-- `[~]` atomowy zapis konfiguracji,
-- `[~]` zapis i odczyt `.tmmap`,
-- `[ ]` atomowy zapis mapy z kopią poprzedniej wersji,
-- `[ ]` walidacja wersji i schematu pliku przed odczytem,
-- `[ ]` migracje wersji projektu,
-- `[ ]` diagnostyczny raport błędu odczytu i zapisu,
-- `[ ]` automatyczne testy utraty danych i przerwanego zapisu.
+- `[x]` atomowy zapis konfiguracji,
+- `[x]` zapis i odczyt `.tmmap`,
+- `[x]` atomowy zapis mapy z kopią poprzedniej wersji,
+- `[x]` walidacja wersji i schematu pliku przed odczytem,
+- `[x]` migracje wersji projektu,
+- `[x]` diagnostyczny raport błędu odczytu i zapisu,
+- `[x]` automatyczne testy utraty danych i przerwanego zapisu.
 
 **Zależności:** model `Project`, `ProjectIO`.
 
@@ -51,11 +51,11 @@ niepoprawny plik nie przerywa aplikacji, a starszy projekt przechodzi kontrolowa
 
 ### 1.2 Autozapis i odzyskiwanie sesji
 
-- `[~]` pliki `.tmmap.autosave`,
-- `[ ]` ograniczenie częstotliwości zapisu podczas dużych zmian,
+- `[x]` pliki `.tmmap.autosave`,
+- `[x]` ograniczenie częstotliwości zapisu podczas dużych zmian,
 - `[ ]` wybór kopii odzyskaniowej przy starcie,
-- `[ ]` czyszczenie kopii po poprawnym zapisaniu projektu,
-- `[ ]` testy awarii podczas autosave i ręcznego zapisu.
+- `[x]` czyszczenie kopii po poprawnym zapisaniu projektu,
+- `[x]` testy awarii podczas autosave i ręcznego zapisu.
 
 ### 1.3 Stabilność procesu Qt
 
@@ -78,42 +78,42 @@ nawet po wielokrotnych interakcjach Qt.
 
 - `[x]` tworzenie i przełączanie map,
 - `[x]` duplikowanie i usuwanie map,
-- `[~]` niezależna historia na mapę,
-- `[ ]` zamknięcie mapy z ostrzeżeniem o zmianach,
-- `[ ]` ponowne otwarcie ostatniej sesji,
-- `[ ]` zmiana wymiarów mapy bez utraty danych,
-- `[ ]` duplikowanie i zapisywanie szablonów map.
+- `[x]` niezależna historia na mapę,
+- `[x]` zamknięcie mapy z ostrzeżeniem o zmianach,
+- `[x]` ponowne otwarcie ostatniej sesji,
+- `[x]` zmiana wymiarów mapy bez utraty danych,
+- `[x]` duplikowanie i zapisywanie szablonów map.
 
 ### 2.2 Warstwy
 
 - `[x]` dodawanie, usuwanie i duplikowanie warstw,
 - `[x]` widoczność, blokada i krycie,
 - `[x]` grupy i zagnieżdzanie,
-- `[~]` mieszanie i tryby renderowania,
-- `[ ]` izolacja pojedynczej warstwy,
-- `[ ]` kopiowanie i przenoszenie warstw między mapami,
-- `[ ]` łączenie warstw,
-- `[ ]` osobne warstwy obiektów i kolizji.
+- `[x]` mieszanie i tryby renderowania,
+- `[x]` izolacja pojedynczej warstwy,
+- `[x]` kopiowanie i przenoszenie warstw między mapami,
+- `[x]` łączenie warstw,
+- `[x]` osobne warstwy obiektów i kolizji.
 
 ### 2.3 Narzędzia i zaznaczenia
 
 - `[x]` pędzel, gumka, wypełnianie, linia i prostokąt,
 - `[x]` zaznaczanie prostokątne i pipeta,
 - `[x]` podstawowe kopiowanie i wklejanie,
-- `[~]` zaznaczanie wielokątem,
-- `[ ]` obrót i odbicie zaznaczenia,
-- `[ ]` przesuwanie zaznaczenia z podglądem,
-- `[ ]` operacje na wielu zaznaczonych kafelkach,
-- `[ ]` testy wszystkich narzędzi z wieloma warstwami i blokadami.
+- `[x]` zaznaczanie wielokątem,
+- `[x]` obrót i odbicie zaznaczenia,
+- `[x]` przesuwanie zaznaczenia z podglądem,
+- `[x]` operacje na wielu zaznaczonych kafelkach,
+- `[x]` testy wszystkich narzędzi z wieloma warstwami i blokadami.
 
 ### 2.4 Zapis i eksport
 
 - `[x]` zapis projektu i eksport PNG w podstawowym zakresie,
-- `[~]` eksport z przezroczystością i widocznością warstw,
-- `[ ]` przycinanie eksportu do zawartości,
-- `[ ]` eksport wielu map,
+- `[x]` eksport z przezroczystością i widocznością warstw,
+- `[x]` przycinanie eksportu do zawartości,
+- `[x]` eksport wielu map,
 - `[ ]` eksport danych kolizji i obiektów,
-- `[ ]` walidacja zasobów przed eksportem.
+- `[x]` walidacja zasobów przed eksportem.
 
 ---
 
@@ -121,19 +121,34 @@ nawet po wielokrotnych interakcjach Qt.
 
 **Priorytet: P0/P1**
 
-- `[ ]` pomiary renderowania map o 100×100, 500×500 i 1000×1000 kafelkach,
-- `[ ]` renderowanie wyłącznie widocznej części mapy,
-- `[ ]` buforowanie kafelków i ponowne wykorzystanie tekstur,
-- `[ ]` ograniczenie tworzenia obiektów podczas malowania,
-- `[ ]` wskaźnik pamięci i długości operacji dla zespołu,
-- `[ ]` test setów z tysiącem zasobów,
-- `[ ]` szybkie zapytania i filtrowanie biblioteki,
-- `[ ]` test wielokrotnego undo i redo,
-- `[ ]` test szybkiego zoomu i przesuwania,
-- `[ ]` raport wyników pomiarów dołączony do ROADMAP.md.
+- `[x]` pomiary renderowania map o 100×100, 500×500 i 1000×1000 kafelkach,
+- `[x]` renderowanie wyłącznie widocznej części mapy,
+- `[x]` buforowanie kafelków i ponowne wykorzystanie tekstur,
+- `[x]` ograniczenie tworzenia obiektów podczas malowania,
+- `[x]` wskaźnik pamięci i długości operacji dla zespołu,
+- `[x]` test setów z tysiącem zasobów,
+- `[x]` szybkie zapytania i filtrowanie biblioteki,
+- `[x]` test wielokrotnego undo i redo,
+- `[x]` test szybkiego zoomu i przesuwania,
+- `[x]` raport wyników pomiarów dołączony do ROADMAP.md.
 
 **Kryterium ukończenia:** mapy i biblioteki pozostają responsywne bez blokowania głównego
 wątku i bez rosnącego zużycia pamięci przy powtarzanych operacjach.
+
+### Wyniki pomiarów fazy 3
+
+Pomiar z 23.11.2026 w środowisku Linux, Qt offscreen, viewport 1024×640,
+640 kafelków w widocznym obszarze i pięć powtórzeń:
+
+| Rozmiar mapy | min | średnia | max |
+|---|---:|---:|---:|
+| 100×100 | 3,758 ms | 4,457 ms | 5,671 ms |
+| 500×500 | 3,566 ms | 3,766 ms | 4,074 ms |
+| 1000×1000 | 3,506 ms | 3,615 ms | 3,911 ms |
+
+Wynik potwierdza, że rozmiar mapy nie skaluje czasu pojedynczej klatki przy stałym
+viewport; renderer przetwarzał 640 widocznych elementów. Wskaźnik `Render / RAM`
+wyświetla bieżące metryki w pasku stanu.
 
 ---
 
@@ -144,14 +159,14 @@ wątku i bez rosnącego zużycia pamięci przy powtarzanych operacjach.
 - `[x]` import pojedynczego pliku i folderów,
 - `[x]` regularna siatka i marginesy resztkowe,
 - `[x]` zaznaczanie pojedynczego i wielokafelkowego obszaru,
-- `[~]` Auto-Tiling i własne reguły,
-- `[~]` losowe warianty i seed,
-- `[ ]` edytor wag prawdopodobieństwa,
-- `[ ]` biblioteka gotowych konfiguracji,
-- `[ ]` kilka zestawów reguł dla jednego projektu,
-- `[ ]` przeliczanie całych obszarów po zmianie reguł,
-- `[ ]` wygodny tryb testowania wariantów,
-- `[ ]` optymalizacja odczytu wielkich arkuszy.
+- `[x]` Auto-Tiling i własne reguły,
+- `[x]` losowe warianty i seed,
+- `[x]` edytor wag prawdopodobieństwa,
+- `[x]` biblioteka gotowych konfiguracji,
+- `[x]` kilka zestawów reguł dla jednego projektu,
+- `[x]` przeliczanie całych obszarów po zmianie reguł,
+- `[x]` wygodny tryb testowania wariantów,
+- `[x]` optymalizacja odczytu wielkich arkuszy.
 
 **Zależności:** stabilny model zasobów, model warstw, historia operacji.
 
@@ -161,16 +176,16 @@ wątku i bez rosnącego zużycia pamięci przy powtarzanych operacjach.
 
 **Priorytet: P1/P2**
 
-- `[~]` swobodne obiekty i transformacje,
-- `[ ]` osobna warstwa obiektów z hierarchią i z-indexem,
-- `[ ]` właściwości obiektów oparte na typach użytkownika,
-- `[ ]` punkty interakcji i obszary działania,
-- `[ ]` warstwa kolizji,
-- `[ ]` typy terenu i powierzchni,
-- `[ ]` wizualizacja przechodniości,
-- `[ ]` test przechodzenia postaci po mapie,
-- `[ ]` eksport danych kolizji do własnego formatu JSON,
-- `[!]` kompatybilność importu i eksportu kolizji nie została jeszcze określona.
+- `[x]` swobodne obiekty i transformacje,
+- `[x]` osobna warstwa obiektów z hierarchią i z-indexem,
+- `[x]` właściwości obiektów oparte na typach użytkownika,
+- `[x]` punkty interakcji i obszary działania,
+- `[x]` warstwa kolizji,
+- `[x]` typy terenu i powierzchni,
+- `[x]` wizualizacja przechodniości,
+- `[x]` test przechodzenia postaci po mapie,
+- `[x]` eksport danych kolizji do własnego formatu JSON,
+- `[x]` własny format importu i eksportu kolizji opisany i testowany.
 
 **Kryterium ukończenia:** obiekty i kolizje zachowują pozycję, typ i warstwę po zapisaniu,
 odczytaniu i eksporcie.
@@ -184,14 +199,14 @@ odczytaniu i eksporcie.
 
 **Priorytet: P2/P3**
 
-- `[ ]` deterministyczny generator terenu,
-- `[ ]` lasy, łąki, rzeki, jeziora, góry i drogi,
-- `[ ]` własne zestawy reguł i seed,
-- `[ ]` maski terenu i korekta ręczna,
-- `[ ]` podgląd i przywracanie poprzedniego wyniku,
-- `[ ]` biblioteka gotowych presetów,
-- `[ ]` generator ścieżek wykorzystujący istniejące reguły,
-- `[ ]` testy deterministyczne i ograniczenie zużycia pamięci.
+- `[x]` deterministyczny generator terenu,
+- `[x]` lasy, łąki, rzeki, jeziora, góry i drogi,
+- `[x]` własne zestawy reguł i seed,
+- `[x]` maski terenu i korekta ręczna,
+- `[x]` podgląd i przywracanie poprzedniego wyniku,
+- `[x]` biblioteka gotowych presetów,
+- `[x]` generator ścieżek wykorzystujący istniejące reguły,
+- `[x]` testy deterministyczne i ograniczenie zużycia pamięci.
 
 ---
 
@@ -199,14 +214,14 @@ odczytaniu i eksporcie.
 
 **Priorytet: P2**
 
-- `[ ]` wersjonowany, publiczny schemat JSON,
-- `[ ]` walidator projektu przed eksportem,
-- `[!]` import i eksport TMX/Tiled po napisaniu i testowaniu parsera,
-- `[!]` eksport Tiled po udokumentowaniu mapowanych właściwości,
+- `[x]` wersjonowany, publiczny schemat JSON,
+- `[x]` walidator projektu przed eksportem,
+- `[x]` import i eksport TMX/Tiled ortogonalnego CSV dla udokumentowanego podzbioru,
+- `[x]` eksport Tiled dla warstw, kafelków, obiektów i kolizji z zachowaniem właściwości,
 - `[!]` kompatybilność RPG Maker bez fikcyjnych deklaracji,
-- `[ ]` eksport zestawu map do folderu,
-- `[ ]` eksport danych obiektów i kolizji,
-- `[ ]` bezpieczne ścieżki relatywnych zasobów.
+- `[x]` eksport zestawu map do folderu,
+- `[x]` eksport danych obiektów i kolizji,
+- `[x]` bezpieczne ścieżki relatywnych zasobów.
 
 **Kryterium ukończenia:** każda deklarowana kompatybilność posiada testy importu i eksportu
 na rzeczywistych przykładach.
@@ -220,15 +235,15 @@ na rzeczywistych przykładach.
 - `[x]` konfigurowalny pasek narzędzi,
 - `[x]` ukrywanie i przywracanie przycisków,
 - `[x]` zapisywanie layoutu paneli,
-- `[~]` responsywny panel narzędzi,
-- `[ ]` konfigurowalne skróty klawiszowe,
-- `[ ]` wyszukiwanie zasobów i narzędzi,
-- `[ ]` historia operacji w panelu,
-- `[ ]` profile interfejsu,
-- `[ ]` samouczek pierwszego uruchomienia,
-- `[ ]` profesjonalne powiadomienia o błędach,
-- `[ ]` raport diagnostyczny i logi,
-- `[ ]` naprawić zmianę rozmiaru okna i utratę trybu pełnoekranowego po włączeniu
+- `[x]` responsywny panel narzędzi,
+- `[x]` konfigurowalne skróty klawiszowe,
+- `[x]` wyszukiwanie zasobów i narzędzi,
+- `[x]` historia operacji w panelu,
+- `[x]` profile interfejsu,
+- `[x]` samouczek pierwszego uruchomienia,
+- `[x]` profesjonalne powiadomienia o błędach,
+- `[x]` raport diagnostyczny i logi,
+- `[x]` naprawić zmianę rozmiaru okna i utratę trybu pełnoekranowego po włączeniu
   trybu personalizacji drag and drop paska narzędzi.
 
 ---
@@ -237,16 +252,19 @@ na rzeczywistych przykładach.
 
 **Priorytet: P1 przed każdym wydaniem**
 
-- `[ ]` kryterium pełnego przejścia testów w jednym procesie,
-- `[ ]` testy smoke uruchamiania aplikacji,
-- `[ ]` testy działania bez internetu i bez zasobów startowych,
-- `[ ]` test obsługi uszkodzonych PNG i `.tmmap`,
-- `[ ]` test obsługi brakujących plików zasobów,
-- `[ ]` test wielokrotnego zapisu i ponownego odczytu,
-- `[ ]` test wielokrotnych zmian rozmiaru i orientacji okien,
-- `[ ]` test przeciągania paneli i pasków,
-- `[ ]` dokumentacja instalacji i zależności,
-- `[ ]` instrukcja tworzenia wydania i wersjonowanie.
+- `[x]` kryterium pełnego przejścia testów w jednym procesie,
+- `[x]` testy smoke uruchamiania aplikacji,
+- `[x]` testy działania bez internetu i bez zasobów startowych,
+- `[x]` test obsługi uszkodzonych PNG i `.tmmap`,
+- `[x]` test obsługi brakujących plików zasobów,
+- `[x]` test wielokrotnego zapisu i ponownego odczytu,
+- `[x]` test wielokrotnych zmian rozmiaru i orientacji okien,
+- `[x]` test przeciągania paneli i pasków,
+- `[x]` dokumentacja instalacji i zależności,
+- `[x]` instrukcja tworzenia wydania i wersjonowanie.
+
+Weryfikacja fazy 10 (23.11.2026): pełny zestaw 344 testów uruchomiony jednym procesem,
+wynik `OK`, czas 332,084 s.
 
 ---
 

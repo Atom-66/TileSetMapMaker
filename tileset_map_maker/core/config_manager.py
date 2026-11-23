@@ -57,6 +57,7 @@ def get_default_config() -> Dict[str, Any]:
             "rotation_step": "90°",
             "snap_default": False,
             "autosave_interval": 3,
+            "last_project_path": "",
         },
         "tileset_library": {
             "assets": [],
@@ -174,6 +175,13 @@ class ConfigManager:
             self.config_data["app_settings"] = {}
         self.config_data["app_settings"].update(updates)
         self.save()
+
+    def get_last_project_path(self) -> str:
+        path = self.get_app_settings().get("last_project_path", "")
+        return path if isinstance(path, str) else ""
+
+    def set_last_project_path(self, path: str) -> None:
+        self.update_app_settings({"last_project_path": path or ""})
 
     # -------------------------------------------------------------
     # Window State Accessors
@@ -310,3 +318,12 @@ class ConfigManager:
         if data and hasattr(brush_settings, "load_from_dict"):
             brush_settings.load_from_dict(data)
             brush_settings.auto_tile_enabled = False
+
+    def save_terrain_generator(self, generator: Any) -> bool:
+        self.config_data["terrain_generator"] = generator.to_dict()
+        return self.save()
+
+    def restore_terrain_generator(self, generator: Any) -> None:
+        data = self.config_data.get("terrain_generator")
+        if isinstance(data, dict):
+            generator.load_from_dict(data)

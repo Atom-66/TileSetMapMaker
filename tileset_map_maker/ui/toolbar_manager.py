@@ -456,6 +456,7 @@ class ToolbarItemEditFilter(QObject):
                 self._restore_cursor(widget)
         self._watched_widgets.clear()
         self._original_cursors.clear()
+        self.setParent(None)
         self.deleteLater()
 
     def update_cursors(self) -> None:
@@ -491,7 +492,10 @@ class ToolbarItemEditFilter(QObject):
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         evt_type = event.type()
-        if not self.manager.is_edit_mode:
+        manager = getattr(self, "manager", None)
+        if manager is None:
+            return False
+        if not manager.is_edit_mode:
             if (
                 evt_type == QEvent.Type.MouseButtonPress
                 and isinstance(event, QMouseEvent)
@@ -1657,11 +1661,20 @@ class ToolbarVisibilityDialog(QDialog):
 
     def _filter_list(self, query: str) -> None:
         q = query.strip().lower()
+        normalized = q.replace("-", "").replace("_", "").replace(" ", "")
         for i in range(self.list_widget.count()):
             it = self.list_widget.item(i)
             i_id = it.data(Qt.ItemDataRole.UserRole) or ""
             text = it.text().lower()
-            match = not q or q in text or q in i_id.lower()
+            normalized_text = text.replace("-", "").replace("_", "").replace(" ", "")
+            normalized_id = i_id.lower().replace("-", "").replace("_", "")
+            match = (
+                not q
+                or q in text
+                or q in i_id.lower()
+                or normalized in normalized_text
+                or normalized in normalized_id
+            )
             it.setHidden(not match)
 
     def _show_all(self) -> None:
@@ -3121,6 +3134,15 @@ class ToolbarManager(QObject):
     def set_edit_mode(self, active: bool) -> None:
         if self.is_edit_mode == active:
             return
+        window = self.parent_widget
+        if active and isinstance(window, QWidget):
+            self._edit_geometry = window.saveGeometry()
+            self._edit_window_size = window.size()
+            self._edit_window_state = window.saveState() if hasattr(window, "saveState") else None
+            self._edit_was_fullscreen = (
+                window.isFullScreen() or window.isMaximized()
+            )
+            self._edit_was_maximized = window.isMaximized()
         if not active:
             for drag_filter in self._item_drag_filters.values():
                 drag_filter.cancel()
@@ -3143,6 +3165,20 @@ class ToolbarManager(QObject):
         if self.edit_banner:
             self.edit_banner.setVisible(active)
         self.edit_mode_changed.emit(active)
+        if (
+            not active
+            and isinstance(window, QWidget)
+            and hasattr(self, "_edit_geometry")
+        ):
+            if hasattr(window, "restoreState") and self._edit_window_state:
+                window.restoreState(self._edit_window_state)
+            window.restoreGeometry(self._edit_geometry)
+            window.resize(self._edit_window_size)
+            if self._edit_was_fullscreen and hasattr(window, "showFullScreen"):
+                if self._edit_was_maximized:
+                    window.showMaximized()
+                else:
+                    window.showFullScreen()
 
     def toggle_edit_mode(self) -> None:
         self.set_edit_mode(not self.is_edit_mode)

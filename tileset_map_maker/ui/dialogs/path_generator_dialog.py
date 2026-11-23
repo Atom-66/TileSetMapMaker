@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QSplitter,
     QScrollArea,
+    QDialogButtonBox,
 )
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen
 
@@ -37,6 +38,12 @@ from ...models.path_ruleset import (
     TEMPLATE_4_TILE,
     TEMPLATE_6_TILE,
     TEMPLATE_CUSTOM,
+    TEMPLATE_3X3,
+    ROLE_EDGE_TOP,
+    ROLE_EDGE_BOTTOM,
+    ROLE_EDGE_LEFT,
+    ROLE_EDGE_RIGHT,
+    ROLE_START,
 )
 from ...models.asset import SelectedSubTile, AssetType
 from ...core.asset_manager import AssetManager
@@ -231,6 +238,7 @@ class PathGeneratorDialog(QDialog):
         self.combo_template.addItem(tr("dialog.path.template_6"), "6_tile")
         self.combo_template.addItem(tr("dialog.path.template_4"), "4_tile")
         self.combo_template.addItem(tr("dialog.path.template_custom"), "custom")
+        self.combo_template.addItem("3×3 — pełny zestaw", "3x3")
         self.combo_template.currentIndexChanged.connect(self._on_template_changed)
         top_bar.addWidget(self.combo_template)
 
@@ -508,7 +516,7 @@ class PathGeneratorDialog(QDialog):
             btn_pick.setText(f" {tr('dialog.path.pick')}")
             btn_pick.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             btn_pick.setToolTip(tr("path.pick_tooltip"))
-            btn_pick.clicked.connect(lambda ch, rk=role_key: self._assign_from_current_selection(rk))
+            btn_pick.clicked.connect(lambda ch, rk=role_key: self._pick_role_tile(rk))
             box_layout.addWidget(btn_pick)
 
             btn_del = QToolButton()
@@ -556,6 +564,29 @@ class PathGeneratorDialog(QDialog):
         self._populate_roles_table()
         self.preview_widget.update()
 
+    def _pick_role_tile(self, role_key: str) -> None:
+        picker = PathTilePickerDialog(self.asset_manager, self)
+        picker.selection_picked.connect(
+            lambda selection: self._assign_selection(role_key, selection)
+        )
+        picker.exec()
+
+    def _assign_selection(self, role_key: str, sel) -> None:
+        if not isinstance(sel, SelectedSubTile):
+            return
+        self.current_ruleset.set_role_tile(
+            role_key,
+            (
+                sel.asset_id,
+                sel.sub_x,
+                sel.sub_y,
+                sel.tile_width,
+                sel.tile_height,
+            ),
+        )
+        self._populate_roles_table()
+        self.preview_widget.update()
+
     def _clear_role_tile(self, role_key: str) -> None:
         if not self.current_ruleset:
             return
@@ -597,6 +628,11 @@ class PathGeneratorDialog(QDialog):
         self.current_ruleset.set_role_tile(ROLE_T_JUNCTION, _slice(1, 0))
         self.current_ruleset.set_role_tile(ROLE_END, _slice(1, 2))
         self.current_ruleset.set_role_tile(ROLE_CENTER, _slice(1, 1))
+        self.current_ruleset.set_role_tile(ROLE_EDGE_TOP, _slice(1, 0))
+        self.current_ruleset.set_role_tile(ROLE_EDGE_LEFT, _slice(0, 1))
+        self.current_ruleset.set_role_tile(ROLE_EDGE_RIGHT, _slice(2, 1))
+        self.current_ruleset.set_role_tile(ROLE_EDGE_BOTTOM, _slice(1, 2))
+        self.current_ruleset.set_role_tile(ROLE_START, _slice(0, 1))
 
         self._populate_roles_table()
         self.preview_widget.update()
@@ -605,4 +641,55 @@ class PathGeneratorDialog(QDialog):
         if self.current_ruleset:
             self.engine.active_ruleset_id = self.current_ruleset.id
         self.path_rulesets_changed.emit()
+        self.accept()
+
+
+class PathTilePickerDialog(QDialog):
+    selection_picked = pyqtSignal(object)
+
+    def __init__(self, asset_manager: AssetManager, parent=None):
+        super().__init__(parent)
+        from ..tileset_palette_widget import TilesetCanvas
+
+        self.setWindowTitle("Wybierz pojedynczą kratkę")
+        self.resize(760, 540)
+        self.asset_manager = asset_manager
+        self.selection = asset_manager.selected_item
+        layout = QVBoxLayout(self)
+        self.combo = QComboBox()
+        for asset in asset_manager.assets.values():
+            if asset.asset_type == AssetType.TILESET:
+                self.combo.addItem(asset.name, asset.id)
+        layout.addWidget(self.combo)
+        self.canvas = TilesetCanvas(asset_manager, self)
+        self.canvas.selection_changed.connect(self._on_selection)
+        layout.addWidget(self.canvas, 1)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._accept_selection)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.combo.currentIndexChanged.connect(self._load_asset)
+        selected_id = getattr(self.selection, "asset_id", "")
+        index = self.combo.findData(selected_id)
+        if index >= 0:
+            self.combo.setCurrentIndex(index)
+        self._load_asset()
+
+    def _load_asset(self, *_args) -> None:
+        asset = self.asset_manager.get_asset(self.combo.currentData())
+        self.canvas.set_asset(asset)
+
+    def _on_selection(self, selection) -> None:
+        self.selection = selection
+
+    def _accept_selection(self) -> None:
+        if not isinstance(self.selection, SelectedSubTile):
+            QMessageBox.warning(
+                self, "Brak wyboru", "Kliknij pojedynczą kratkę w tilesecie."
+            )
+            return
+        self.selection_picked.emit(self.selection)
         self.accept()

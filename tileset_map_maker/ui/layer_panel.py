@@ -20,7 +20,13 @@ from PyQt6.QtGui import QColor, QIcon
 from ..models.project import Project
 from ..core.localization import tr, get_localization
 from ..models.layer import Layer
-from ..core.history import HistoryManager, LayerAddCommand, LayerRemoveCommand, LayerMoveCommand
+from ..core.history import (
+    HistoryManager,
+    LayerAddCommand,
+    LayerRemoveCommand,
+    LayerMoveCommand,
+    LayerClearCommand,
+)
 from .icons import IconFactory
 
 
@@ -440,6 +446,13 @@ class LayerPanel(QWidget):
         lid = item.data(0, Qt.ItemDataRole.UserRole) if item else self.project.active_layer_id
         target = self.project.get_layer(lid)
         if target and not target.is_group:
+            if target.locked:
+                QMessageBox.warning(
+                    self,
+                    tr("layer.clear_title"),
+                    "Warstwa jest zablokowana i nie może zostać wyczyszczona.",
+                )
+                return
             confirm = QMessageBox.question(
                 self,
                 tr("layer.clear_title"),
@@ -447,7 +460,9 @@ class LayerPanel(QWidget):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if confirm == QMessageBox.StandardButton.Yes:
-                target.clear()
+                command = LayerClearCommand(self.project, target.id)
+                command.execute()
+                self.history_manager.push(command)
                 self.refresh_layers()
                 self.layer_changed.emit()
 
@@ -498,6 +513,13 @@ class LayerPanel(QWidget):
                     grp_menu.addAction(f"Grupa: {g.name}", lambda g_id=g.id: self._set_parent_group(layer, g_id))
 
         menu.addSeparator()
+        if not layer.is_group:
+            clear_action = menu.addAction(
+                IconFactory.get_icon("eraser", 16),
+                "Wyczyść warstwę",
+                self._clear_layer,
+            )
+            clear_action.setEnabled(not layer.locked)
         menu.addAction(IconFactory.get_icon("trash", 16), "Usuń", self._delete_layer)
         menu.exec(self.tree_widget.mapToGlobal(pos))
 
