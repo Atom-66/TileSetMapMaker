@@ -241,7 +241,9 @@ na rzeczywistych przykładach.
 - `[ ]` profile interfejsu,
 - `[ ]` samouczek pierwszego uruchomienia,
 - `[ ]` profesjonalne powiadomienia o błędach,
-- `[ ]` raport diagnostyczny i logi.
+- `[ ]` raport diagnostyczny i logi,
+- `[ ]` naprawić zmianę rozmiaru okna i utratę trybu pełnoekranowego po włączeniu
+  trybu personalizacji drag and drop paska narzędzi.
 
 ---
 
