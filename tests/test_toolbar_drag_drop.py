@@ -135,6 +135,10 @@ class TestToolbarDragDrop(unittest.TestCase):
         self.assertIsNone(self.manager.dragged_item_id)
         self.assertEqual(proj_cat.item_ids, initial_order)
 
+        # Idempotent repeated cleanup must be safe.
+        self.manager.on_drag_finished()
+        self.manager.on_drag_finished()
+
     def test_08_save_and_restore_after_restart(self):
         """8. Zapisanie układu po zmianach i odtworzenie go po ponownym uruchomieniu."""
         # Dokonaj zmian
@@ -174,7 +178,7 @@ class TestToolbarDragDrop(unittest.TestCase):
         self.manager.set_edit_mode(True)
         self.assertTrue(self.manager.is_edit_mode)
 
-        filter_obj = ToolbarItemDragFilter("test_action", self.manager)
+        filter_obj = self.manager._item_drag_filters["test_action"]
         press_event = QMouseEvent(
             QEvent.Type.MouseButtonPress,
             QPointF(5.0, 5.0),
@@ -192,8 +196,8 @@ class TestToolbarDragDrop(unittest.TestCase):
             Qt.KeyboardModifier.NoModifier,
         )
 
-        # Filtr powinien przechwycić zdarzenia (zwrócić True) i nie dopuścić do wywołania akcji
-        self.assertTrue(filter_obj.eventFilter(btn, press_event))
+        # Press remains available for Qt's mouse tracking; release is consumed to suppress activation.
+        self.assertFalse(filter_obj.eventFilter(btn, press_event))
         self.assertTrue(filter_obj.eventFilter(btn, release_event))
         self.assertEqual(clicks, [True], "W trybie edycji liczba wywołań akcji nie powinna wzrosnąć")
 

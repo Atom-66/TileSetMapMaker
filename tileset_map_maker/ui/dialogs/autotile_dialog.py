@@ -36,6 +36,7 @@ from ...core.asset_manager import AssetManager
 from ...models.asset import Asset, AssetType, SelectedSubTile
 from ...core.config_manager import ConfigManager
 from ..icons import IconFactory
+from ...core.localization import tr
 
 
 class AutoTileDialog(QDialog):
@@ -50,7 +51,7 @@ class AutoTileDialog(QDialog):
         super().__init__(parent)
         self.autotile_engine = autotile_engine
         self.asset_manager = asset_manager
-        self.setWindowTitle("Konfigurator reguł Auto-Tiling")
+        self.setWindowTitle(tr("dialog.autotile.title"))
         self.resize(600, 620)
         self.preview_labels: Dict[Tuple[int, int], QLabel] = {}
 
@@ -82,13 +83,13 @@ class AutoTileDialog(QDialog):
 
         btn_new_rule = QPushButton(" Nowa")
         btn_new_rule.setIcon(IconFactory.get_icon("plus", 14))
-        btn_new_rule.setToolTip("Utwórz nowy pusty zestaw reguł AutoTile")
+        btn_new_rule.setToolTip(tr("autotile.new_tooltip"))
         btn_new_rule.clicked.connect(self._create_new_rule)
         top_rule_bar.addWidget(btn_new_rule)
 
         btn_del_rule = QPushButton(" Usuń")
         btn_del_rule.setIcon(IconFactory.get_icon("trash", 14))
-        btn_del_rule.setToolTip("Usuń aktualnie wybrany zestaw reguł")
+        btn_del_rule.setToolTip(tr("autotile.delete_tooltip"))
         btn_del_rule.clicked.connect(self._delete_current_rule)
         top_rule_bar.addWidget(btn_del_rule)
 
@@ -104,7 +105,7 @@ class AutoTileDialog(QDialog):
         form.addRow("Główny typ terenu:", self.txt_terrain)
 
         self.txt_connects = QLineEdit("Grass")
-        self.txt_connects.setToolTip("Typy terenu, z którymi ten kafel ma się łączyć bez krawędzi (oddzielone przecinkami)")
+        self.txt_connects.setToolTip(tr("autotile.connects_tooltip"))
         form.addRow("Łączy się z terenami:", self.txt_connects)
 
         rule_layout.addLayout(form)
@@ -143,7 +144,7 @@ class AutoTileDialog(QDialog):
 
         btn_use_sel = QPushButton(" Zaznaczenie w palecie")
         btn_use_sel.setIcon(IconFactory.get_icon("select", 14))
-        btn_use_sel.setToolTip("Pobierz kolumnę i wiersz z aktualnie wybranego fragmentu w palecie tilesetów")
+        btn_use_sel.setToolTip(tr("autotile.selection_tooltip"))
         btn_use_sel.clicked.connect(self._use_palette_selection)
         coords_bar.addWidget(btn_use_sel)
 

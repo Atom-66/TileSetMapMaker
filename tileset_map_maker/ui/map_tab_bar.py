@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 from ..models.project import Project
 from .icons import IconFactory
+from ..core.localization import tr, get_localization
 
 
 class MapTabBar(QWidget):
@@ -34,6 +35,10 @@ class MapTabBar(QWidget):
 
         self._init_ui()
         self.refresh_tabs()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        self.btn_add_map.setToolTip(tr("map.add"))
 
     def _init_ui(self) -> None:
         layout = QHBoxLayout(self)
@@ -83,7 +88,7 @@ class MapTabBar(QWidget):
 
         self.btn_add_map = QToolButton(self)
         self.btn_add_map.setIcon(IconFactory.get_icon("plus", 14))
-        self.btn_add_map.setToolTip("Utwórz nową mapę w projekcie")
+        self.btn_add_map.setToolTip(tr("map.add"))
         self.btn_add_map.setStyleSheet("""
             QToolButton {
                 background: #1e1e24;

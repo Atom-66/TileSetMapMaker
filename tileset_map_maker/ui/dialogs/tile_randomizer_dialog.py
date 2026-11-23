@@ -25,6 +25,7 @@ from ...models.project import Project
 from ...core.history import HistoryManager, TileBatchCommand
 from ..widgets.switch_toggle import SwitchToggle
 from ..icons import IconFactory
+from ...core.localization import tr
 
 
 class TileRandomizerDialog(QDialog):
@@ -45,7 +46,7 @@ class TileRandomizerDialog(QDialog):
         parent: Optional[QDialog] = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("🎲 Konfigurator wariantów kafelków (Tile Randomizer)")
+        self.setWindowTitle(tr("dialog.randomizer.title"))
         self.setMinimumSize(540, 520)
         self.resize(580, 560)
 
@@ -74,7 +75,7 @@ class TileRandomizerDialog(QDialog):
 
         # Avoid Adjacent Duplicates
         self.chk_avoid = SwitchToggle("Ograniczaj powtarzanie identycznych wariantów bezpośrednio obok siebie", checked=self.settings.avoid_adjacent)
-        self.chk_avoid.setToolTip("Zapobiega umieszczaniu dwóch takich samych kafelków w sąsiednich komórkach")
+        self.chk_avoid.setToolTip(tr("randomizer.avoid_tooltip"))
         self.chk_avoid.toggled.connect(self._on_avoid_toggled)
         top_layout.addWidget(self.chk_avoid)
 
@@ -103,31 +104,31 @@ class TileRandomizerDialog(QDialog):
         tbl_tools = QHBoxLayout()
         self.btn_add_sel = QPushButton(" Dodaj z zaznaczenia palety")
         self.btn_add_sel.setIcon(IconFactory.get_icon("plus", 14))
-        self.btn_add_sel.setToolTip("Dodaje aktualnie zaznaczony kafelek lub blok kafelków do grupy wariantów")
+        self.btn_add_sel.setToolTip(tr("randomizer.add_tooltip"))
         self.btn_add_sel.clicked.connect(self._add_from_palette_selection)
         tbl_tools.addWidget(self.btn_add_sel)
 
         self.btn_equalize = QPushButton(" Wyrównaj wagi")
         self.btn_equalize.setIcon(IconFactory.get_icon("adjustments", 14))
-        self.btn_equalize.setToolTip("Ustawia jednakowe prawdopodobieństwo (10) dla wszystkich wariantów")
+        self.btn_equalize.setToolTip(tr("randomizer.equalize_tooltip"))
         self.btn_equalize.clicked.connect(self._equalize_weights)
         tbl_tools.addWidget(self.btn_equalize)
 
         self.btn_up = QToolButton()
         self.btn_up.setIcon(IconFactory.get_icon("arrow-up", 14))
-        self.btn_up.setToolTip("Przesuń wariant w górę")
+        self.btn_up.setToolTip(tr("randomizer.up_tooltip"))
         self.btn_up.clicked.connect(self._move_up)
         tbl_tools.addWidget(self.btn_up)
 
         self.btn_down = QToolButton()
         self.btn_down.setIcon(IconFactory.get_icon("arrow-down", 14))
-        self.btn_down.setToolTip("Przesuń wariant w dół")
+        self.btn_down.setToolTip(tr("randomizer.down_tooltip"))
         self.btn_down.clicked.connect(self._move_down)
         tbl_tools.addWidget(self.btn_down)
 
         self.btn_del = QPushButton(" Usuń")
         self.btn_del.setIcon(IconFactory.get_icon("trash", 14))
-        self.btn_del.setToolTip("Usuwa zaznaczony wariant z listy")
+        self.btn_del.setToolTip(tr("randomizer.delete_tooltip"))
         self.btn_del.clicked.connect(self._remove_selected)
         tbl_tools.addWidget(self.btn_del)
 
@@ -168,7 +169,7 @@ class TileRandomizerDialog(QDialog):
             rerand_box = QHBoxLayout()
             self.btn_rerandomize = QPushButton(" Przelosuj kafelki w zaznaczonym obszarze mapy")
             self.btn_rerandomize.setIcon(IconFactory.get_icon("randomizer", 16))
-            self.btn_rerandomize.setToolTip("Podmienia kafelki w zaznaczonym obszarze mapy na losowe warianty z grupy")
+            self.btn_rerandomize.setToolTip(tr("randomizer.rerandomize_tooltip"))
             self.btn_rerandomize.clicked.connect(self._rerandomize_map_area)
             rerand_box.addWidget(self.btn_rerandomize)
             layout.addLayout(rerand_box)

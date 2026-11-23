@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Optional, Tuple
 from PyQt6.QtCore import Qt, QRectF, QPointF, QByteArray
 from PyQt6.QtGui import (
+    QAction,
     QIcon,
     QPixmap,
     QPainter,
@@ -14,6 +15,7 @@ from PyQt6.QtGui import (
     QPolygonF,
 )
 from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtWidgets import QApplication, QWidget
 
 logger = logging.getLogger("IconFactory")
 
@@ -27,6 +29,7 @@ class IconFactory:
     """
 
     _cache: Dict[str, QIcon] = {}
+    _icon_sources: Dict[int, Tuple[str, int, bool]] = {}
     _svg_cache: Dict[str, str] = {}
     _icons_dir: Optional[str] = None
 
@@ -157,32 +160,54 @@ class IconFactory:
 
     @classmethod
     def get_icon(cls, name: str, size: int = 24, filled: bool = False) -> QIcon:
-        cache_key = f"{name}_{size}_{filled}"
+        from .styles import get_icon_palette
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        theme_index = int(app.property("theme_index") or 0) if app else 0
+        cache_key = f"{name}_{size}_{filled}_{theme_index}"
         if cache_key in cls._cache:
             return cls._cache[cache_key]
 
         icon = QIcon()
-
-        # State palettes matching dark theme:
-        # Normal: zinc-300 (#d4d4d8)
-        # Active: pure white (#ffffff)
-        # Selected: bright blue (#3b82f6)
-        # Disabled: zinc-600 (#52525b)
-        pix_normal = cls._render_pixmap(name, size, QColor("#d4d4d8"), QColor("#3f404d"), filled)
-        pix_active = cls._render_pixmap(name, size, QColor("#ffffff"), QColor("#4f80ff"), filled)
-        pix_selected = cls._render_pixmap(name, size, QColor("#3b82f6"), QColor("#2563eb"), filled)
-        pix_disabled = cls._render_pixmap(name, size, QColor("#52525b"), QColor("#27272a"), filled)
-
-        icon.addPixmap(pix_normal, QIcon.Mode.Normal, QIcon.State.Off)
-        icon.addPixmap(pix_active, QIcon.Mode.Normal, QIcon.State.On)
-        icon.addPixmap(pix_active, QIcon.Mode.Active, QIcon.State.Off)
-        icon.addPixmap(pix_active, QIcon.Mode.Active, QIcon.State.On)
-        icon.addPixmap(pix_active, QIcon.Mode.Selected, QIcon.State.Off)
-        icon.addPixmap(pix_active, QIcon.Mode.Selected, QIcon.State.On)
-        icon.addPixmap(pix_disabled, QIcon.Mode.Disabled, QIcon.State.Off)
+        sizes = [16, size] if size != 16 else [16]
+        for icon_size in sizes:
+            for mode, state in (
+                (QIcon.Mode.Normal, QIcon.State.Off),
+                (QIcon.Mode.Normal, QIcon.State.On),
+                (QIcon.Mode.Active, QIcon.State.Off),
+                (QIcon.Mode.Active, QIcon.State.On),
+                (QIcon.Mode.Selected, QIcon.State.Off),
+                (QIcon.Mode.Selected, QIcon.State.On),
+                (QIcon.Mode.Disabled, QIcon.State.Off),
+            ):
+                foreground, secondary = get_icon_palette(theme_index, mode, state)
+                pixmap = cls._render_pixmap(
+                    name, icon_size, QColor(foreground), QColor(secondary), filled
+                )
+                icon.addPixmap(pixmap, mode, state)
 
         cls._cache[cache_key] = icon
+        cls._icon_sources[icon.cacheKey()] = (name, size, filled)
         return icon
+
+    @classmethod
+    def refresh_widget_icons(cls, root, theme_index: int) -> None:
+        """Replace cached icons beneath a widget with versions for the selected theme."""
+        owners = [root, *root.findChildren(QWidget)]
+        for owner in owners:
+            icon_method = getattr(owner, "icon", None)
+            set_icon = getattr(owner, "setIcon", None)
+            if not callable(icon_method) or not callable(set_icon):
+                continue
+            source = cls._icon_sources.get(icon_method().cacheKey())
+            if source:
+                set_icon(cls.get_icon(*source))
+
+        for action in root.findChildren(QAction):
+            source = cls._icon_sources.get(action.icon().cacheKey())
+            if source:
+                action.setIcon(cls.get_icon(*source))
 
     @classmethod
     def _load_svg_text(cls, name: str, filled: bool = False) -> Optional[str]:
@@ -233,6 +258,8 @@ class IconFactory:
             hex_col = primary_color.name()
             # Replace currentColor with desired state color
             tinted_svg = svg_text.replace("currentColor", hex_col)
+            if size <= 20:
+                tinted_svg = tinted_svg.replace('stroke-width="2"', 'stroke-width="2.3"')
             # Ensure stroke and fill colors match if hardcoded in SVG
             if filled:
                 tinted_svg = tinted_svg.replace('fill="none"', f'fill="{hex_col}"')

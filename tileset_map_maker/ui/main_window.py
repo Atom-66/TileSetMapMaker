@@ -1,5 +1,5 @@
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict
 from PyQt6.QtCore import Qt, QSize, QSettings
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QApplication,
 )
-from PyQt6.QtGui import QAction, QKeySequence, QIcon, QKeyEvent
+from PyQt6.QtGui import QAction, QKeySequence, QIcon, QKeyEvent, QColor
 
 from ..models.project import Project
 from ..models.asset import Asset, AssetType, SelectedSubTile
@@ -43,14 +43,15 @@ from .tool_panel import ToolPanel
 from .brush_options_bar import BrushOptionsBar
 from .toolbar_manager import ToolbarManager, CustomizableToolBar, ToolbarEditModeBanner
 from .minimap_widget import MinimapWidget
-from .object_list_panel import ObjectListPanel
 from .dialogs import MapSettingsDialog, ExportDialog, ShortcutsDialog, PreferencesDialog
+from .drag_safety import DragSafetyManager
 from .dialogs.autotile_dialog import AutoTileDialog
 from .dialogs.path_generator_dialog import PathGeneratorDialog
 from .dialogs.tileset_import_dialog import TilesetImportDialog
+from ..core.localization import init_localization, tr, retranslate_application
 
 
-LAYOUT_VERSION = 2
+LAYOUT_VERSION = 3
 
 
 class MainWindow(QMainWindow):
@@ -58,11 +59,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         super().__init__()
-        self.setWindowTitle("TileSet Map Maker")
+        self.drag_safety = DragSafetyManager(QApplication.instance())
+        self.config_manager = config_manager or ConfigManager()
+        self.localization = init_localization(self.config_manager)
+        self.localization.languageChanged.connect(self._apply_language)
+        self.setWindowTitle(tr("app.title"))
         self.resize(1400, 880)
 
         # Core systems
-        self.config_manager = config_manager or ConfigManager()
         self.asset_manager = AssetManager()
         self.project = Project(map_width=30, map_height=20, tile_size=32)
         self.map_histories: Dict[str, HistoryManager] = {}
@@ -81,6 +85,7 @@ class MainWindow(QMainWindow):
         self._restore_settings()
         self._update_title()
         self._update_status_bar()
+        self._apply_language(self.localization.get_language())
 
     def _init_ui(self) -> None:
         central_container = QWidget()
@@ -130,9 +135,7 @@ class MainWindow(QMainWindow):
 
         # Configure Photoshop / Aseprite / Tiled style docking options
         self.setDockOptions(
-            QMainWindow.DockOption.AnimatedDocks
-            | QMainWindow.DockOption.AllowTabbedDocks
-            | QMainWindow.DockOption.GroupedDragging
+            QMainWindow.DockOption.AllowTabbedDocks
             | QMainWindow.DockOption.AllowNestedDocks
         )
 
@@ -157,6 +160,7 @@ class MainWindow(QMainWindow):
         self.tool_dock.setObjectName("ToolDock")
         self.tool_dock.setFeatures(dock_features)
         self.tool_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self.tool_dock.setFixedWidth(44)
         self.tool_dock.setWidget(self.tool_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tool_dock)
 
@@ -182,8 +186,11 @@ class MainWindow(QMainWindow):
         self.tileset_library_dock.setWidget(self.tileset_palette.bottom_widget)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tileset_library_dock)
 
-        # Split preview and library vertically on left by default
+        # Place ToolDock side-by-side on left of preview, and split preview/library vertically
+        self.splitDockWidget(self.tool_dock, self.tileset_preview_dock, Qt.Orientation.Horizontal)
         self.splitDockWidget(self.tileset_preview_dock, self.tileset_library_dock, Qt.Orientation.Vertical)
+        self.resizeDocks([self.tool_dock], [44], Qt.Orientation.Horizontal)
+        self.resizeDocks([self.tileset_preview_dock], [260], Qt.Orientation.Horizontal)
 
         # 5. Right Docks: Layers, Objects, Properties, History, Minimap
         self.layer_dock = QDockWidget("Warstwy i grupy mapy", self)
@@ -195,17 +202,7 @@ class MainWindow(QMainWindow):
         self.right_dock = self.layer_dock  # Backward compatibility alias
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock)
 
-        # 6. Objects Dock (tabified with Layers: 'Warstwy | Obiekty')
-        self.objects_dock = QDockWidget("Obiekty na mapie", self)
-        self.objects_dock.setObjectName("ObjectsDock")
-        self.objects_dock.setFeatures(dock_features)
-        self.objects_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        self.objects_panel = ObjectListPanel(self.project, self.history_manager, self.objects_dock)
-        self.objects_dock.setWidget(self.objects_panel)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.objects_dock)
-        self.tabifyDockWidget(self.layer_dock, self.objects_dock)
-
-        # 7. Properties Dock
+        # 6. Properties Dock
         self.properties_dock = QDockWidget("Właściwości", self)
         self.properties_dock.setObjectName("PropertiesDock")
         self.properties_dock.setFeatures(dock_features)
@@ -215,7 +212,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.properties_dock)
         self.tabifyDockWidget(self.layer_dock, self.properties_dock)
 
-        # 8. History Dock
+        # 7. History Dock
         self.history_dock = QDockWidget("Historia operacji", self)
         self.history_dock.setObjectName("HistoryDock")
         self.history_dock.setFeatures(dock_features)
@@ -225,7 +222,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.history_dock)
         self.tabifyDockWidget(self.layer_dock, self.history_dock)
 
-        # 9. Minimap Dock (TASK-505)
+        # 8. Minimap Dock (TASK-505)
         self.minimap_dock = QDockWidget("Minimapa", self)
         self.minimap_dock.setObjectName("MinimapDock")
         self.minimap_dock.setFeatures(dock_features)
@@ -237,11 +234,6 @@ class MainWindow(QMainWindow):
 
         self.layer_dock.raise_()
 
-        # Connect Objects Panel with History & Layer changes
-        self.history_manager.history_changed.connect(lambda: self.objects_panel.refresh())
-        self.layer_panel.layer_changed.connect(self.objects_panel.refresh)
-        self.objects_panel.focus_requested.connect(lambda cx, cy: self.canvas.center_on_world_pos(cx, cy))
-
         # Top Toolbar and Menu Bar
         self._init_toolbar()
         self._init_menubar()
@@ -250,11 +242,11 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
-        self.lbl_status_pos = QLabel("Kursor: (0, 0)")
-        self.lbl_status_size = QLabel(f"Wymiary: {self.project.map_width}x{self.project.map_height} ({self.project.tile_size}px)")
-        self.lbl_status_zoom = QLabel("Zoom: 200%")
-        self.lbl_status_layer = QLabel("Warstwa: Ground")
-        self.lbl_status_asset = QLabel("Zasób: Brak")
+        self.lbl_status_pos = QLabel(f"{tr('status.cursor')}: (0, 0)")
+        self.lbl_status_size = QLabel(f"{tr('status.size')}: {self.project.map_width}x{self.project.map_height} ({self.project.tile_size}px)")
+        self.lbl_status_zoom = QLabel(f"{tr('status.zoom')}: 200%")
+        self.lbl_status_layer = QLabel(f"{tr('status.layer')}: Ground")
+        self.lbl_status_asset = QLabel(f"{tr('status.asset')}: {tr('status.none')}")
 
         self.status_bar.addWidget(self.lbl_status_pos)
         self.status_bar.addWidget(self.lbl_status_size)
@@ -268,49 +260,53 @@ class MainWindow(QMainWindow):
         self.toolbar.setIconSize(QSize(20, 20))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar)
         self.brush_options.setParent(self.toolbar)
+        # BrushOptionsBar is only a holder: its controls live in the flow toolbar.
+        # Left visible it was an invisible 640x480 overlay on top of the toolbar that
+        # swallowed clicks on the first buttons.
+        self.brush_options.hide()
 
         self.secondary_toolbar = CustomizableToolBar("Dodatkowy pasek narzędzi", toolbar_id="secondary", parent=self)
         self.secondary_toolbar.setObjectName("SecondaryToolBar")
         self.secondary_toolbar.setIconSize(QSize(20, 20))
-        self.insertToolBarBreak(self.secondary_toolbar)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.secondary_toolbar)
+        self.insertToolBarBreak(self.secondary_toolbar)
 
         # 1. Project actions
         self.act_new = QAction(IconFactory.get_icon("new", 20), "Nowy", self)
         self.act_new.setShortcut(QKeySequence.StandardKey.New)
-        self.act_new.setToolTip("Nowy projekt (Ctrl+N)")
+        self.act_new.setToolTip(tr("tooltip.new_project"))
         self.act_new.triggered.connect(self.new_project)
         self.addAction(self.act_new)
 
         self.act_open = QAction(IconFactory.get_icon("open", 20), "Otwórz", self)
         self.act_open.setShortcut(QKeySequence.StandardKey.Open)
-        self.act_open.setToolTip("Otwórz projekt (Ctrl+O)")
+        self.act_open.setToolTip(tr("tooltip.open_project"))
         self.act_open.triggered.connect(self.open_project)
         self.addAction(self.act_open)
 
         self.act_save = QAction(IconFactory.get_icon("save", 20), "Zapisz", self)
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
-        self.act_save.setToolTip("Zapisz projekt (Ctrl+S)")
+        self.act_save.setToolTip(tr("tooltip.save_project"))
         self.act_save.triggered.connect(self.save_project)
         self.addAction(self.act_save)
 
         self.act_export = QAction(IconFactory.get_icon("export", 20), "Eksport PNG", self)
         self.act_export.setShortcut("Ctrl+E")
-        self.act_export.setToolTip("Eksportuj gotową mapę do pliku PNG (Ctrl+E)")
+        self.act_export.setToolTip(tr("tooltip.export_png"))
         self.act_export.triggered.connect(self.export_png_dialog)
         self.addAction(self.act_export)
 
         # 2. History actions
         self.act_undo = QAction(IconFactory.get_icon("undo", 20), "Cofnij", self)
         self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
-        self.act_undo.setToolTip("Cofnij operację (Ctrl+Z)")
+        self.act_undo.setToolTip(tr("tooltip.undo"))
         self.act_undo.setEnabled(False)
         self.act_undo.triggered.connect(lambda: self.history_manager.undo())
         self.addAction(self.act_undo)
 
         self.act_redo = QAction(IconFactory.get_icon("redo", 20), "Ponów", self)
         self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
-        self.act_redo.setToolTip("Ponów operację (Ctrl+Y)")
+        self.act_redo.setToolTip(tr("tooltip.redo"))
         self.act_redo.setEnabled(False)
         self.act_redo.triggered.connect(lambda: self.history_manager.redo())
         self.addAction(self.act_redo)
@@ -320,54 +316,54 @@ class MainWindow(QMainWindow):
         self.act_grid.setCheckable(True)
         self.act_grid.setChecked(True)
         self.act_grid.setShortcut("Ctrl+G")
-        self.act_grid.setToolTip("Przełącz widoczność siatki (Ctrl+G)")
+        self.act_grid.setToolTip(tr("tooltip.grid"))
         self.act_grid.triggered.connect(lambda: self.canvas.toggle_grid(self.act_grid.isChecked()))
         self.addAction(self.act_grid)
 
         self.act_fit = QAction(IconFactory.get_icon("fit", 20), "Dopasuj", self)
         self.act_fit.setShortcut("Ctrl+F")
-        self.act_fit.setToolTip("Dopasuj mapę do okna (Ctrl+F)")
+        self.act_fit.setToolTip(tr("tooltip.fit"))
         self.act_fit.triggered.connect(self.canvas.fit_to_view)
         self.addAction(self.act_fit)
 
         self.act_palette = self.tileset_dock.toggleViewAction()
-        self.act_palette.setIcon(IconFactory.get_icon("grid", 20))
+        self.act_palette.setIcon(IconFactory.get_icon("palette", 20))
         self.act_palette.setText("Paleta")
-        self.act_palette.setToolTip("Pokaż lub ukryj interaktywną paletę kafelków (Tiled-style)")
+        self.act_palette.setToolTip(tr("tooltip.palette"))
         self.addAction(self.act_palette)
 
         # 4. Brush & Stamp
         self.act_save_stamp = QAction(IconFactory.get_icon("save_stamp", 20), "Zapisz stempel", self)
-        self.act_save_stamp.setToolTip("Zapisz zaznaczony fragment mapy jako trwały stempel w bibliotece")
+        self.act_save_stamp.setToolTip(tr("tooltip.save_stamp"))
         self.act_save_stamp.triggered.connect(self.save_selection_as_stamp)
         self.addAction(self.act_save_stamp)
 
         # Menu bar references
         self.act_autotile = QAction(IconFactory.get_icon("autotile", 20), "Auto-Tile", self)
-        self.act_autotile.setToolTip("Konfigurator reguł Auto-Tiling i połączeń terenu")
+        self.act_autotile.setToolTip(tr("tooltip.autotile"))
         self.act_autotile.triggered.connect(self.open_autotile_dialog)
 
         self.act_path_gen = QAction(IconFactory.get_icon("path", 20), "Ścieżki", self)
-        self.act_path_gen.setToolTip("Generator Ścieżek (konfigurator kafelków ścieżki i podgląd na żywo)")
+        self.act_path_gen.setToolTip(tr("tooltip.path"))
         self.act_path_gen.triggered.connect(self.open_path_generator_dialog)
 
         self.act_randomizer = QAction(IconFactory.get_icon("randomizer", 20), "Randomizer", self)
-        self.act_randomizer.setToolTip("Konfigurator Randomizera kafelków i wag (Tile Randomizer)")
+        self.act_randomizer.setToolTip(tr("tooltip.randomizer"))
         self.act_randomizer.triggered.connect(self.brush_options.open_randomizer_dialog)
 
         # 5. System actions
         self.act_settings = QAction(IconFactory.get_icon("settings", 20), "Ustawienia", self)
-        self.act_settings.setToolTip("Zmień rozmiar mapy, kafelków lub tło")
+        self.act_settings.setToolTip(tr("tooltip.settings"))
         self.act_settings.triggered.connect(self.open_map_settings)
         self.addAction(self.act_settings)
 
         self.act_shortcuts = QAction(IconFactory.get_icon("shortcuts", 20), "Skróty", self)
-        self.act_shortcuts.setToolTip("Lista skrótów klawiszowych")
+        self.act_shortcuts.setToolTip(tr("tooltip.shortcuts"))
         self.act_shortcuts.triggered.connect(self.open_shortcuts_dialog)
         self.addAction(self.act_shortcuts)
 
         self.act_reset_ui = QAction(IconFactory.get_icon("reset_ui", 20), "Reset", self)
-        self.act_reset_ui.setToolTip("Przywróć domyślny układ paneli")
+        self.act_reset_ui.setToolTip(tr("tooltip.reset_layout"))
         self.act_reset_ui.triggered.connect(self._reset_dock_layout)
         self.addAction(self.act_reset_ui)
 
@@ -378,6 +374,7 @@ class MainWindow(QMainWindow):
             secondary_toolbar=self.secondary_toolbar,
             parent=self,
         )
+        self.toolbar_manager.secondary_toolbar_visible = False
 
         # Register Project items
         self.toolbar_manager.register_item("new", "Nowy", "project", action=self.act_new, icon_name="new")
@@ -512,7 +509,6 @@ class MainWindow(QMainWindow):
         menu_docks.addAction(self.tileset_preview_dock.toggleViewAction())
         menu_docks.addAction(self.tileset_library_dock.toggleViewAction())
         menu_docks.addAction(self.layer_dock.toggleViewAction())
-        menu_docks.addAction(self.objects_dock.toggleViewAction())
         menu_docks.addAction(self.properties_dock.toggleViewAction())
         menu_docks.addAction(self.history_dock.toggleViewAction())
         menu_docks.addAction(self.minimap_dock.toggleViewAction())
@@ -522,7 +518,6 @@ class MainWindow(QMainWindow):
         menu_view.addAction(self.tileset_preview_dock.toggleViewAction())
         menu_view.addAction(self.tileset_library_dock.toggleViewAction())
         menu_view.addAction(self.layer_dock.toggleViewAction())
-        menu_view.addAction(self.objects_dock.toggleViewAction())
         menu_view.addAction(self.properties_dock.toggleViewAction())
         menu_view.addAction(self.history_dock.toggleViewAction())
         menu_view.addAction(self.minimap_dock.toggleViewAction())
@@ -540,9 +535,19 @@ class MainWindow(QMainWindow):
         self.toolbar_manager.edit_mode_changed.connect(self.act_toolbar_edit.setChecked)
 
         self.act_customize_toolbar = QAction(IconFactory.get_icon("settings", 16), "Dostosuj paski narzędzi (Dialog)...", self)
-        self.act_customize_toolbar.setToolTip("Dostosuj kolejność i widoczność przycisków oraz kategorii na paskach narzędzi w oknie dialogowym")
+        self.act_customize_toolbar.setToolTip(tr("tooltip.customize_toolbar"))
         self.act_customize_toolbar.triggered.connect(lambda: self.toolbar_manager.open_customizer_dialog())
         menu_view.addAction(self.act_customize_toolbar)
+
+        self.act_toolbar_visibility = QAction(IconFactory.get_icon("eye", 16), "Widoczność przycisków paska...", self)
+        self.act_toolbar_visibility.setToolTip(tr("tooltip.toolbar_visibility"))
+        self.act_toolbar_visibility.triggered.connect(lambda: self.toolbar_manager.open_visibility_dialog(self))
+        menu_view.addAction(self.act_toolbar_visibility)
+
+        self.act_toolbar_show_all = QAction(IconFactory.get_icon("check", 16), "Pokaż wszystkie przyciski paska", self)
+        self.act_toolbar_show_all.setToolTip(tr("tooltip.toolbar_show_all"))
+        self.act_toolbar_show_all.triggered.connect(lambda: self.toolbar_manager.show_all_items())
+        menu_view.addAction(self.act_toolbar_show_all)
         menu_view.addAction(self.act_grid)
         act_hud = QAction(IconFactory.get_icon("hud", 16), "Wskaźnik współrzędnych (HUD)", self)
         act_hud.setCheckable(True)
@@ -591,7 +596,6 @@ class MainWindow(QMainWindow):
             self.tileset_preview_dock,
             self.tileset_library_dock,
             self.layer_dock,
-            self.objects_dock,
             self.properties_dock,
             self.history_dock,
             self.minimap_dock,
@@ -655,6 +659,8 @@ class MainWindow(QMainWindow):
         self.tool_panel.tool_changed.connect(self._on_tool_changed)
         if hasattr(self, "tool_dock") and hasattr(self.tool_panel, "on_dock_location_changed"):
             self.tool_dock.dockLocationChanged.connect(self.tool_panel.on_dock_location_changed)
+            self.tool_dock.dockLocationChanged.connect(self._update_tool_dock_width)
+            self.tool_dock.topLevelChanged.connect(self._update_tool_dock_width)
         self.canvas.quick_tool_requested.connect(self.tool_panel.select_tool_by_key)
         self.layer_panel.layer_changed.connect(self._on_layers_modified)
         self.canvas.cursor_moved.connect(self._on_cursor_moved)
@@ -686,6 +692,17 @@ class MainWindow(QMainWindow):
                 break
         if hasattr(self, "brush_options"):
             self.brush_options.set_active_tool(tool_key)
+
+    def _update_tool_dock_width(self, *args) -> None:
+        area = self.dockWidgetArea(self.tool_dock)
+        if self.tool_dock.isFloating():
+            self.tool_dock.setMinimumWidth(44)
+            self.tool_dock.setMaximumWidth(16777215)
+        elif area in (Qt.DockWidgetArea.LeftDockWidgetArea, Qt.DockWidgetArea.RightDockWidgetArea):
+            self.tool_dock.setFixedWidth(44)
+        else:
+            self.tool_dock.setMinimumWidth(44)
+            self.tool_dock.setMaximumWidth(16777215)
 
     def get_map_history(self, map_id: str) -> HistoryManager:
         if map_id not in self.map_histories:
@@ -736,7 +753,55 @@ class MainWindow(QMainWindow):
         self.map_tab_bar.refresh_tabs()
         self._update_title()
         self._update_status_bar()
-        self.canvas.fit_to_view()
+
+    def _apply_language(self, language: str) -> None:
+        """Retextualizes UI only; it deliberately does not rebuild docks or editor state."""
+        self.setWindowTitle(tr("app.title"))
+        retranslate_application(language)
+
+        action_keys = [
+            ("act_new", "action.new"), ("act_open", "action.open"),
+            ("act_save", "action.save"), ("act_export", "action.export_png"),
+            ("act_undo", "action.undo"), ("act_redo", "action.redo"),
+            ("act_grid", "action.grid"), ("act_fit", "action.fit"),
+            ("act_palette", "action.palette"), ("act_save_stamp", "action.save_stamp"),
+            ("act_autotile", "action.autotile"), ("act_path_gen", "action.path_generator"),
+            ("act_randomizer", "action.randomizer"), ("act_settings", "action.settings"),
+            ("act_shortcuts", "action.shortcuts"), ("act_reset_ui", "action.reset_ui"),
+        ]
+        for attr, key in action_keys:
+            action = getattr(self, attr, None)
+            if action is not None:
+                action.setText(tr(key))
+
+        dock_keys = [
+            ("tool_dock", "dock.tools"),
+            ("tileset_preview_dock", "dock.tileset_preview"),
+            ("tileset_library_dock", "dock.tileset_library"),
+            ("layer_dock", "dock.layers"),
+            ("properties_dock", "dock.properties"),
+            ("history_dock", "dock.history"),
+            ("minimap_dock", "dock.minimap"),
+        ]
+        for attr, key in dock_keys:
+            dock = getattr(self, attr, None)
+            if dock is not None:
+                dock.setWindowTitle(tr(key))
+
+        menubar = self.menuBar()
+        if menubar is not None:
+            actions = menubar.actions()
+            menu_keys = (
+                "menu.file", "menu.edit", "menu.view", "menu.tools", "menu.help",
+            )
+            for action, key in zip(actions, menu_keys):
+                action.setText(tr(key))
+            if hasattr(self, "menu_layout"):
+                self.menu_layout.menuAction().setText(tr("menu.layout"))
+                self._rebuild_layout_menu()
+
+        self._update_status_bar()
+        self._update_title()
         self.canvas.update()
 
     def _on_new_map_requested(self) -> None:
@@ -767,21 +832,21 @@ class MainWindow(QMainWindow):
 
     def _update_status_bar(self) -> None:
         self.lbl_status_size.setText(
-            f"Wymiary: {self.project.map_width}x{self.project.map_height} ({self.project.tile_size}px)"
+            f"{tr('status.size')}: {self.project.map_width}x{self.project.map_height} ({self.project.tile_size}px)"
         )
         layer = self.project.get_active_layer()
-        self.lbl_status_layer.setText(f"Warstwa: {layer.name if layer else 'Brak'}")
+        self.lbl_status_layer.setText(f"{tr('status.layer')}: {layer.name if layer else tr('status.none')}")
 
     def _on_cursor_moved(self, col: int, row: int) -> None:
-        self.lbl_status_pos.setText(f"Kursor: ({col}, {row})")
+        self.lbl_status_pos.setText(f"{tr('status.cursor')}: ({col}, {row})")
 
     def _on_zoom_changed(self, zoom: float) -> None:
-        self.lbl_status_zoom.setText(f"Zoom: {int(zoom * 100)}%")
+        self.lbl_status_zoom.setText(f"{tr('status.zoom')}: {int(zoom * 100)}%")
 
     def _on_asset_selected(self, item) -> None:
         if item:
             name = getattr(item, "name", "SubTile")
-            self.lbl_status_asset.setText(f"Zasób: {name}")
+            self.lbl_status_asset.setText(f"{tr('status.asset')}: {name}")
             if isinstance(item, Asset) and item.asset_type == AssetType.TILESET:
                 if self.tileset_palette.active_asset_id != item.id:
                     self.tileset_palette.set_active_asset(item)
@@ -793,7 +858,7 @@ class MainWindow(QMainWindow):
                     else:
                         self.tileset_palette.set_selected_sub_tile(item)
         else:
-            self.lbl_status_asset.setText("Zasób: Brak")
+            self.lbl_status_asset.setText(f"{tr('status.asset')}: {tr('status.none')}")
         self.properties_panel.set_selected_item(item)
 
     def _on_history_changed(self, can_undo: bool, can_redo: bool, undo_desc: str, redo_desc: str) -> None:
@@ -1022,7 +1087,6 @@ class MainWindow(QMainWindow):
             self.tileset_preview_dock,
             self.tileset_library_dock,
             self.layer_dock,
-            self.objects_dock,
             self.properties_dock,
             self.history_dock,
             self.minimap_dock,
@@ -1035,17 +1099,16 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tool_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tileset_preview_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tileset_library_dock)
+        self.splitDockWidget(self.tool_dock, self.tileset_preview_dock, Qt.Orientation.Horizontal)
         self.splitDockWidget(self.tileset_preview_dock, self.tileset_library_dock, Qt.Orientation.Vertical)
 
-        # Right side: Layers, Objects, Properties, History, Minimap
+        # Right side: Layers, Properties, History, Minimap
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.objects_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.properties_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.history_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.minimap_dock)
 
         # Tab groups on the right side
-        self.tabifyDockWidget(self.layer_dock, self.objects_dock)
         self.tabifyDockWidget(self.layer_dock, self.properties_dock)
         self.tabifyDockWidget(self.layer_dock, self.history_dock)
         self.tabifyDockWidget(self.layer_dock, self.minimap_dock)
@@ -1054,7 +1117,7 @@ class MainWindow(QMainWindow):
         # Proportions
         self.resizeDocks([self.tileset_preview_dock], [300], Qt.Orientation.Horizontal)
         self.resizeDocks([self.layer_dock], [280], Qt.Orientation.Horizontal)
-        self.resizeDocks([self.tool_dock], [52], Qt.Orientation.Horizontal)
+        self.resizeDocks([self.tool_dock], [44], Qt.Orientation.Horizontal)
 
         if hasattr(self, "tileset_palette"):
             self.tileset_palette.reset_splitter_sizes()
@@ -1068,7 +1131,6 @@ class MainWindow(QMainWindow):
             self._reset_dock_layout()
             # Maximized map canvas: keep primary tools and layers visible
             self.tileset_library_dock.hide()
-            self.objects_dock.hide()
             self.properties_dock.hide()
             self.tabifyDockWidget(self.layer_dock, self.history_dock)
             self.tabifyDockWidget(self.layer_dock, self.minimap_dock)
@@ -1079,14 +1141,12 @@ class MainWindow(QMainWindow):
             self._reset_dock_layout()
             self.history_dock.hide()
             self.minimap_dock.hide()
-            self.objects_dock.hide()
             self.splitDockWidget(self.tileset_preview_dock, self.tileset_library_dock, Qt.Orientation.Horizontal)
             self.resizeDocks([self.tileset_preview_dock, self.tileset_library_dock], [260, 260], Qt.Orientation.Horizontal)
         elif preset_name == "minimalist":
             for dock in [
                 self.tileset_library_dock,
                 self.layer_dock,
-                self.objects_dock,
                 self.properties_dock,
                 self.history_dock,
                 self.minimap_dock,
@@ -1101,7 +1161,6 @@ class MainWindow(QMainWindow):
                 self.tileset_preview_dock,
                 self.tileset_library_dock,
                 self.layer_dock,
-                self.objects_dock,
                 self.properties_dock,
                 self.history_dock,
                 self.minimap_dock,
@@ -1114,9 +1173,6 @@ class MainWindow(QMainWindow):
             self.splitDockWidget(self.tileset_preview_dock, self.tileset_library_dock, Qt.Orientation.Vertical)
 
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock)
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.objects_dock)
-            self.splitDockWidget(self.layer_dock, self.objects_dock, Qt.Orientation.Vertical)
-
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.properties_dock)
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.history_dock)
             self.tabifyDockWidget(self.properties_dock, self.history_dock)
@@ -1152,7 +1208,12 @@ class MainWindow(QMainWindow):
             data = custom_layouts[name]
             from PyQt6.QtCore import QByteArray
             success = True
-            version = data.get("version", LAYOUT_VERSION)
+            version = data.get("version", 2)
+            if version < 3:
+                self._reset_dock_layout()
+                if hasattr(self, "status_bar"):
+                    self.status_bar.showMessage(f"Układ '{name}' pochodzi ze starej wersji – przywrócono domyślny", 4000)
+                return False
             if "geometry" in data:
                 geom_bytes = QByteArray.fromBase64(data["geometry"].encode("ascii"))
                 self.restoreGeometry(geom_bytes)
@@ -1234,16 +1295,16 @@ class MainWindow(QMainWindow):
         settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
         custom_layouts = settings.value("custom_layouts", {})
         if not isinstance(custom_layouts, dict) or not custom_layouts:
-            act_empty1 = QAction("(Brak zapisanych układów)", self)
+            act_empty1 = QAction(tr("menu.layout.empty"), self)
             act_empty1.setEnabled(False)
             self.menu_load_layout.addAction(act_empty1)
 
             if hasattr(self, "menu_rename_layout"):
-                act_empty_ren = QAction("(Brak zapisanych układów)", self)
+                act_empty_ren = QAction(tr("menu.layout.empty"), self)
                 act_empty_ren.setEnabled(False)
                 self.menu_rename_layout.addAction(act_empty_ren)
 
-            act_empty2 = QAction("(Brak zapisanych układów)", self)
+            act_empty2 = QAction(tr("menu.layout.empty"), self)
             act_empty2.setEnabled(False)
             self.menu_delete_layout.addAction(act_empty2)
             return
@@ -1254,11 +1315,19 @@ class MainWindow(QMainWindow):
             self.menu_load_layout.addAction(act_load)
 
             if hasattr(self, "menu_rename_layout"):
-                act_ren = QAction(IconFactory.get_icon("pencil", 16), f"Zmień: {layout_name}", self)
+                act_ren = QAction(
+                    IconFactory.get_icon("pencil", 16),
+                    tr("menu.layout.rename", name=layout_name),
+                    self,
+                )
                 act_ren.triggered.connect(lambda ch, ln=layout_name: self.rename_custom_layout_action(ln))
                 self.menu_rename_layout.addAction(act_ren)
 
-            act_del = QAction(IconFactory.get_icon("trash", 16), f"Usuń: {layout_name}", self)
+            act_del = QAction(
+                IconFactory.get_icon("trash", 16),
+                tr("menu.layout.delete", name=layout_name),
+                self,
+            )
             act_del.triggered.connect(lambda ch, ln=layout_name: self.delete_custom_layout(ln))
             self.menu_delete_layout.addAction(act_del)
 
@@ -1301,6 +1370,7 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
+            self.drag_safety.cancel_all("escape")
             if hasattr(self, "toolbar_manager") and self.toolbar_manager.is_edit_mode:
                 self.toolbar_manager.set_edit_mode(False)
                 event.accept()
@@ -1308,6 +1378,7 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
+        self.drag_safety.cancel_all("window closing")
         settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
         geom = self.saveGeometry()
         state = self.saveState(LAYOUT_VERSION)

@@ -293,9 +293,9 @@ class TestAuditVerificationSuite(unittest.TestCase):
         """Verify MainWindow has tabbed/nested docking options and movable/floatable docks."""
         win = MainWindow()
         dock_opts = win.dockOptions()
-        self.assertTrue(bool(dock_opts & QMainWindow.DockOption.AnimatedDocks))
+        self.assertFalse(bool(dock_opts & QMainWindow.DockOption.AnimatedDocks))
         self.assertTrue(bool(dock_opts & QMainWindow.DockOption.AllowTabbedDocks))
-        self.assertTrue(bool(dock_opts & QMainWindow.DockOption.GroupedDragging))
+        self.assertFalse(bool(dock_opts & QMainWindow.DockOption.GroupedDragging))
         self.assertTrue(bool(dock_opts & QMainWindow.DockOption.AllowNestedDocks))
 
         for dock in [win.tileset_dock, win.right_dock, win.properties_dock, win.history_dock, win.minimap_dock]:

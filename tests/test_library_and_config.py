@@ -10,6 +10,7 @@ from tileset_map_maker.models.asset import Asset, AssetType, TilesetConfig, Sele
 from tileset_map_maker.models.category import CategoryTree, CategoryNode
 from tileset_map_maker.core.asset_manager import AssetManager
 from tileset_map_maker.core.config_manager import ConfigManager
+from tileset_map_maker.core.localization import tr
 from tileset_map_maker.ui.tileset_palette_widget import TilesetPaletteWidget, TilesetTreeWidget, TilesetCanvas
 from tileset_map_maker.ui.dialogs.preferences_dialog import PreferencesDialog
 
@@ -51,7 +52,7 @@ class TestTilesetLibraryAndConfig(unittest.TestCase):
         
         # Verify title label exists in header
         self.assertTrue(hasattr(palette, "lbl_active_title"))
-        self.assertIn("Brak wyboru", palette.lbl_active_title.text())
+        self.assertEqual(palette.lbl_active_title.text(), tr("palette.preview_empty"))
 
     def test_02_library_tree_widget_hierarchy(self):
         """2. Tree widget displays folders, subfolders and tilesets with icons and stats."""
@@ -283,7 +284,7 @@ class TestTilesetLibraryAndConfig(unittest.TestCase):
         dlg.config_manager = self.config_manager
 
         # Tab 4 is Import tab
-        self.assertEqual(dlg.tab_widget.tabText(3), "📥 Import Tilesetów")
+        self.assertIn("Import", dlg.tab_widget.tabText(3))
 
         # Set values
         dlg.spin_imp_width.setValue(64)

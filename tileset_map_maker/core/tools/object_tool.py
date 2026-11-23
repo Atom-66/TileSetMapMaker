@@ -246,6 +246,31 @@ class ObjectTool(BaseTool):
         self.drag_mode = "move"
         self.active_handle = None
 
+    def cancel(self, context: ToolContext) -> None:
+        """Restore object transforms changed during an interrupted gizmo/drag operation."""
+        if context.active_layer:
+            for oid, state in self.initial_states.items():
+                obj = context.active_layer.get_object(oid)
+                if obj:
+                    obj.free_x = state.get("free_x", obj.free_x)
+                    obj.free_y = state.get("free_y", obj.free_y)
+                    obj.col = state.get("col", obj.col)
+                    obj.row = state.get("row", obj.row)
+                    obj.offset_x = state.get("offset_x", obj.offset_x)
+                    obj.offset_y = state.get("offset_y", obj.offset_y)
+                    obj.dest_w = state.get("dest_w", obj.dest_w)
+                    obj.dest_h = state.get("dest_h", obj.dest_h)
+                    obj.scale_x = state.get("scale_x", obj.scale_x)
+                    obj.scale_y = state.get("scale_y", obj.scale_y)
+                    obj.rotation = state.get("rotation", obj.rotation)
+                    obj.flip_x = state.get("flip_x", obj.flip_x)
+                    obj.flip_y = state.get("flip_y", obj.flip_y)
+        self.initial_states.clear()
+        self.drag_start_pos = None
+        self.drag_mode = "move"
+        self.active_handle = None
+        self.is_active = False
+
     def rotate_selected(self, delta_degrees: float, context: ToolContext) -> None:
         if not context.active_layer:
             return

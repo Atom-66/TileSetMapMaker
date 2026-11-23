@@ -8,7 +8,6 @@ from PyQt6.QtSvg import QSvgRenderer
 
 from tileset_map_maker.ui.icons import IconFactory
 from tileset_map_maker.ui.main_window import MainWindow
-from tileset_map_maker.ui.object_list_panel import ObjectListPanel
 from tileset_map_maker.ui.history_panel import HistoryPanel
 from tileset_map_maker.core.history import HistoryManager
 from tileset_map_maker.models.project import Project
@@ -27,7 +26,6 @@ class TestIconSystemExpansion(unittest.TestCase):
             "tile-variants.svg",
             "tileset-slice.svg",
             "stamp-save.svg",
-            "map-object.svg",
             "save-as.svg",
             "grid-3x3-template.svg",
             "hud-coords.svg",
@@ -64,7 +62,6 @@ class TestIconSystemExpansion(unittest.TestCase):
             "tile-variants",
             "tileset-slice",
             "stamp-save",
-            "map-object",
             "save-as",
             "grid-3x3-template",
             "hud",
@@ -132,19 +129,10 @@ class TestIconSystemExpansion(unittest.TestCase):
             self.assertFalse(act.icon().isNull(), f"Action {name} must have a valid icon!")
         win.close()
 
-    def test_06_object_list_and_history_buttons_use_icons_without_emojis(self):
-        """6. Sprawdzenie, że przyciski paneli obiektów i historii używają wektorowych ikon zamiast emoji."""
+    def test_06_history_buttons_use_icons_without_emojis(self):
+        """6. Sprawdzenie, że przyciski historii używają wektorowych ikon zamiast emoji."""
         proj = Project(map_width=10, map_height=10, tile_size=32)
         hist = HistoryManager()
-
-        obj_panel = ObjectListPanel(proj, hist)
-        self.assertFalse(obj_panel.btn_focus.icon().isNull(), "btn_focus must have an icon")
-        self.assertFalse(obj_panel.btn_delete.icon().isNull(), "btn_delete must have an icon")
-        self.assertFalse(obj_panel.btn_refresh.icon().isNull(), "btn_refresh must have an icon")
-        self.assertEqual(obj_panel.btn_focus.text(), "")
-        self.assertEqual(obj_panel.btn_delete.text(), "")
-        self.assertEqual(obj_panel.btn_refresh.text(), "")
-
         hist_panel = HistoryPanel(hist)
         # Check btn_undo and btn_redo
         buttons = hist_panel.findChildren(QIcon)

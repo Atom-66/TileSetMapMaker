@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QImage, QColor
 from ..icons import IconFactory
+from ...core.localization import tr
 
 
 class TilesetImportDialog(QDialog):
@@ -36,7 +37,7 @@ class TilesetImportDialog(QDialog):
 
         self._read_image_metadata()
 
-        self.setWindowTitle("Konfiguracja nowego tilesetu")
+        self.setWindowTitle(tr("dialog.tileset_import.title"))
         self.setMinimumWidth(440)
         self.setStyleSheet("""
             QDialog {

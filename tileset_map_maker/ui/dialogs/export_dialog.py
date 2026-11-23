@@ -21,6 +21,7 @@ from ...core.render_engine import RenderEngine
 from ...core.project_io import ProjectIO
 from ..widgets.switch_toggle import SwitchToggle
 from ..icons import IconFactory
+from ...core.localization import tr
 
 
 class ExportDialog(QDialog):
@@ -35,7 +36,7 @@ class ExportDialog(QDialog):
         super().__init__(parent)
         self.project = project
         self.render_engine = render_engine
-        self.setWindowTitle("Eksport do PNG")
+        self.setWindowTitle(tr("dialog.export.title"))
         self.resize(480, 380)
 
         self.custom_bg_hex = "#ffffff"
@@ -54,16 +55,19 @@ class ExportDialog(QDialog):
         self.txt_path.setText(default_file)
         path_layout.addWidget(self.txt_path)
 
-        btn_browse = QPushButton(" Przeglądaj...")
+        btn_browse = QPushButton(" " + tr("button.browse"))
         btn_browse.setIcon(IconFactory.get_icon("folder-open", 14))
         btn_browse.clicked.connect(self._browse_path)
         path_layout.addWidget(btn_browse)
-        form.addRow("Ścieżka pliku:", path_layout)
+        form.addRow(tr("dialog.export.path"), path_layout)
 
         # Scale Factor (for retro games: 1x, 2x, 4x, etc.)
         self.combo_scale = QComboBox()
-        self.combo_scale.addItems(["1x (Oryginał)", "2x (200%)", "4x (400%)", "8x (800%)"])
-        form.addRow("Skala eksportu:", self.combo_scale)
+        self.combo_scale.addItems([
+            tr("dialog.export.scale_1"), tr("dialog.export.scale_2"),
+            tr("dialog.export.scale_4"), tr("dialog.export.scale_8"),
+        ])
+        form.addRow(tr("dialog.export.scale"), self.combo_scale)
 
         # Export area
         self.combo_area = QComboBox()

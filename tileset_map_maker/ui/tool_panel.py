@@ -24,6 +24,7 @@ from ..core.tools import (
     WandTool,
 )
 from .icons import IconFactory
+from ..core.localization import tr, get_localization
 
 
 class ToolPanel(QWidget):
@@ -35,16 +36,16 @@ class ToolPanel(QWidget):
     tool_changed = pyqtSignal(BaseTool)
 
     TOOL_DEFS: List[Tuple[str, str]] = [
-        ("brush", "Pędzel (B)"),
-        ("eraser", "Gumka (E / Prawy przycisk myszy)"),
-        ("fill", "Wypełnianie (G)"),
-        ("line", "Linia (L)"),
-        ("rect", "Prostokąt (U)"),
-        ("select", "Zaznaczanie (S)"),
-        ("wand", "Różdżka (W)"),
-        ("object", "Swobodny obiekt (V)"),
-        ("eyedropper", "Pipeta (I)"),
-        ("stamp", "Stempel (T)"),
+        ("brush", tr("tool.brush") + " (B)"),
+        ("eraser", tr("tool.eraser") + " (E)"),
+        ("fill", tr("tool.fill") + " (G)"),
+        ("line", tr("tool.line") + " (L)"),
+        ("rect", tr("tool.rect") + " (U)"),
+        ("select", tr("tool.select") + " (S)"),
+        ("wand", tr("tool.wand") + " (W)"),
+        ("object", tr("tool.object") + " (V)"),
+        ("eyedropper", tr("tool.eyedropper") + " (I)"),
+        ("stamp", tr("tool.stamp") + " (T)"),
     ]
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -65,9 +66,28 @@ class ToolPanel(QWidget):
         self.buttons: Dict[str, QToolButton] = {}
         self.current_orientation = Qt.Orientation.Vertical
         self.current_layout: Optional[QLayout] = None
+        self._layout_mode: Optional[str] = None
+        self._orientation_update_in_progress = False
 
         self._create_buttons()
         self._apply_orientation(Qt.Orientation.Vertical)
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        labels = {
+            "brush": tr("tool.brush") + " (B)",
+            "eraser": tr("tool.eraser") + " (E)",
+            "fill": tr("tool.fill") + " (G)",
+            "line": tr("tool.line") + " (L)",
+            "rect": tr("tool.rect") + " (U)",
+            "select": tr("tool.select") + " (S)",
+            "wand": tr("tool.wand") + " (W)",
+            "object": tr("tool.object") + " (V)",
+            "eyedropper": tr("tool.eyedropper") + " (I)",
+            "stamp": tr("tool.stamp") + " (T)",
+        }
+        for key, button in self.buttons.items():
+            button.setToolTip(labels[key])
 
     def _create_buttons(self) -> None:
         self.btn_group = QButtonGroup(self)
@@ -114,64 +134,58 @@ class ToolPanel(QWidget):
 
     def _clear_current_layout(self) -> None:
         if self.layout() is not None:
-            # Reparent or remove all items from existing layout
             old_layout = self.layout()
             while old_layout.count():
                 item = old_layout.takeAt(0)
-                w = item.widget()
-                if w:
-                    w.setParent(self)
-            # Delete old layout
-            QWidget().setLayout(old_layout)
+                widget = item.widget()
+                if widget:
+                    widget.setParent(self)
+            old_layout.deleteLater()
 
     def _apply_orientation(self, orientation: Qt.Orientation) -> None:
         self.current_orientation = orientation
         self._clear_current_layout()
 
         if orientation == Qt.Orientation.Horizontal:
-            # Flattened layout: horizontal flow
             h = self.height()
             w = self.width()
 
-            if h >= 80 and w < 400:
-                # 2 rows x 5 columns
+            columns = max(1, min(5, (w - 8 + 4) // 40))
+            if columns < len(self.TOOL_DEFS):
                 grid = QGridLayout(self)
                 grid.setContentsMargins(4, 4, 4, 4)
-                grid.setSpacing(4)
+                grid.setHorizontalSpacing(4)
+                grid.setVerticalSpacing(4)
                 for idx, (key, _) in enumerate(self.TOOL_DEFS):
-                    r = idx // 5
-                    c = idx % 5
-                    grid.addWidget(self.buttons[key], r, c)
+                    grid.addWidget(self.buttons[key], idx // columns, idx % columns)
+                grid.setRowStretch((len(self.TOOL_DEFS) + columns - 1) // columns, 1)
+                grid.setColumnStretch(columns, 1)
             else:
-                # 1 horizontal row
-                h_lay = QHBoxLayout(self)
-                h_lay.setContentsMargins(4, 4, 4, 4)
-                h_lay.setSpacing(4)
+                h_layout = QHBoxLayout(self)
+                h_layout.setContentsMargins(4, 4, 4, 4)
+                h_layout.setSpacing(4)
                 for key, _ in self.TOOL_DEFS:
-                    h_lay.addWidget(self.buttons[key])
-                h_lay.addStretch()
+                    h_layout.addWidget(self.buttons[key])
+                h_layout.addStretch()
         else:
-            # Vertical layout: vertical column
             w = self.width()
             h = self.height()
 
             if w >= 80 and h < 420:
-                # 2 columns x 5 rows
                 grid = QGridLayout(self)
                 grid.setContentsMargins(4, 4, 4, 4)
                 grid.setSpacing(4)
                 for idx, (key, _) in enumerate(self.TOOL_DEFS):
-                    r = idx % 5
-                    c = idx // 5
-                    grid.addWidget(self.buttons[key], r, c)
+                    row = idx % 5
+                    column = idx // 5
+                    grid.addWidget(self.buttons[key], row, column)
             else:
-                # 1 vertical column
-                v_lay = QVBoxLayout(self)
-                v_lay.setContentsMargins(4, 8, 4, 8)
-                v_lay.setSpacing(6)
+                v_layout = QVBoxLayout(self)
+                v_layout.setContentsMargins(4, 8, 4, 8)
+                v_layout.setSpacing(6)
                 for key, _ in self.TOOL_DEFS:
-                    v_lay.addWidget(self.buttons[key])
-                v_lay.addStretch()
+                    v_layout.addWidget(self.buttons[key])
+                v_layout.addStretch()
 
         self.updateGeometry()
 
@@ -179,13 +193,11 @@ class ToolPanel(QWidget):
         super().resizeEvent(event)
         w = self.width()
         h = self.height()
-        # When panel is flattened (height < 250 or width clearly exceeds height) -> horizontal layout
         target = Qt.Orientation.Horizontal if (h < 250 or w > h * 1.15) else Qt.Orientation.Vertical
         if target != self.current_orientation:
             self._apply_orientation(target)
 
     def on_dock_location_changed(self, area: Qt.DockWidgetArea) -> None:
-        """Called when dock location changes in main window."""
         if area in (Qt.DockWidgetArea.TopDockWidgetArea, Qt.DockWidgetArea.BottomDockWidgetArea):
             self._apply_orientation(Qt.Orientation.Horizontal)
         elif area in (Qt.DockWidgetArea.LeftDockWidgetArea, Qt.DockWidgetArea.RightDockWidgetArea):

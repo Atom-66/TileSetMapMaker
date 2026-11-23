@@ -24,6 +24,12 @@ class TestDockingAndLayouts(unittest.TestCase):
         settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
         settings.clear()
 
+    def test_drag_safety_cancel_is_idempotent(self):
+        """Escape/focus loss can cancel all drag state repeatedly without exceptions."""
+        self.win.drag_safety.cancel_all("test escape")
+        self.win.drag_safety.cancel_all("test focus loss")
+        self.assertFalse(self.win.drag_safety.is_active("missing-operation"))
+
     def test_01_drag_panel_left_to_right(self):
         """1. Przeciągnięcie panelu z lewej strony na prawą (zmiana obszaru dokowania)."""
         # Initially tileset_preview_dock is on the left
@@ -55,13 +61,9 @@ class TestDockingAndLayouts(unittest.TestCase):
 
     def test_04_reorder_and_raise_tab_groups(self):
         """4. Zmiana kolejności zakładek i uaktywnianie wybranej zakładki."""
-        # On right side: layer_dock, objects_dock, properties_dock, history_dock
+        # On right side: layer_dock, properties_dock, history_dock
         self.win.layer_dock.raise_()
         self.assertTrue(self.win.layer_dock.isVisible())
-
-        # Switch to objects dock
-        self.win.objects_dock.raise_()
-        self.assertTrue(self.win.objects_dock.isVisible())
 
         # Switch to history dock
         self.win.history_dock.raise_()
@@ -94,6 +96,25 @@ class TestDockingAndLayouts(unittest.TestCase):
         self.win.resizeDocks([self.win.layer_dock], [320], Qt.Orientation.Horizontal)
         self.assertTrue(self.win.canvas.isVisible())
         self.assertGreaterEqual(self.win.tileset_preview_dock.width(), 180)
+
+    def test_12_tool_dock_uses_single_column_content_width(self):
+        """The left ToolDock must not reserve extra columns or right-side padding."""
+        app = QApplication.instance()
+        self.win.show()
+        app.processEvents()
+
+        self.win._update_tool_dock_width()
+        app.processEvents()
+
+        self.assertEqual(self.win.tool_dock.width(), 44)
+        self.assertEqual(self.win.tool_panel.width(), 44)
+        self.assertEqual(self.win.tool_panel.layout().contentsMargins().left(), 4)
+        self.assertEqual(self.win.tool_panel.layout().contentsMargins().right(), 4)
+
+        for button in self.win.tool_panel.buttons.values():
+            rect = button.geometry()
+            self.assertGreaterEqual(rect.left(), 0)
+            self.assertLessEqual(rect.right(), self.win.tool_panel.width())
 
     def test_08_save_custom_layout_and_reload(self):
         """8. Zapisanie układu, zmiana stanu i ponowne wczytanie zapisanego układu."""
@@ -135,7 +156,6 @@ class TestDockingAndLayouts(unittest.TestCase):
             self.win.tileset_preview_dock,
             self.win.tileset_library_dock,
             self.win.layer_dock,
-            self.win.objects_dock,
             self.win.properties_dock,
             self.win.history_dock,
             self.win.minimap_dock,
@@ -161,31 +181,6 @@ class TestDockingAndLayouts(unittest.TestCase):
         self.win.tileset_palette.set_active_asset(asset)
         self.assertEqual(self.win.tileset_palette.active_asset_id, asset.id)
         self.assertEqual(self.win.tileset_palette.canvas.current_asset.id, asset.id)
-
-    def test_11_objects_panel_and_layer_sync(self):
-        """11. Panel obiektów odświeża listę obiektów umieszczonych na warstwie."""
-        layer = self.win.project.get_active_layer()
-        self.assertIsNotNone(layer)
-
-        # Add an object to layer
-        obj = MapItem(
-            asset_id="obj_tree",
-            col=0,
-            row=0,
-            free_x=100.0,
-            free_y=150.0,
-            dest_w=64,
-            dest_h=96,
-            item_type=ItemType.OBJECT,
-        )
-        layer.add_object(obj)
-        self.win.objects_panel.refresh()
-
-        # Tree should list 1 object
-        self.assertEqual(self.win.objects_panel.tree.topLevelItemCount(), 1)
-        item = self.win.objects_panel.tree.topLevelItem(0)
-        self.assertIn("Obiekt #1", item.text(0))
-        self.assertIn("(100, 150)", item.text(1))
 
     def test_12_corrupted_layout_safe_fallback(self):
         """12. Bezpieczny fallback przy uszkodzonym zapisanym układzie."""
@@ -217,7 +212,6 @@ class TestDockingAndLayouts(unittest.TestCase):
         self.assertTrue(self.win.layer_dock.isVisible())
         self.assertTrue(self.win.tileset_preview_dock.isVisible())
         self.assertFalse(self.win.tileset_library_dock.isVisible())
-        self.assertFalse(self.win.objects_dock.isVisible())
         self.assertFalse(self.win.properties_dock.isVisible())
 
         # 2. Tileset studio preset
@@ -240,7 +234,6 @@ class TestDockingAndLayouts(unittest.TestCase):
         self.assertTrue(self.win.tileset_preview_dock.isVisible())
         self.assertTrue(self.win.tileset_library_dock.isVisible())
         self.assertTrue(self.win.layer_dock.isVisible())
-        self.assertTrue(self.win.objects_dock.isVisible())
         self.assertTrue(self.win.properties_dock.isVisible())
         self.assertTrue(self.win.history_dock.isVisible())
         self.assertTrue(self.win.minimap_dock.isVisible())

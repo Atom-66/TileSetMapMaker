@@ -1,6 +1,6 @@
 from typing import Optional
 from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QMouseEvent
 
 from ..models.project import Project
@@ -113,6 +113,22 @@ class MinimapWidget(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self._is_dragging = False
             event.accept()
+
+    def focusOutEvent(self, event) -> None:
+        self._is_dragging = False
+        super().focusOutEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if not (QApplication.mouseButtons() & Qt.MouseButton.LeftButton):
+            self._is_dragging = False
+        super().leaveEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self._is_dragging = False
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _navigate_to_pos(self, pos: QPointF) -> None:
         w_px, h_px, scale, off_x, off_y, draw_w, draw_h = self._get_transform_params()

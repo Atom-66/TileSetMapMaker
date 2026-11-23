@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QIcon
 
 from ..models.project import Project
+from ..core.localization import tr, get_localization
 from ..models.layer import Layer
 from ..core.history import HistoryManager, LayerAddCommand, LayerRemoveCommand, LayerMoveCommand
 from .icons import IconFactory
@@ -61,6 +62,21 @@ class LayerPanel(QWidget):
 
         self._init_ui()
         self.refresh_layers()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        self.lbl_op_val.setText(f"{int(self.slider_opacity.value())}%")
+        self.lbl_op_val.setToolTip("")
+        self.combo_blend.setItemText(0, tr("layers.normal"))
+        self.combo_blend.setItemText(1, tr("layers.multiply"))
+        self.combo_blend.setItemText(2, tr("layers.screen"))
+        self.combo_blend.setItemText(3, tr("layers.overlay"))
+        self.combo_blend.setItemText(4, tr("layers.additive"))
+        self.tree_widget.setHeaderLabels([
+            tr("layers.name_visibility_lock"), tr("layers.visibility"),
+            tr("layers.lock"), tr("action.autotile"),
+        ])
+        self.refresh_layers()
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -69,7 +85,7 @@ class LayerPanel(QWidget):
 
         # Header with Opacity Slider and Blend Mode
         op_layout = QHBoxLayout()
-        lbl_op = QLabel("Krycie:")
+        lbl_op = QLabel(tr("layers.opacity_label"))
         lbl_op.setStyleSheet("font-size: 11px; color: #a1a1aa;")
         op_layout.addWidget(lbl_op)
 
@@ -84,16 +100,16 @@ class LayerPanel(QWidget):
         op_layout.addWidget(self.lbl_op_val)
 
         # Blend Mode Dropdown (TASK-704)
-        lbl_bm = QLabel("Tryb:")
+        lbl_bm = QLabel(tr("layers.mode"))
         lbl_bm.setStyleSheet("font-size: 11px; color: #a1a1aa; margin-left: 4px;")
         op_layout.addWidget(lbl_bm)
 
         self.combo_blend = QComboBox(self)
-        self.combo_blend.addItem("Zwykły", "normal")
-        self.combo_blend.addItem("Mnożenie", "multiply")
-        self.combo_blend.addItem("Ekran", "screen")
-        self.combo_blend.addItem("Nakładka", "overlay")
-        self.combo_blend.addItem("Dodawanie", "add")
+        self.combo_blend.addItem(tr("layers.normal"), "normal")
+        self.combo_blend.addItem(tr("layers.multiply"), "multiply")
+        self.combo_blend.addItem(tr("layers.screen"), "screen")
+        self.combo_blend.addItem(tr("layers.overlay"), "overlay")
+        self.combo_blend.addItem(tr("layers.additive"), "add")
         self.combo_blend.setStyleSheet("""
             QComboBox {
                 background: #27272a;
@@ -114,7 +130,10 @@ class LayerPanel(QWidget):
 
         # Hierarchical Layer Tree Widget with Drag & Drop Reordering
         self.tree_widget = LayerTreeWidget(self)
-        self.tree_widget.setHeaderLabels(["Warstwa / Grupa", "Widoczność", "Blokada", "Auto-Tile"])
+        self.tree_widget.setHeaderLabels([
+            tr("layers.name_visibility_lock"), tr("layers.visibility"),
+            tr("layers.lock"), tr("action.autotile"),
+        ])
         self.tree_widget.setColumnWidth(0, 140)
         self.tree_widget.setColumnWidth(1, 40)
         self.tree_widget.setColumnWidth(2, 40)
@@ -157,43 +176,43 @@ class LayerPanel(QWidget):
 
         btn_add = QToolButton()
         btn_add.setIcon(IconFactory.get_icon("plus", 16))
-        btn_add.setToolTip("Dodaj nową warstwę")
+        btn_add.setToolTip(tr("layers.add_tooltip"))
         btn_add.setStyleSheet(btn_style)
         btn_add.clicked.connect(self._add_layer)
 
         btn_add_grp = QToolButton()
         btn_add_grp.setIcon(IconFactory.get_icon("folder-plus", 16))
-        btn_add_grp.setToolTip("Dodaj nową grupę warstw")
+        btn_add_grp.setToolTip(tr("layers.add_group_tooltip"))
         btn_add_grp.setStyleSheet(btn_style)
         btn_add_grp.clicked.connect(self._add_group)
 
         btn_dup = QToolButton()
         btn_dup.setIcon(IconFactory.get_icon("copy", 16))
-        btn_dup.setToolTip("Duplikuj aktywną warstwę")
+        btn_dup.setToolTip(tr("layers.duplicate_tooltip"))
         btn_dup.setStyleSheet(btn_style)
         btn_dup.clicked.connect(self._duplicate_layer)
 
         btn_del = QToolButton()
         btn_del.setIcon(IconFactory.get_icon("trash", 16))
-        btn_del.setToolTip("Usuń wybraną warstwę lub grupę")
+        btn_del.setToolTip(tr("layers.remove_tooltip"))
         btn_del.setStyleSheet(btn_style)
         btn_del.clicked.connect(self._delete_layer)
 
         btn_clear = QToolButton()
         btn_clear.setIcon(IconFactory.get_icon("eraser", 16))
-        btn_clear.setToolTip("Wyczyść zawartość aktywnej warstwy")
+        btn_clear.setToolTip(tr("layers.clear_tooltip"))
         btn_clear.setStyleSheet(btn_style)
         btn_clear.clicked.connect(self._clear_layer)
 
         btn_up = QToolButton()
         btn_up.setIcon(IconFactory.get_icon("arrow-up", 16))
-        btn_up.setToolTip("Przesuń w górę")
+        btn_up.setToolTip(tr("layers.up_tooltip"))
         btn_up.setStyleSheet(btn_style)
         btn_up.clicked.connect(self._move_up)
 
         btn_down = QToolButton()
         btn_down.setIcon(IconFactory.get_icon("arrow-down", 16))
-        btn_down.setToolTip("Przesuń w dół")
+        btn_down.setToolTip(tr("layers.down_tooltip"))
         btn_down.setStyleSheet(btn_style)
         btn_down.clicked.connect(self._move_down)
 

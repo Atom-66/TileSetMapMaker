@@ -2,8 +2,9 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 from PyQt6.QtCore import Qt, QPointF
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from PIL import Image
 
 from tileset_map_maker.models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
@@ -398,8 +399,9 @@ class TestAutoTileComprehensive(unittest.TestCase):
         dlg.spin_col.setValue(0)
         dlg.spin_row.setValue(0)
 
-        # Apply template
-        dlg._apply_template()
+        # Avoid opening a modal OK dialog in the headless test environment.
+        with patch.object(QMessageBox, "information", return_value=QMessageBox.StandardButton.Ok):
+            dlg._apply_template()
 
         rule = self.autotile_engine.get_active_ruleset()
         self.assertIsNotNone(rule)

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from ..models.project import Project
 from ..models.asset import Asset, AssetType, SelectedSubTile
 from ..core.asset_manager import AssetManager
+from ..core.localization import tr, get_localization
 
 
 def create_checkerboard_preview(
@@ -63,7 +64,7 @@ def create_checkerboard_preview(
         p.drawRect(ox - 1, oy - 1, scaled.width() + 1, scaled.height() + 1)
     else:
         p.setPen(QColor("#71717a"))
-        p.drawText(QRect(0, 0, target_w, target_h), Qt.AlignmentFlag.AlignCenter, "Brak podglądu")
+        p.drawText(QRect(0, 0, target_w, target_h), Qt.AlignmentFlag.AlignCenter, tr("properties.no_preview"))
 
     p.end()
     return out
@@ -87,6 +88,8 @@ class PropertiesPanel(QWidget):
         self.selected_item: Optional[Any] = None
 
         self._init_ui()
+        get_localization().languageChanged.connect(self._retranslate)
+        self._retranslate()
         self.refresh()
 
     def _init_ui(self) -> None:
@@ -104,34 +107,34 @@ class PropertiesPanel(QWidget):
         c_layout.setSpacing(8)
 
         # 1. Map Properties
-        grp_map = QGroupBox("Aktywna Mapa")
-        form_map = QFormLayout(grp_map)
-        form_map.setContentsMargins(8, 8, 8, 8)
+        self.grp_map = QGroupBox()
+        self.form_map = QFormLayout(self.grp_map)
+        self.form_map.setContentsMargins(8, 8, 8, 8)
         self.lbl_map_name = QLabel()
         self.lbl_map_dim = QLabel()
         self.lbl_tile_dim = QLabel()
         self.lbl_layers_cnt = QLabel()
-        form_map.addRow("Nazwa:", self.lbl_map_name)
-        form_map.addRow("Wymiary mapy:", self.lbl_map_dim)
-        form_map.addRow("Rozmiar kafelka:", self.lbl_tile_dim)
-        form_map.addRow("Liczba warstw:", self.lbl_layers_cnt)
-        c_layout.addWidget(grp_map)
+        self.form_map.addRow("Nazwa:", self.lbl_map_name)
+        self.form_map.addRow("Wymiary mapy:", self.lbl_map_dim)
+        self.form_map.addRow("Rozmiar kafelka:", self.lbl_tile_dim)
+        self.form_map.addRow("Liczba warstw:", self.lbl_layers_cnt)
+        c_layout.addWidget(self.grp_map)
 
         # 2. Active Layer Properties
-        grp_layer = QGroupBox("Aktywna Warstwa")
-        form_layer = QFormLayout(grp_layer)
-        form_layer.setContentsMargins(8, 8, 8, 8)
+        self.grp_layer = QGroupBox()
+        self.form_layer = QFormLayout(self.grp_layer)
+        self.form_layer.setContentsMargins(8, 8, 8, 8)
         self.lbl_layer_name = QLabel()
         self.lbl_layer_status = QLabel()
         self.lbl_layer_opacity = QLabel()
-        form_layer.addRow("Nazwa:", self.lbl_layer_name)
-        form_layer.addRow("Status:", self.lbl_layer_status)
-        form_layer.addRow("Przezroczystość:", self.lbl_layer_opacity)
-        c_layout.addWidget(grp_layer)
+        self.form_layer.addRow("Nazwa:", self.lbl_layer_name)
+        self.form_layer.addRow("Status:", self.lbl_layer_status)
+        self.form_layer.addRow("Przezroczystość:", self.lbl_layer_opacity)
+        c_layout.addWidget(self.grp_layer)
 
         # 3. Selection Properties & Sliced Preview
-        grp_sel = QGroupBox("Wybrany Element / Pędzel")
-        v_sel_layout = QVBoxLayout(grp_sel)
+        self.grp_sel = QGroupBox()
+        v_sel_layout = QVBoxLayout(self.grp_sel)
         v_sel_layout.setContentsMargins(8, 8, 8, 8)
         v_sel_layout.setSpacing(6)
 
@@ -162,19 +165,19 @@ class PropertiesPanel(QWidget):
         pc_layout.addWidget(self.lbl_preview_img)
         v_sel_layout.addWidget(preview_container)
 
-        form_sel = QFormLayout()
-        form_sel.setContentsMargins(0, 0, 0, 0)
-        self.lbl_sel_type = QLabel("Brak")
+        self.form_sel = QFormLayout()
+        self.form_sel.setContentsMargins(0, 0, 0, 0)
+        self.lbl_sel_type = QLabel()
         self.lbl_sel_name = QLabel("-")
         self.lbl_sel_pos = QLabel("-")
         self.lbl_sel_size = QLabel("-")
-        form_sel.addRow("Typ:", self.lbl_sel_type)
-        form_sel.addRow("Zasób:", self.lbl_sel_name)
-        form_sel.addRow("Pozycja źródłowa:", self.lbl_sel_pos)
-        form_sel.addRow("Rozmiar źródłowy:", self.lbl_sel_size)
-        v_sel_layout.addLayout(form_sel)
+        self.form_sel.addRow("Typ:", self.lbl_sel_type)
+        self.form_sel.addRow("Zasób:", self.lbl_sel_name)
+        self.form_sel.addRow("Pozycja źródłowa:", self.lbl_sel_pos)
+        self.form_sel.addRow("Rozmiar źródłowy:", self.lbl_sel_size)
+        v_sel_layout.addLayout(self.form_sel)
 
-        c_layout.addWidget(grp_sel)
+        c_layout.addWidget(self.grp_sel)
 
         c_layout.addStretch()
         scroll.setWidget(container)
@@ -192,22 +195,51 @@ class PropertiesPanel(QWidget):
         self.selected_item = item
         self.refresh()
 
+    def _retranslate(self, *_args) -> None:
+        self.grp_map.setTitle(tr("properties.map_title"))
+        self.grp_layer.setTitle(tr("properties.layer_title"))
+        self.grp_sel.setTitle(tr("properties.selection_title"))
+        for form, fields, keys in (
+            (
+                self.form_map,
+                (self.lbl_map_name, self.lbl_map_dim, self.lbl_tile_dim, self.lbl_layers_cnt),
+                ("properties.name", "properties.map_dimensions", "properties.tile_size", "properties.layer_count"),
+            ),
+            (
+                self.form_layer,
+                (self.lbl_layer_name, self.lbl_layer_status, self.lbl_layer_opacity),
+                ("properties.name", "properties.status", "properties.opacity"),
+            ),
+            (
+                self.form_sel,
+                (self.lbl_sel_type, self.lbl_sel_name, self.lbl_sel_pos, self.lbl_sel_size),
+                ("properties.type", "properties.asset", "properties.source_position", "properties.source_size"),
+            ),
+        ):
+            for field, key in zip(fields, keys):
+                label = form.labelForField(field)
+                if label is not None:
+                    label.setText(tr(key))
+        self.refresh()
+
     def refresh(self) -> None:
         active_map = self.project.get_active_map()
         self.lbl_map_name.setText(active_map.name)
-        self.lbl_map_dim.setText(f"{active_map.map_width} × {active_map.map_height} komórek")
+        self.lbl_map_dim.setText(
+            f"{active_map.map_width} × {active_map.map_height} {tr('properties.cells')}"
+        )
         self.lbl_tile_dim.setText(f"{active_map.tile_size} × {active_map.tile_size} px")
-        self.lbl_layers_cnt.setText(f"{len(active_map.layers)} warstw")
+        self.lbl_layers_cnt.setText(f"{len(active_map.layers)} {tr('properties.layers')}")
 
         layer = active_map.get_active_layer()
         if layer:
             self.lbl_layer_name.setText(layer.name)
-            vis = "Widoczna" if layer.visible else "Ukryta"
-            lock = "Zablokowana" if layer.locked else "Edytowalna"
+            vis = tr("properties.visible") if layer.visible else tr("properties.hidden")
+            lock = tr("properties.locked") if layer.locked else tr("properties.editable")
             self.lbl_layer_status.setText(f"{vis}, {lock}")
             self.lbl_layer_opacity.setText(f"{int(layer.opacity * 100)}%")
         else:
-            self.lbl_layer_name.setText("Brak")
+            self.lbl_layer_name.setText(tr("properties.none"))
             self.lbl_layer_status.setText("-")
             self.lbl_layer_opacity.setText("-")
 
@@ -218,11 +250,15 @@ class PropertiesPanel(QWidget):
             sub = self.selected_item
             name_prefix = f"{sub.asset_name} – " if getattr(sub, "asset_name", None) else ""
             if sub.is_multi_tile():
-                self.lbl_sel_type.setText("Blok kafelków tilesetu")
-                self.lbl_sel_name.setText(f"{name_prefix}{sub.cols_count} × {sub.rows_count} kafelków")
+                self.lbl_sel_type.setText(tr("properties.tileset_block"))
+                self.lbl_sel_name.setText(
+                    f"{name_prefix}{sub.cols_count} × {sub.rows_count} {tr('properties.tiles')}"
+                )
             else:
-                self.lbl_sel_type.setText("Pojedynczy kafelek tilesetu")
-                self.lbl_sel_name.setText(f"{name_prefix}Komórka ({sub.col}, {sub.row})")
+                self.lbl_sel_type.setText(tr("properties.single_tile"))
+                self.lbl_sel_name.setText(
+                    f"{name_prefix}{tr('properties.cell', col=sub.col, row=sub.row)}"
+                )
             self.lbl_sel_pos.setText(f"X: {sub.sub_x} px, Y: {sub.sub_y} px")
             self.lbl_sel_size.setText(f"{sub.sub_w} × {sub.sub_h} px")
 
@@ -235,7 +271,9 @@ class PropertiesPanel(QWidget):
         elif isinstance(self.selected_item, Asset):
             asset = self.selected_item
             is_ts = (asset.asset_type == AssetType.TILESET)
-            self.lbl_sel_type.setText("Arkusz tilesetu" if is_ts else "Pojedynczy obiekt PNG")
+            self.lbl_sel_type.setText(
+                tr("properties.tileset_sheet") if is_ts else tr("properties.png_object")
+            )
             self.lbl_sel_name.setText(asset.name)
             self.lbl_sel_pos.setText("0, 0")
             self.lbl_sel_size.setText(f"{asset.width} × {asset.height} px")
@@ -243,7 +281,7 @@ class PropertiesPanel(QWidget):
             if self.asset_manager:
                 sub_pixmap = self.asset_manager.get_pixmap(asset.id)
         else:
-            self.lbl_sel_type.setText("Brak wyboru")
+            self.lbl_sel_type.setText(tr("properties.no_selection"))
             self.lbl_sel_name.setText("-")
             self.lbl_sel_pos.setText("-")
             self.lbl_sel_size.setText("-")

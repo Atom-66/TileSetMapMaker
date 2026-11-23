@@ -1,7 +1,86 @@
 from typing import Optional
 from PyQt6.QtCore import Qt, QRect, QPropertyAnimation, pyqtProperty, pyqtSignal, QEasingCurve
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QSizePolicy
+from PyQt6.QtWidgets import QApplication, QWidget, QHBoxLayout, QLabel, QSizePolicy
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPaintEvent, QMouseEvent, QKeyEvent, QIcon
+
+
+_TOOLBAR_TOGGLE_PALETTES = {
+    0: {
+        "background": "#27272a",
+        "border": "#3f3f46",
+        "text": "#d4d4d8",
+        "hover_background": "#3f3f46",
+        "hover_border": "#60a5fa",
+        "checked_background": "#2563eb",
+        "checked_border": "#93c5fd",
+        "checked_text": "#ffffff",
+        "checked_hover_background": "#1d4ed8",
+        "checked_hover_border": "#bfdbfe",
+        "disabled_background": "#18181b",
+        "disabled_border": "#27272a",
+        "disabled_text": "#52525b",
+        "pressed_background": "#1d4ed8",
+        "pressed_border": "#2563eb",
+    },
+    1: {
+        "background": "#e2e8f0",
+        "border": "#64748b",
+        "text": "#1e293b",
+        "hover_background": "#cbd5e1",
+        "hover_border": "#1d4ed8",
+        "checked_background": "#1d4ed8",
+        "checked_border": "#1e40af",
+        "checked_text": "#ffffff",
+        "checked_hover_background": "#1e40af",
+        "checked_hover_border": "#172554",
+        "disabled_background": "#ffffff",
+        "disabled_border": "#e2e8f0",
+        "disabled_text": "#64748b",
+        "pressed_background": "#1d4ed8",
+        "pressed_border": "#1d4ed8",
+    },
+    2: {
+        "background": "#141414",
+        "border": "#666666",
+        "text": "#ffffff",
+        "hover_background": "#222222",
+        "hover_border": "#00e5ff",
+        "checked_background": "#0057ff",
+        "checked_border": "#00ffff",
+        "checked_text": "#ffffff",
+        "checked_hover_background": "#00e5ff",
+        "checked_hover_border": "#aefcff",
+        "disabled_background": "#050505",
+        "disabled_border": "#444444",
+        "disabled_text": "#a3a3a3",
+        "pressed_background": "#0057ff",
+        "pressed_border": "#00e5ff",
+    },
+    3: {
+        "background": "#294936",
+        "border": "#80683f",
+        "text": "#eee2c2",
+        "hover_background": "#34543b",
+        "hover_border": "#dfc477",
+        "checked_background": "#806735",
+        "checked_border": "#fff0c8",
+        "checked_text": "#fff8df",
+        "checked_hover_background": "#60452d",
+        "checked_hover_border": "#dfc477",
+        "disabled_background": "#12241c",
+        "disabled_border": "#34543b",
+        "disabled_text": "#8c8a77",
+        "pressed_background": "#60452d",
+        "pressed_border": "#806735",
+    },
+}
+
+
+def _toolbar_toggle_palette(theme_index=None):
+    app = QApplication.instance()
+    if theme_index is None:
+        theme_index = int(app.property("theme_index") or 0) if app else 0
+    return _TOOLBAR_TOGGLE_PALETTES.get(theme_index, _TOOLBAR_TOGGLE_PALETTES[0])
 
 
 class SwitchToggle(QWidget):
@@ -102,10 +181,22 @@ class SwitchToggle(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
-            self.toggle()
+            self._pressed = True
+            self.update()
             event.accept()
         else:
             super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and getattr(self, "_pressed", False):
+            self._pressed = False
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            if self.rect().contains(pos) and self.isEnabled():
+                self.toggle()
+            self.update()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.isEnabled():
@@ -259,10 +350,22 @@ class ToolbarToggleButton(SwitchToggle):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
-            self.toggle()
+            self._pressed = True
+            self.update()
             event.accept()
         else:
             super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and getattr(self, "_pressed", False):
+            self._pressed = False
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            if self.rect().contains(pos) and self.isEnabled():
+                self.toggle()
+            self.update()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def enterEvent(self, event) -> None:
         self._hovered = True
@@ -286,25 +389,45 @@ class ToolbarToggleButton(SwitchToggle):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect().adjusted(1, 1, -1, -1)
+        palette = _toolbar_toggle_palette()
         if not self.isEnabled():
-            p.setBrush(QBrush(QColor("#18181b")))
-            p.setPen(QPen(QColor("#27272a"), 1))
+            p.setBrush(QBrush(QColor(palette["disabled_background"])))
+            p.setPen(QPen(QColor(palette["disabled_border"]), 1))
+            p.drawRoundedRect(rect, 4, 4)
+        elif getattr(self, "_pressed", False):
+            p.setBrush(QBrush(QColor(palette["pressed_background"])))
+            p.setPen(QPen(QColor(palette["pressed_border"]), 1))
             p.drawRoundedRect(rect, 4, 4)
         elif self._checked:
-            bg_color = QColor("#1d4ed8") if self._hovered else QColor("#2563eb")
-            border_color = QColor("#bfdbfe") if self._hovered else QColor("#93c5fd")
+            bg_color = QColor(
+                palette["checked_hover_background"]
+                if self._hovered
+                else palette["checked_background"]
+            )
+            border_color = QColor(
+                palette["checked_hover_border"]
+                if self._hovered
+                else palette["checked_border"]
+            )
             p.setBrush(QBrush(bg_color))
             p.setPen(QPen(border_color, 1))
             p.drawRoundedRect(rect, 4, 4)
         else:
-            bg_color = QColor("#3f3f46") if self._hovered else QColor("#27272a")
-            border_color = QColor("#60a5fa") if self._hovered else QColor("#3f3f46")
+            bg_color = QColor(
+                palette["hover_background"] if self._hovered else palette["background"]
+            )
+            border_color = QColor(
+                palette["hover_border"] if self._hovered else palette["border"]
+            )
             p.setBrush(QBrush(bg_color))
             p.setPen(QPen(border_color, 1))
             p.drawRoundedRect(rect, 4, 4)
         p.end()
 
-    def _update_style(self) -> None:
+    def _apply_application_theme(self, theme_index: int) -> None:
+        self._update_style(theme_index)
+
+    def _update_style(self, theme_index=None) -> None:
         from ..icons import IconFactory
 
         is_enabled = self.isEnabled()
@@ -324,57 +447,43 @@ class ToolbarToggleButton(SwitchToggle):
         else:
             self._icon_lbl.hide()
 
+        palette = _toolbar_toggle_palette(theme_index)
         if not is_enabled:
-            self.setStyleSheet("""
-                ToolbarToggleButton {
-                    background-color: #18181b;
-                    border: 1px solid #27272a;
-                    border-radius: 4px;
-                }
-                QLabel {
-                    color: #52525b;
-                    font-size: 11px;
-                    font-weight: 500;
-                    background: transparent;
-                    border: none;
-                }
-            """)
+            background = palette["disabled_background"]
+            border = palette["disabled_border"]
+            text = palette["disabled_text"]
+            weight = 500
         elif self._checked:
-            self.setStyleSheet("""
-                ToolbarToggleButton {
-                    background-color: #2563eb;
-                    border: 1px solid #93c5fd;
-                    border-radius: 4px;
-                }
-                ToolbarToggleButton:hover {
-                    background-color: #1d4ed8;
-                    border-color: #bfdbfe;
-                }
-                QLabel {
-                    color: #ffffff;
-                    font-size: 11px;
-                    font-weight: 600;
-                    background: transparent;
-                    border: none;
-                }
-            """)
+            background = palette["checked_background"]
+            border = palette["checked_border"]
+            text = palette["checked_text"]
+            weight = 600
         else:
-            self.setStyleSheet("""
-                ToolbarToggleButton {
-                    background-color: #27272a;
-                    border: 1px solid #3f3f46;
-                    border-radius: 4px;
-                }
-                ToolbarToggleButton:hover {
-                    background-color: #3f3f46;
-                    border-color: #60a5fa;
-                }
-                QLabel {
-                    color: #d4d4d8;
-                    font-size: 11px;
-                    font-weight: 500;
-                    background: transparent;
-                    border: none;
-                }
-            """)
+            background = palette["background"]
+            border = palette["border"]
+            text = palette["text"]
+            weight = 500
+
+        self.setStyleSheet(f"""
+            ToolbarToggleButton {{
+                background-color: {background};
+                border: 1px solid {border};
+                border-radius: 4px;
+            }}
+            ToolbarToggleButton:hover {{
+                background-color: {palette["checked_hover_background"] if self._checked else palette["hover_background"]};
+                border-color: {palette["checked_hover_border"] if self._checked else palette["hover_border"]};
+            }}
+            QLabel {{
+                color: {text};
+                font-size: 11px;
+                font-weight: {weight};
+                background: transparent;
+                border: none;
+            }}
+        """)
+        self._label.setStyleSheet(
+            f"color: {text}; font-size: 11px; font-weight: {weight}; "
+            "background: transparent; border: none;"
+        )
         self.update()

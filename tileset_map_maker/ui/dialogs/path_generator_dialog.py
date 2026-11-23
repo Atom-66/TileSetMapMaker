@@ -43,6 +43,7 @@ from ...models.asset import SelectedSubTile, AssetType
 from ...core.asset_manager import AssetManager
 from ...core.autotile_engine import AutoTileEngine
 from ..icons import IconFactory
+from ...core.localization import tr
 
 
 class PathPreviewWidget(QWidget):
@@ -172,7 +173,7 @@ class PathGeneratorDialog(QDialog):
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("🛣️ Generator ścieżek – Ręczna konfiguracja kafelków")
+        self.setWindowTitle(tr("dialog.path.title"))
         self.setMinimumSize(780, 560)
         self.resize(840, 600)
 
@@ -314,7 +315,7 @@ class PathGeneratorDialog(QDialog):
 
         self.btn_auto_from_3x3 = QPushButton(" Wypełnij z zaznaczenia 3x3 w palecie")
         self.btn_auto_from_3x3.setIcon(IconFactory.get_icon("grid-3x3-template", 16))
-        self.btn_auto_from_3x3.setToolTip("Automatycznie przypisuje kafelki do ról, jeśli w palecie zaznaczono blok 3x3")
+        self.btn_auto_from_3x3.setToolTip(tr("path.autofill_tooltip"))
         self.btn_auto_from_3x3.clicked.connect(self._auto_fill_from_palette_3x3)
         bottom_bar.addWidget(self.btn_auto_from_3x3)
 
@@ -489,13 +490,13 @@ class PathGeneratorDialog(QDialog):
             btn_pick.setIcon(IconFactory.get_icon("select", 14))
             btn_pick.setText(" Z palety")
             btn_pick.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            btn_pick.setToolTip("Przypisz aktualnie zaznaczony kafelek w palecie tilesetów")
+            btn_pick.setToolTip(tr("path.pick_tooltip"))
             btn_pick.clicked.connect(lambda ch, rk=role_key: self._assign_from_current_selection(rk))
             box_layout.addWidget(btn_pick)
 
             btn_del = QToolButton()
             btn_del.setIcon(IconFactory.get_icon("trash", 14))
-            btn_del.setToolTip("Usuń przypisanie dla tej pozycji")
+            btn_del.setToolTip(tr("path.delete_assignment_tooltip"))
             btn_del.clicked.connect(lambda ch, rk=role_key: self._clear_role_tile(rk))
             box_layout.addWidget(btn_del)
 

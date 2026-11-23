@@ -26,6 +26,7 @@ from ..core.tools.eraser import EraserTool
 from ..core.tools.object_tool import ObjectTool
 from ..core.tools.select_tool import StampTool
 from .quick_action_menu import QuickActionMenu
+from .styles import get_canvas_theme_colors
 
 
 class MapCanvas(QWidget):
@@ -188,7 +189,10 @@ class MapCanvas(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#121316"))
+        app = QApplication.instance()
+        theme_index = int(app.property("theme_index") or 0) if app else 0
+        theme_colors = get_canvas_theme_colors(theme_index)
+        painter.fillRect(self.rect(), QColor(theme_colors["background"]))
 
         painter.save()
         painter.translate(self.pan_offset)
@@ -203,7 +207,7 @@ class MapCanvas(QWidget):
 
         options = RenderOptions(
             show_grid=self.show_grid,
-            grid_color=self.grid_color,
+            grid_color=self._theme_grid_color(theme_colors["grid"]),
             show_selection=True,
             selection_rect=sel_rect,
             selected_object_ids=self.tool_context.selected_object_ids,
@@ -236,13 +240,22 @@ class MapCanvas(QWidget):
             box_y = self.height() - box_h - 14
             hud_rect = QRectF(box_x, box_y, box_w, box_h)
 
-            painter.setPen(QPen(QColor(63, 63, 70, 200), 1))
-            painter.setBrush(QBrush(QColor(24, 24, 27, 215)))
+            painter.setPen(QPen(QColor(theme_colors["hud_border"]), 1))
+            hud_background = QColor(theme_colors["hud_background"])
+            hud_background.setAlpha(215)
+            painter.setBrush(QBrush(hud_background))
             painter.drawRoundedRect(hud_rect, 6, 6)
 
-            painter.setPen(QColor(228, 228, 231))
+            painter.setPen(QColor(theme_colors["hud_text"]))
             painter.drawText(hud_rect, Qt.AlignmentFlag.AlignCenter, hud_text)
             painter.restore()
+
+    def _theme_grid_color(self, theme_color: tuple[int, int, int, int]) -> QColor:
+        color = QColor(*theme_color)
+        color.setAlpha(
+            min(255, round(color.alpha() * self.grid_color.alpha() / 89))
+        )
+        return color
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         delta = event.angleDelta().y()
@@ -396,6 +409,8 @@ class MapCanvas(QWidget):
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
         # Prevent eraser or panning from being stuck when window loses focus
+        if self.active_tool and self.active_tool.is_active:
+            self.active_tool.cancel(self.tool_context)
         if self.is_right_erasing:
             self.is_right_erasing = False
             self.eraser_tool.on_release(self.tool_context.cursor_col, self.tool_context.cursor_row, self.tool_context)
@@ -408,6 +423,12 @@ class MapCanvas(QWidget):
 
     def leaveEvent(self, event) -> None:
         # Check if right button was released outside the window
+        if not (QApplication.mouseButtons() & (Qt.MouseButton.LeftButton | Qt.MouseButton.MiddleButton | Qt.MouseButton.RightButton)):
+            if self.active_tool and self.active_tool.is_active:
+                self.active_tool.cancel(self.tool_context)
+            self.is_panning = False
+            self.is_right_erasing = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
         if self.is_right_erasing and not (QApplication.mouseButtons() & Qt.MouseButton.RightButton):
             self.is_right_erasing = False
             self.eraser_tool.on_release(self.tool_context.cursor_col, self.tool_context.cursor_row, self.tool_context)

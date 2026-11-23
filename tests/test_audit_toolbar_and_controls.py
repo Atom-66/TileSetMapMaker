@@ -194,23 +194,6 @@ class TestAuditToolbarAndControls(unittest.TestCase):
             col = img.pixelColor(bar.chk_autotile.width() // 2, bar.chk_autotile.height() // 2)
             self.assertGreater(col.blue(), 200)
             self.assertLess(col.red(), 60)
-
-            win.close()
-
-    def test_07_objects_panel_project_update(self):
-        """7. Prawidłowa aktualizacja referencji projektu i historii w ObjectListPanel."""
-        with patch.object(QFileDialog, "getOpenFileName", return_value=("", "")), \
-             patch.object(QFileDialog, "getSaveFileName", return_value=("", "")), \
-             patch.object(QDialog, "exec", return_value=QDialog.DialogCode.Rejected):
-            win = MainWindow(config_manager=self.config_manager)
-            initial_proj = win.project
-            self.assertIs(win.objects_panel.project, initial_proj)
-
-            # Create new project
-            win.new_project()
-            self.assertIsNot(win.project, initial_proj)
-            self.assertIs(win.objects_panel.project, win.project)
-
             win.close()
 
 

@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import tempfile
@@ -12,8 +13,16 @@ CONFIG_VERSION = 1
 
 def get_config_dir() -> str:
     """Returns directory where persistent application configuration is stored."""
+    env_dir = os.environ.get("TILESET_CONFIG_DIR")
+    if env_dir:
+        os.makedirs(env_dir, exist_ok=True)
+        return env_dir
+    if "unittest" in sys.modules or "pytest" in sys.modules:
+        test_dir = os.path.join(tempfile.gettempdir(), "tileset_map_maker_test_config")
+        os.makedirs(test_dir, exist_ok=True)
+        return test_dir
     base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation)
-    if not base:
+    if not base or base == os.path.expanduser("~/.config"):
         base = os.path.expanduser("~/.config/tileset_map_maker")
     os.makedirs(base, exist_ok=True)
     return base
@@ -35,6 +44,7 @@ def get_default_config() -> Dict[str, Any]:
             "skip_dialog_on_single": False,
         },
         "app_settings": {
+            "language": "en",
             "theme": "Ciemny profesjonalny (Domyślny)",
             "accent": "Błękit królewski (#3b82f6)",
             "font_size": "Standardowy (12 pt)",
@@ -299,3 +309,4 @@ class ConfigManager:
         data = self.config_data.get("brush_settings")
         if data and hasattr(brush_settings, "load_from_dict"):
             brush_settings.load_from_dict(data)
+            brush_settings.auto_tile_enabled = False

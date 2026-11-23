@@ -15,6 +15,7 @@ from PyQt6.QtGui import QColor
 from ...models.project import Project
 from ..widgets.switch_toggle import SwitchToggle
 from ..icons import IconFactory
+from ...core.localization import tr
 
 
 class MapSettingsDialog(QDialog):
@@ -23,7 +24,7 @@ class MapSettingsDialog(QDialog):
     def __init__(self, project: Project, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.project = project
-        self.setWindowTitle("Ustawienia mapy")
+        self.setWindowTitle(tr("dialog.map_settings.title"))
         self.resize(380, 320)
 
         self.current_bg = project.background_color
@@ -38,13 +39,13 @@ class MapSettingsDialog(QDialog):
         self.spin_width = QSpinBox()
         self.spin_width.setRange(1, 2000)
         self.spin_width.setValue(self.project.map_width)
-        form.addRow("Szerokość mapy (kafelki):", self.spin_width)
+        form.addRow(tr("dialog.map.width"), self.spin_width)
 
         # Map Height (in tiles)
         self.spin_height = QSpinBox()
         self.spin_height.setRange(1, 2000)
         self.spin_height.setValue(self.project.map_height)
-        form.addRow("Wysokość mapy (kafelki):", self.spin_height)
+        form.addRow(tr("dialog.map.height"), self.spin_height)
 
         # Tile Size (px)
         self.combo_tile_size = QComboBox()
@@ -52,24 +53,27 @@ class MapSettingsDialog(QDialog):
         common_sizes = ["16", "24", "32", "48", "64", "128"]
         self.combo_tile_size.addItems(common_sizes)
         self.combo_tile_size.setCurrentText(str(self.project.tile_size))
-        form.addRow("Rozmiar kafelka (px):", self.combo_tile_size)
+        form.addRow(tr("dialog.map.tile_size"), self.combo_tile_size)
 
         # Anchor for resizing
         self.combo_anchor = QComboBox()
-        self.combo_anchor.addItems(["Lewy górny róg", "Środek", "Prawy dolny róg"])
-        form.addRow("Punkt zakotwiczenia przy zmianie rozmiaru:", self.combo_anchor)
+        self.combo_anchor.addItems([
+            tr("dialog.map.anchor.top_left"), tr("dialog.map.anchor.center"),
+            tr("dialog.map.anchor.bottom_right"),
+        ])
+        form.addRow(tr("dialog.map.anchor"), self.combo_anchor)
 
         # Background color
         bg_layout = QHBoxLayout()
-        self.btn_color = QPushButton(" Wybierz kolor")
+        self.btn_color = QPushButton(" " + tr("dialog.map.choose_color"))
         self.btn_color.setIcon(IconFactory.get_icon("palette", 14))
         self._update_color_btn()
         self.btn_color.clicked.connect(self._choose_color)
         bg_layout.addWidget(self.btn_color)
-        form.addRow("Kolor tła:", bg_layout)
+        form.addRow(tr("dialog.map.background"), bg_layout)
 
         # Transparent background toggle
-        self.chk_transparent = SwitchToggle("Przezroczyste tło (brak tła)", checked=self.project.is_bg_transparent)
+        self.chk_transparent = SwitchToggle(tr("dialog.map.transparent"), checked=self.project.is_bg_transparent)
         form.addRow("", self.chk_transparent)
 
         layout.addLayout(form)

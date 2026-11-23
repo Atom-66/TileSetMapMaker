@@ -186,7 +186,14 @@ class TestToolbarCustomization(unittest.TestCase):
     def test_tool_panel_responsive_horizontal_layout(self):
         """Verify ToolPanel switches to horizontal layout when flattened (height < 250 or width > height)."""
         win = MainWindow()
+        win.show()
         tp = win.tool_panel
+        app.processEvents()
+        self.assertLessEqual(win.tool_dock.widget().width(), 52)
+        for button in tp.buttons.values():
+            button_rect = button.geometry()
+            self.assertGreaterEqual(button_rect.left(), 0)
+            self.assertLessEqual(button_rect.right(), tp.width())
 
         # Normal tall dimensions -> Vertical orientation
         tp.resize(50, 450)
