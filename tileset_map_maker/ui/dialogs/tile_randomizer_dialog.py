@@ -25,7 +25,7 @@ from ...models.project import Project
 from ...core.history import HistoryManager, TileBatchCommand
 from ..widgets.switch_toggle import SwitchToggle
 from ..icons import IconFactory
-from ...core.localization import tr
+from ...core.localization import get_localization, tr
 
 
 class TileRandomizerDialog(QDialog):
@@ -58,6 +58,11 @@ class TileRandomizerDialog(QDialog):
 
         self._init_ui()
         self._populate_table()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        self.setWindowTitle(tr("dialog.randomizer.title"))
+        self._populate_table()
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -65,23 +70,29 @@ class TileRandomizerDialog(QDialog):
         layout.setSpacing(10)
 
         # 1. Top Options Group
-        top_group = QGroupBox("Opcje ogólne losowania")
+        top_group = QGroupBox(tr("dialog.randomizer.general"))
         top_layout = QVBoxLayout(top_group)
 
         # Enable Randomizer
-        self.chk_enable = SwitchToggle("Włącz losowy wybór wariantów kafelków podczas malowania", checked=self.settings.random_variant)
+        self.chk_enable = SwitchToggle(
+            tr("dialog.randomizer.enable"), checked=self.settings.random_variant
+        )
         self.chk_enable.toggled.connect(self._on_enable_toggled)
         top_layout.addWidget(self.chk_enable)
 
         # Avoid Adjacent Duplicates
-        self.chk_avoid = SwitchToggle("Ograniczaj powtarzanie identycznych wariantów bezpośrednio obok siebie", checked=self.settings.avoid_adjacent)
+        self.chk_avoid = SwitchToggle(
+            tr("dialog.randomizer.avoid"), checked=self.settings.avoid_adjacent
+        )
         self.chk_avoid.setToolTip(tr("randomizer.avoid_tooltip"))
         self.chk_avoid.toggled.connect(self._on_avoid_toggled)
         top_layout.addWidget(self.chk_avoid)
 
         # Seed controls
         seed_layout = QHBoxLayout()
-        self.chk_seed = SwitchToggle("Stałe ziarno losowości (Seed):", checked=self.settings.seed is not None)
+        self.chk_seed = SwitchToggle(
+            tr("dialog.randomizer.seed"), checked=self.settings.seed is not None
+        )
         self.chk_seed.toggled.connect(self._on_seed_toggled)
         seed_layout.addWidget(self.chk_seed)
 
@@ -97,18 +108,18 @@ class TileRandomizerDialog(QDialog):
         layout.addWidget(top_group)
 
         # 2. Variants Table Group
-        var_group = QGroupBox("Kafelki w grupie wariantów")
+        var_group = QGroupBox(tr("dialog.randomizer.variants"))
         var_layout = QVBoxLayout(var_group)
 
         # Toolbar above table
         tbl_tools = QHBoxLayout()
-        self.btn_add_sel = QPushButton(" Dodaj z zaznaczenia palety")
+        self.btn_add_sel = QPushButton(f" {tr('dialog.randomizer.add_selected')}")
         self.btn_add_sel.setIcon(IconFactory.get_icon("plus", 14))
         self.btn_add_sel.setToolTip(tr("randomizer.add_tooltip"))
         self.btn_add_sel.clicked.connect(self._add_from_palette_selection)
         tbl_tools.addWidget(self.btn_add_sel)
 
-        self.btn_equalize = QPushButton(" Wyrównaj wagi")
+        self.btn_equalize = QPushButton(f" {tr('dialog.randomizer.equalize')}")
         self.btn_equalize.setIcon(IconFactory.get_icon("adjustments", 14))
         self.btn_equalize.setToolTip(tr("randomizer.equalize_tooltip"))
         self.btn_equalize.clicked.connect(self._equalize_weights)
@@ -126,13 +137,13 @@ class TileRandomizerDialog(QDialog):
         self.btn_down.clicked.connect(self._move_down)
         tbl_tools.addWidget(self.btn_down)
 
-        self.btn_del = QPushButton(" Usuń")
+        self.btn_del = QPushButton(f" {tr('dialog.randomizer.delete')}")
         self.btn_del.setIcon(IconFactory.get_icon("trash", 14))
         self.btn_del.setToolTip(tr("randomizer.delete_tooltip"))
         self.btn_del.clicked.connect(self._remove_selected)
         tbl_tools.addWidget(self.btn_del)
 
-        self.btn_clear = QPushButton("Wyczyść wszystko")
+        self.btn_clear = QPushButton(tr("dialog.randomizer.clear"))
         self.btn_clear.setIcon(IconFactory.get_icon("x", 14))
         self.btn_clear.clicked.connect(self._clear_all)
         tbl_tools.addWidget(self.btn_clear)
@@ -141,7 +152,14 @@ class TileRandomizerDialog(QDialog):
 
         # Table
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Miniatura", "Nazwa / Koordynaty", "Waga (Szansa)", "Szansa %"])
+        self.table.setHorizontalHeaderLabels(
+            [
+                tr("dialog.randomizer.table_thumbnail"),
+                tr("dialog.randomizer.table_name_coords"),
+                tr("dialog.randomizer.table_weight"),
+                tr("dialog.randomizer.table_chance"),
+            ]
+        )
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -167,7 +185,7 @@ class TileRandomizerDialog(QDialog):
         # 3. Area Rerandomize Button (if map available)
         if self.project:
             rerand_box = QHBoxLayout()
-            self.btn_rerandomize = QPushButton(" Przelosuj kafelki w zaznaczonym obszarze mapy")
+            self.btn_rerandomize = QPushButton(f" {tr('dialog.randomizer.rerandomize')}")
             self.btn_rerandomize.setIcon(IconFactory.get_icon("randomizer", 16))
             self.btn_rerandomize.setToolTip(tr("randomizer.rerandomize_tooltip"))
             self.btn_rerandomize.clicked.connect(self._rerandomize_map_area)
@@ -178,7 +196,7 @@ class TileRandomizerDialog(QDialog):
         bottom_box = QHBoxLayout()
         bottom_box.addStretch()
 
-        self.btn_close = QPushButton(" Zamknij")
+        self.btn_close = QPushButton(f" {tr('dialog.randomizer.close')}")
         self.btn_close.setIcon(IconFactory.get_icon("close", 14))
         self.btn_close.setDefault(True)
         self.btn_close.clicked.connect(self.accept)
@@ -235,7 +253,7 @@ class TileRandomizerDialog(QDialog):
             sub = var.sub_tile
             c = getattr(sub, "col", 0)
             r = getattr(sub, "row", 0)
-            txt_info = f"{var.name} (Kol: {c}, Wrs: {r})"
+            txt_info = f"{var.name} ({tr('dialog.randomizer.column', col=c, row=r)})"
             item_info = QTableWidgetItem(txt_info)
             item_info.setFlags(item_info.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row_idx, 1, item_info)
@@ -297,8 +315,8 @@ class TileRandomizerDialog(QDialog):
         if not sel:
             QMessageBox.information(
                 self,
-                "Brak zaznaczenia",
-                "Najpierw zaznacz jeden lub więcej kafelków w podglądzie tilesetu.",
+                tr("dialog.randomizer.no_selection_title"),
+                tr("dialog.randomizer.select_tiles"),
             )
             return
 
@@ -354,11 +372,19 @@ class TileRandomizerDialog(QDialog):
             return
         layer = self.project.get_active_layer()
         if not layer or layer.locked:
-            QMessageBox.warning(self, "Błąd", "Brak aktywnej lub odblokowanej warstwy.")
+            QMessageBox.warning(
+                self,
+                tr("dialog.randomizer.error_title"),
+                tr("dialog.randomizer.no_active_layer"),
+            )
             return
 
         if not self.settings.variants:
-            QMessageBox.warning(self, "Brak wariantów", "Dodaj najpierw kafelki do grupy wariantów.")
+            QMessageBox.warning(
+                self,
+                tr("dialog.randomizer.no_variants_title"),
+                tr("dialog.randomizer.add_variants"),
+            )
             return
 
         # Determine target coordinates
@@ -368,8 +394,8 @@ class TileRandomizerDialog(QDialog):
             # If no selection, ask user if they want to rerandomize all tiles on layer
             res = QMessageBox.question(
                 self,
-                "Potwierdzenie",
-                "Brak aktywnego zaznaczenia komórek. Czy chcesz przelosować wszystkie kafelki na bieżącej warstwie?",
+                tr("dialog.randomizer.confirm_title"),
+                tr("dialog.randomizer.confirm_all"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if res != QMessageBox.StandardButton.Yes:
@@ -408,12 +434,12 @@ class TileRandomizerDialog(QDialog):
                 self.project,
                 layer.id,
                 changes,
-                description="Przelosowanie wariantów kafelków",
+                description=tr("dialog.randomizer.rerandomize"),
             )
             self.history_manager.push(cmd)
 
         QMessageBox.information(
             self,
-            "Zakończono",
-            f"Pomyślnie przelosowano warianty dla {len(changes)} kafelków.",
+            tr("dialog.randomizer.done_title"),
+            tr("dialog.randomizer.done", count=len(changes)),
         )

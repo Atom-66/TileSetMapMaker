@@ -34,7 +34,6 @@ from ...models.path_ruleset import (
     ROLE_CROSS,
     ROLE_END,
     ROLE_CENTER,
-    ROLE_NAMES,
     TEMPLATE_4_TILE,
     TEMPLATE_6_TILE,
     TEMPLATE_CUSTOM,
@@ -43,7 +42,7 @@ from ...models.asset import SelectedSubTile, AssetType
 from ...core.asset_manager import AssetManager
 from ...core.autotile_engine import AutoTileEngine
 from ..icons import IconFactory
-from ...core.localization import tr
+from ...core.localization import get_localization, tr
 
 
 class PathPreviewWidget(QWidget):
@@ -83,21 +82,21 @@ class PathPreviewWidget(QWidget):
 
         # 1. Horizontal straight path
         painter.setPen(QColor("#93c5fd"))
-        painter.drawText(16, 22, "1. Prosta pozioma:")
+        painter.drawText(16, 22, tr("dialog.path.preview_straight_h"))
         y_h = 32
         for i in range(5):
             self._draw_role_or_missing(painter, ROLE_STRAIGHT_H, 20 + i * ts, y_h, ts)
 
         # 2. Vertical straight path
         painter.setPen(QColor("#93c5fd"))
-        painter.drawText(16, 88, "2. Prosta pionowa:")
+        painter.drawText(16, 88, tr("dialog.path.preview_straight_v"))
         x_v = 20
         for i in range(3):
             self._draw_role_or_missing(painter, ROLE_STRAIGHT_V, x_v, 98 + i * ts, ts)
 
         # 3. Turns / Bends (S-shape curve)
         painter.setPen(QColor("#93c5fd"))
-        painter.drawText(90, 88, "3. Zakręt (N-E-S):")
+        painter.drawText(90, 88, tr("dialog.path.preview_turn"))
         # Horizontal approaching from left, turn down (TL), then vertical, turn right (BL), horizontal
         # (90, 98) -> H
         # (122, 98) -> Corner TR
@@ -112,7 +111,7 @@ class PathPreviewWidget(QWidget):
 
         # 4. Cross or T-Junction
         painter.setPen(QColor("#93c5fd"))
-        painter.drawText(16, 218, "4. Skrzyżowanie / T-Junction:")
+        painter.drawText(16, 218, tr("dialog.path.preview_junction"))
         # Cross center at (52, 230)
         self._draw_role_or_missing(painter, ROLE_STRAIGHT_V, 52, 230 - ts, ts)
         self._draw_role_or_missing(painter, ROLE_STRAIGHT_H, 52 - ts, 230, ts)
@@ -124,7 +123,7 @@ class PathPreviewWidget(QWidget):
 
         # 5. Endpoints
         painter.setPen(QColor("#93c5fd"))
-        painter.drawText(160, 218, "5. Zakończenie:")
+        painter.drawText(160, 218, tr("dialog.path.preview_end"))
         self._draw_role_or_missing(painter, ROLE_STRAIGHT_H, 160, 230, ts)
         self._draw_role_or_missing(painter, ROLE_END if self.ruleset.roles.get(ROLE_END) else ROLE_STRAIGHT_H, 160 + ts, 230, ts)
 
@@ -155,7 +154,9 @@ class PathPreviewWidget(QWidget):
         font = QFont("Sans-Serif", 7)
         painter.setFont(font)
         painter.setPen(QColor("#f87171"))
-        painter.drawText(x, y, size, size, Qt.AlignmentFlag.AlignCenter, "Brak")
+        painter.drawText(
+            x, y, size, size, Qt.AlignmentFlag.AlignCenter, tr("dialog.path.missing_tile")
+        )
 
 
 class PathGeneratorDialog(QDialog):
@@ -184,6 +185,12 @@ class PathGeneratorDialog(QDialog):
         self.current_ruleset: Optional[PathRuleSet] = None
         self._init_ui()
         self._populate_ruleset_selector()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        self.setWindowTitle(tr("dialog.path.title"))
+        self._populate_roles_table()
+        self.preview_widget.update()
 
     def _init_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -194,7 +201,7 @@ class PathGeneratorDialog(QDialog):
         top_bar = QHBoxLayout()
         top_bar.setSpacing(8)
 
-        lbl_set = QLabel("Zestaw ścieżki:")
+        lbl_set = QLabel(tr("dialog.path.set_label"))
         lbl_set.setStyleSheet("font-weight: bold; color: #e4e4e7;")
         top_bar.addWidget(lbl_set)
 
@@ -203,12 +210,12 @@ class PathGeneratorDialog(QDialog):
         self.combo_sets.currentIndexChanged.connect(self._on_set_selected)
         top_bar.addWidget(self.combo_sets)
 
-        self.btn_new = QPushButton(" Nowy zestaw")
+        self.btn_new = QPushButton(f" {tr('dialog.path.new_set')}")
         self.btn_new.setIcon(IconFactory.get_icon("plus", 14))
         self.btn_new.clicked.connect(self._create_new_set)
         top_bar.addWidget(self.btn_new)
 
-        self.btn_delete = QPushButton(" Usuń")
+        self.btn_delete = QPushButton(f" {tr('dialog.path.delete')}")
         self.btn_delete.setIcon(IconFactory.get_icon("trash", 14))
         self.btn_delete.clicked.connect(self._delete_current_set)
         top_bar.addWidget(self.btn_delete)
@@ -216,14 +223,14 @@ class PathGeneratorDialog(QDialog):
         top_bar.addStretch()
 
         # Template Type Selector
-        lbl_tmpl = QLabel("Szablon:")
+        lbl_tmpl = QLabel(tr("dialog.path.template"))
         lbl_tmpl.setStyleSheet("font-weight: bold; color: #e4e4e7;")
         top_bar.addWidget(lbl_tmpl)
 
         self.combo_template = QComboBox()
-        self.combo_template.addItem("6-elementowy (Standardowy z zakrętami)", "6_tile")
-        self.combo_template.addItem("4-elementowy (Podstawowy)", "4_tile")
-        self.combo_template.addItem("Niestandardowy / Pełny (Rozgałęzienia i T-Junctions)", "custom")
+        self.combo_template.addItem(tr("dialog.path.template_6"), "6_tile")
+        self.combo_template.addItem(tr("dialog.path.template_4"), "4_tile")
+        self.combo_template.addItem(tr("dialog.path.template_custom"), "custom")
         self.combo_template.currentIndexChanged.connect(self._on_template_changed)
         top_bar.addWidget(self.combo_template)
 
@@ -233,11 +240,11 @@ class PathGeneratorDialog(QDialog):
         name_bar = QHBoxLayout()
         name_bar.setSpacing(8)
 
-        lbl_name = QLabel("Nazwa:")
+        lbl_name = QLabel(tr("dialog.path.name"))
         name_bar.addWidget(lbl_name)
 
         self.txt_name = QLineEdit()
-        self.txt_name.setPlaceholderText("np. Kamienny chodnik")
+        self.txt_name.setPlaceholderText(tr("dialog.path.name_placeholder"))
         self.txt_name.textChanged.connect(self._on_name_changed)
         name_bar.addWidget(self.txt_name, 1)
 
@@ -253,11 +260,11 @@ class PathGeneratorDialog(QDialog):
         left_layout.setSpacing(6)
 
         left_header = QHBoxLayout()
-        lbl_roles = QLabel("Przypisanie kafelków do ról ścieżki:")
+        lbl_roles = QLabel(tr("dialog.path.roles"))
         lbl_roles.setStyleSheet("font-weight: bold; color: #93c5fd;")
         left_header.addWidget(lbl_roles)
 
-        self.lbl_status = QLabel("Niekompletny (0/6)")
+        self.lbl_status = QLabel(tr("dialog.path.incomplete", assigned=0, total=6))
         self.lbl_status.setStyleSheet("color: #f87171; font-weight: bold;")
         left_header.addWidget(self.lbl_status)
         left_header.addStretch()
@@ -265,7 +272,14 @@ class PathGeneratorDialog(QDialog):
 
         # Roles Table
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Miniatura", "Rola w ścieżce", "Przypisany kafelek", "Akcje"])
+        self.table.setHorizontalHeaderLabels(
+            [
+                tr("dialog.path.table_thumbnail"),
+                tr("dialog.path.table_role"),
+                tr("dialog.path.table_assigned"),
+                tr("dialog.path.table_actions"),
+            ]
+        )
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
@@ -294,12 +308,12 @@ class PathGeneratorDialog(QDialog):
         right_layout.setContentsMargins(4, 0, 0, 0)
         right_layout.setSpacing(6)
 
-        lbl_prev = QLabel("Podgląd układu ścieżki (na żywo):")
+        lbl_prev = QLabel(tr("dialog.path.preview"))
         lbl_prev.setStyleSheet("font-weight: bold; color: #93c5fd;")
         right_layout.addWidget(lbl_prev)
 
         # Create dummy initial PathRuleSet for preview
-        dummy_ruleset = PathRuleSet(name="Podgląd")
+        dummy_ruleset = PathRuleSet(name=tr("dialog.path.preview"))
         self.preview_widget = PathPreviewWidget(dummy_ruleset, self.asset_manager)
         right_layout.addWidget(self.preview_widget, 1)
 
@@ -313,7 +327,7 @@ class PathGeneratorDialog(QDialog):
         bottom_bar = QHBoxLayout()
         bottom_bar.setSpacing(8)
 
-        self.btn_auto_from_3x3 = QPushButton(" Wypełnij z zaznaczenia 3x3 w palecie")
+        self.btn_auto_from_3x3 = QPushButton(f" {tr('dialog.path.autofill')}")
         self.btn_auto_from_3x3.setIcon(IconFactory.get_icon("grid-3x3-template", 16))
         self.btn_auto_from_3x3.setToolTip(tr("path.autofill_tooltip"))
         self.btn_auto_from_3x3.clicked.connect(self._auto_fill_from_palette_3x3)
@@ -321,14 +335,14 @@ class PathGeneratorDialog(QDialog):
 
         bottom_bar.addStretch()
 
-        self.btn_save = QPushButton(" Zapisz zestaw ścieżki")
+        self.btn_save = QPushButton(f" {tr('dialog.path.save')}")
         self.btn_save.setIcon(IconFactory.get_icon("save", 16))
         self.btn_save.setDefault(True)
         self.btn_save.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: bold; padding: 6px 16px;")
         self.btn_save.clicked.connect(self._save_and_close)
         bottom_bar.addWidget(self.btn_save)
 
-        self.btn_cancel = QPushButton(" Zamknij")
+        self.btn_cancel = QPushButton(f" {tr('dialog.path.close')}")
         self.btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         self.btn_cancel.clicked.connect(self.reject)
         bottom_bar.addWidget(self.btn_cancel)
@@ -346,7 +360,7 @@ class PathGeneratorDialog(QDialog):
 
         if not path_sets:
             # Create a default path ruleset if none exists
-            default_set = PathRuleSet(name="Polna ścieżka", template_type="6_tile")
+            default_set = PathRuleSet(name=tr("dialog.path.default_name"), template_type="6_tile")
             self.engine.register_ruleset(default_set)
             self.combo_sets.addItem(IconFactory.get_icon("path", 16), default_set.name, default_set.id)
 
@@ -376,7 +390,7 @@ class PathGeneratorDialog(QDialog):
 
     def _create_new_set(self) -> None:
         new_set = PathRuleSet(
-            name=f"Nowa ścieżka #{len(self.engine.rulesets) + 1}",
+            name=f"{tr('dialog.path.default_name')} #{len(self.engine.rulesets) + 1}",
             template_type=self.combo_template.currentData() or "6_tile",
         )
         self.engine.register_ruleset(new_set)
@@ -387,13 +401,15 @@ class PathGeneratorDialog(QDialog):
         if not self.current_ruleset:
             return
         if len(self.combo_sets) <= 1:
-            QMessageBox.warning(self, "Uwaga", "Nie można usunąć jedynego zestawu ścieżki.")
+            QMessageBox.warning(
+                self, tr("dialog.path.confirm"), tr("dialog.path.no_delete_last")
+            )
             return
 
         res = QMessageBox.question(
             self,
-            "Potwierdzenie",
-            f"Czy na pewno chcesz usunąć zestaw '{self.current_ruleset.name}'?",
+            tr("dialog.path.confirm"),
+            tr("dialog.path.delete_confirm", name=self.current_ruleset.name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if res == QMessageBox.StandardButton.Yes:
@@ -414,7 +430,7 @@ class PathGeneratorDialog(QDialog):
     def _on_name_changed(self, text: str) -> None:
         if not self.current_ruleset:
             return
-        self.current_ruleset.name = text.strip() or "Ścieżka"
+        self.current_ruleset.name = text.strip() or tr("dialog.path.default_name")
         cur_idx = self.combo_sets.currentIndex()
         if cur_idx >= 0:
             self.combo_sets.setItemText(cur_idx, f"🛣️ {self.current_ruleset.name}")
@@ -461,8 +477,9 @@ class PathGeneratorDialog(QDialog):
             self.table.setCellWidget(row, 0, lbl_thumb)
 
             # Column 1: Role Name
-            role_title = ROLE_NAMES.get(role_key, role_key)
+            role_title = tr(f"dialog.path.role.{role_key}")
             item_role = QTableWidgetItem(role_title)
+            item_role.setData(Qt.ItemDataRole.UserRole, role_key)
             item_role.setFlags(item_role.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, 1, item_role)
 
@@ -475,7 +492,7 @@ class PathGeneratorDialog(QDialog):
                 item_info = QTableWidgetItem(txt)
                 item_info.setForeground(QColor("#a7f3d0"))
             else:
-                item_info = QTableWidgetItem("(Nieprzypisany)")
+                item_info = QTableWidgetItem(tr("dialog.path.unassigned"))
                 item_info.setForeground(QColor("#f87171"))
             item_info.setFlags(item_info.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, 2, item_info)
@@ -488,7 +505,7 @@ class PathGeneratorDialog(QDialog):
 
             btn_pick = QToolButton()
             btn_pick.setIcon(IconFactory.get_icon("select", 14))
-            btn_pick.setText(" Z palety")
+            btn_pick.setText(f" {tr('dialog.path.pick')}")
             btn_pick.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             btn_pick.setToolTip(tr("path.pick_tooltip"))
             btn_pick.clicked.connect(lambda ch, rk=role_key: self._assign_from_current_selection(rk))
@@ -505,10 +522,14 @@ class PathGeneratorDialog(QDialog):
         # Status summary
         total = len(roles)
         if assigned_count == total:
-            self.lbl_status.setText(f"Kompletny ({assigned_count}/{total})")
+            self.lbl_status.setText(
+                tr("dialog.path.complete", assigned=assigned_count, total=total)
+            )
             self.lbl_status.setStyleSheet("color: #4ade80; font-weight: bold;")
         else:
-            self.lbl_status.setText(f"Niekompletny ({assigned_count}/{total})")
+            self.lbl_status.setText(
+                tr("dialog.path.incomplete", assigned=assigned_count, total=total)
+            )
             self.lbl_status.setStyleSheet("color: #f87171; font-weight: bold;")
 
     def _assign_from_current_selection(self, role_key: str) -> None:
@@ -520,8 +541,8 @@ class PathGeneratorDialog(QDialog):
         if not sel:
             QMessageBox.information(
                 self,
-                "Brak zaznaczenia",
-                "Najpierw wskaż lub zaznacz kafelek w palecie kafelków.",
+                tr("dialog.path.no_selection_title"),
+                tr("dialog.path.no_selection"),
             )
             return
 
@@ -550,8 +571,8 @@ class PathGeneratorDialog(QDialog):
         if not isinstance(sel, SelectedSubTile) or sel.cols_count < 3 or sel.rows_count < 3:
             QMessageBox.information(
                 self,
-                "Wymagane zaznaczenie 3x3",
-                "Aby użyć szybkiego mapowania, zaznacz w palecie blok co najmniej 3x3 kafelków.",
+                tr("dialog.path.need_3x3_title"),
+                tr("dialog.path.need_3x3"),
             )
             return
 

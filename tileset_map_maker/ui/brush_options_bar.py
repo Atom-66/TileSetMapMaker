@@ -493,8 +493,8 @@ class BrushOptionsBar(QWidget):
         if not sel:
             QMessageBox.information(
                 self,
-                "Brak zaznaczenia",
-                "Najpierw zaznacz jeden lub więcej kafelków w podglądzie tilesetu.",
+                tr("dialog.randomizer.no_selection_title"),
+                tr("dialog.randomizer.select_tiles"),
             )
             return
 

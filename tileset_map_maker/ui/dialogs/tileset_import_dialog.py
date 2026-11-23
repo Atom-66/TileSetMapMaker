@@ -118,33 +118,37 @@ class TilesetImportDialog(QDialog):
         layout.setSpacing(14)
 
         # 1. File Details Group
-        grp_file = QGroupBox("Plik graficzny")
+        grp_file = QGroupBox(tr("dialog.tileset_import.file_group"))
         form_file = QFormLayout(grp_file)
         form_file.setContentsMargins(12, 14, 12, 12)
         form_file.setSpacing(8)
 
         lbl_fname = QLabel(os.path.basename(self.file_path))
         lbl_fname.setStyleSheet("color: #60a5fa; font-weight: bold;")
-        form_file.addRow("Nazwa pliku:", lbl_fname)
+        form_file.addRow(tr("dialog.tileset_import.file_name"), lbl_fname)
 
         lbl_dims = QLabel(f"{self.img_w} × {self.img_h} px")
         lbl_dims.setStyleSheet("font-weight: bold;")
-        form_file.addRow("Wymiary arkusza:", lbl_dims)
+        form_file.addRow(tr("dialog.tileset_import.sheet_dimensions"), lbl_dims)
 
-        lbl_alpha = QLabel("Tak (RGBA)" if self.has_alpha else "Brak przezroczystości (RGB)")
+        lbl_alpha = QLabel(
+            tr("dialog.tileset_import.alpha_yes")
+            if self.has_alpha
+            else tr("dialog.tileset_import.alpha_no")
+        )
         lbl_alpha.setStyleSheet("color: #34d399;" if self.has_alpha else "color: #a1a1aa;")
-        form_file.addRow("Kanał alfa:", lbl_alpha)
+        form_file.addRow(tr("dialog.tileset_import.alpha"), lbl_alpha)
 
         layout.addWidget(grp_file)
 
         # 2. Grid Dimensions Group
-        grp_grid = QGroupBox("Rozmiar kafelka siatki (Uniform Regular Grid)")
+        grp_grid = QGroupBox(tr("dialog.tileset_import.grid_group"))
         layout_grid = QVBoxLayout(grp_grid)
         layout_grid.setContentsMargins(12, 14, 12, 12)
         layout_grid.setSpacing(10)
 
         # Presets row
-        lbl_presets = QLabel("Szybkie szablony:")
+        lbl_presets = QLabel(tr("dialog.tileset_import.presets"))
         layout_grid.addWidget(lbl_presets)
 
         preset_row = QHBoxLayout()
@@ -168,13 +172,13 @@ class TilesetImportDialog(QDialog):
         spin_row = QHBoxLayout()
         spin_row.setSpacing(14)
 
-        lbl_w = QLabel("Szerokość (px):")
+        lbl_w = QLabel(tr("dialog.tileset_import.width"))
         self.spin_w = QSpinBox()
         self.spin_w.setRange(4, max(512, self.img_w or 512))
         self.spin_w.setValue(default_tile_size)
         self.spin_w.valueChanged.connect(self._update_calculation)
 
-        lbl_h = QLabel("Wysokość (px):")
+        lbl_h = QLabel(tr("dialog.tileset_import.height"))
         self.spin_h = QSpinBox()
         self.spin_h.setRange(4, max(512, self.img_h or 512))
         self.spin_h.setValue(default_tile_size)
@@ -191,11 +195,11 @@ class TilesetImportDialog(QDialog):
         layout.addWidget(grp_grid)
 
         # 3. Calculated Grid Info Box
-        self.grp_calc = QGroupBox("Wynik podziału siatki")
+        self.grp_calc = QGroupBox(tr("dialog.tileset_import.result"))
         layout_calc = QVBoxLayout(self.grp_calc)
         layout_calc.setContentsMargins(12, 14, 12, 12)
 
-        self.lbl_calc_main = QLabel("Obliczanie...")
+        self.lbl_calc_main = QLabel(tr("dialog.tileset_import.calculating"))
         self.lbl_calc_main.setStyleSheet("font-size: 13px; font-weight: bold; color: #f4f4f5;")
         layout_calc.addWidget(self.lbl_calc_main)
 
@@ -210,12 +214,12 @@ class TilesetImportDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel = QPushButton(f" {tr('dialog.tileset_import.cancel')}")
         btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
-        btn_import = QPushButton(" Zaimportuj tileset")
+        btn_import = QPushButton(f" {tr('dialog.tileset_import.import')}")
         btn_import.setIcon(IconFactory.get_icon("file-plus", 16))
         btn_import.setObjectName("btn_primary")
         btn_import.clicked.connect(self.accept)
@@ -231,7 +235,7 @@ class TilesetImportDialog(QDialog):
         tw = self.spin_w.value()
         th = self.spin_h.value()
         if tw <= 0 or th <= 0 or self.img_w <= 0 or self.img_h <= 0:
-            self.lbl_calc_main.setText("Nieprawidłowy rozmiar kafelka.")
+            self.lbl_calc_main.setText(tr("dialog.tileset_import.invalid"))
             self.lbl_calc_rem.setText("")
             return
 
@@ -242,20 +246,27 @@ class TilesetImportDialog(QDialog):
         rem_y = self.img_h % th
 
         self.lbl_calc_main.setText(
-            f"🗺️ Siatka: {cols} kolumn × {rows} wierszy = {total} kafelków ({tw} × {th} px)"
+            tr(
+                "dialog.tileset_import.grid_result",
+                cols=cols,
+                rows=rows,
+                count=total,
+                width=tw,
+                height=th,
+            )
         )
 
         if rem_x > 0 or rem_y > 0:
             rem_parts = []
             if rem_x > 0:
-                rem_parts.append(f"{rem_x} px po prawej")
+                rem_parts.append(tr("dialog.tileset_import.remainder_right", size=rem_x))
             if rem_y > 0:
-                rem_parts.append(f"{rem_y} px na dole")
+                rem_parts.append(tr("dialog.tileset_import.remainder_bottom", size=rem_y))
             self.lbl_calc_rem.setText(
-                f"ℹ️ Margines resztkowy: {', '.join(rem_parts)} zostanie automatycznie przyciemniony i wykluczony z siatki."
+                tr("dialog.tileset_import.remainder", details=", ".join(rem_parts))
             )
         else:
-            self.lbl_calc_rem.setText("✅ Idealne dopasowanie siatki (brak marginesów resztkowych).")
+            self.lbl_calc_rem.setText(tr("dialog.tileset_import.perfect"))
 
     def get_tile_dimensions(self) -> Tuple[int, int]:
         return self.spin_w.value(), self.spin_h.value()

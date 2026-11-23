@@ -10,6 +10,7 @@ from tileset_map_maker.core.asset_manager import AssetManager
 from tileset_map_maker.ui.main_window import MainWindow
 from tileset_map_maker.ui.tileset_palette_widget import TilesetPaletteWidget, TilesetCanvas
 from tileset_map_maker.ui.dialogs.tileset_import_dialog import TilesetImportDialog
+from tileset_map_maker.core.localization import get_localization
 
 
 class TestStage2PaletteVerification(unittest.TestCase):
@@ -31,6 +32,9 @@ class TestStage2PaletteVerification(unittest.TestCase):
             os.rmdir("test_stage2_tmp")
 
     def setUp(self):
+        self.localization = get_localization()
+        self.original_language = self.localization.get_language()
+        self.localization.set_language("pl", persist=False)
         self.asset_mgr = AssetManager()
         self.asset, _, _ = self.asset_mgr.import_single_file(
             "test_stage2_tmp/tileset_sample.png",
@@ -38,6 +42,9 @@ class TestStage2PaletteVerification(unittest.TestCase):
             force_asset_type=AssetType.TILESET
         )
         self.asset.tileset_config = TilesetConfig(tile_width=32, tile_height=32)
+
+    def tearDown(self):
+        self.localization.set_language(self.original_language, persist=False)
 
     def test_01_import_dialog_dimensions_and_presets(self):
         """1. TilesetImportDialog allows choosing preset or custom tile sizes."""

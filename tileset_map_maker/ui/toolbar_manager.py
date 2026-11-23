@@ -44,12 +44,57 @@ from PyQt6.QtWidgets import (
 from PyQt6 import sip
 
 from .icons import IconFactory
-from ..core.localization import tr
+from ..core.localization import tr, get_localization
 from ..core.config_manager import ConfigManager
 
 logger = logging.getLogger("ToolbarManager")
 
 TOOLBAR_LAYOUT_VERSION: int = 3
+
+
+_LOCALIZED_CATEGORY_IDS = {
+    "project", "history", "view", "brush", "autotile",
+    "paths", "randomizer", "transforms", "system",
+}
+
+
+def _category_title(category: "ToolbarCategoryDef") -> str:
+    if category.id in _LOCALIZED_CATEGORY_IDS:
+        return tr(f"toolbar.category.{category.id}")
+    return category.title
+
+
+def _category_tooltip(category: "ToolbarCategoryDef", edit_mode: bool = False) -> str:
+    title = _category_title(category)
+    tooltip = tr("toolbar.category.tooltip", title=title)
+    if edit_mode:
+        tooltip += f"\n{tr('toolbar.category.drag_hint')}"
+    return tooltip
+
+
+_LOCALIZED_TOOLBAR_ITEM_IDS = {
+    "brush_size",
+    "autotile_toggle",
+    "autotile_rules",
+    "autotile_dialog",
+    "path_gen_dialog",
+    "variants_toggle",
+    "variants_count",
+    "variants_add",
+    "variants_avoid",
+    "variants_dialog",
+    "rot_toggle",
+    "flip_toggle",
+    "seed_group",
+}
+
+
+def _toolbar_item_label(item: "ToolbarItemDef") -> str:
+    if item.action is not None:
+        return item.action.text()
+    if item.id in _LOCALIZED_TOOLBAR_ITEM_IDS:
+        return tr(f"toolbar.item.{item.id}")
+    return item.label
 
 TOOLBAR_BUTTON_STYLE = """
     QToolButton {
@@ -191,13 +236,13 @@ class CategoryGripWidget(QWidget):
         layout.setSpacing(3)
         self.setFixedHeight(22)
         self.setCursor(Qt.CursorShape.ArrowCursor)
-        self.setToolTip(f"Kategoria: {self.category_def.title}")
+        self.setToolTip(_category_tooltip(self.category_def))
 
         self.lbl_grip = QLabel("⋮⋮")
         self.lbl_grip.setStyleSheet("color: #71717a; font-size: 10px; font-weight: bold; background: transparent;")
         layout.addWidget(self.lbl_grip)
 
-        self.lbl_title = QLabel(self.category_def.title)
+        self.lbl_title = QLabel(_category_title(self.category_def))
         self.lbl_title.setStyleSheet("color: #b8bac2; font-size: 10px; font-weight: 600; background: transparent;")
         layout.addWidget(self.lbl_title)
 
@@ -1360,21 +1405,16 @@ class ToolbarEditModeBanner(QFrame):
         icon_lbl.setPixmap(IconFactory.get_icon("layout", 16).pixmap(16, 16))
         layout.addWidget(icon_lbl)
 
-        info_lbl = QLabel(
-            "<b>TRYB PERSONALIZACJI PASKÓW:</b> "
-            "Przeciągaj przyciski, aby zmienić ich kolejność w tej samej kategorii; "
-            "uchwyt (⋮⋮) przenosi całą kategorię. "
-            "Pozostałe ustawienia oraz pełny układ zmienisz w „Dostosuj paski narzędzi”."
-        )
+        info_lbl = QLabel(tr("toolbar.edit_banner"))
         layout.addWidget(info_lbl, 1)
 
-        btn_reset = QPushButton("↺ Przywróć domyślne")
+        btn_reset = QPushButton("↺ " + tr("toolbar.reset_layout"))
         btn_reset.setObjectName("btn_reset")
         btn_reset.setToolTip(tr("toolbar.reset_tooltip"))
         btn_reset.clicked.connect(lambda: self.manager.reset_to_default(save=True))
         layout.addWidget(btn_reset)
 
-        btn_done = QPushButton("✓ Zakończ personalizację")
+        btn_done = QPushButton("✓ " + tr("toolbar.edit_mode_finish"))
         btn_done.setObjectName("btn_done")
         btn_done.setToolTip(tr("toolbar.done_tooltip"))
         btn_done.clicked.connect(lambda: self.manager.set_edit_mode(False))
@@ -1405,6 +1445,26 @@ class ToolbarVisibilityDialog(QDialog):
 
         self._init_ui()
         self._populate_list()
+        self._update_summary()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        selected_id = (
+            self.list_widget.currentItem().data(Qt.ItemDataRole.UserRole)
+            if self.list_widget.currentItem()
+            else None
+        )
+        query = self.txt_search.text()
+        self.setWindowTitle(tr("toolbar.visibility_title"))
+        self._populate_list()
+        self.txt_search.setPlaceholderText("🔍 " + tr("toolbar.search"))
+        self._filter_list(query)
+        if selected_id:
+            for index in range(self.list_widget.count()):
+                item = self.list_widget.item(index)
+                if item.data(Qt.ItemDataRole.UserRole) == selected_id:
+                    self.list_widget.setCurrentItem(item)
+                    break
         self._update_summary()
 
     def _init_ui(self) -> None:
@@ -1533,16 +1593,16 @@ class ToolbarVisibilityDialog(QDialog):
 
         footer_layout.addStretch()
 
-        btn_apply = QPushButton("Zastosuj")
+        btn_apply = QPushButton(tr("button.apply"))
         btn_apply.setToolTip(tr("toolbar.apply_tooltip"))
         btn_apply.clicked.connect(self._apply_changes)
         footer_layout.addWidget(btn_apply)
 
-        btn_cancel = QPushButton("Anuluj")
+        btn_cancel = QPushButton(tr("button.cancel"))
         btn_cancel.clicked.connect(self.reject)
         footer_layout.addWidget(btn_cancel)
 
-        btn_ok = QPushButton("Zapisz")
+        btn_ok = QPushButton(tr("button.save"))
         btn_ok.setObjectName("btn_primary")
         btn_ok.clicked.connect(self._accept_and_save)
         footer_layout.addWidget(btn_ok)
@@ -1560,13 +1620,17 @@ class ToolbarVisibilityDialog(QDialog):
                 continue
 
             icon = IconFactory.get_icon(item_def.icon_name, 20)
-            list_item = QListWidgetItem(icon, f"  {item_def.label}")
+            label = _toolbar_item_label(item_def)
+            list_item = QListWidgetItem(icon, f"  {label}")
             list_item.setFlags(list_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
 
             is_visible = self.working_visibility.get(i_id, item_def.visible)
             list_item.setCheckState(Qt.CheckState.Checked if is_visible else Qt.CheckState.Unchecked)
             list_item.setData(Qt.ItemDataRole.UserRole, i_id)
-            list_item.setToolTip(f"{item_def.label} — {'Widoczny na pasku' if is_visible else 'Ukryty'}")
+            list_item.setToolTip(
+                f"{label} — "
+                + tr("dialog.toolbar.visible" if is_visible else "dialog.toolbar.hidden")
+            )
 
             self.list_widget.addItem(list_item)
 
@@ -1578,13 +1642,18 @@ class ToolbarVisibilityDialog(QDialog):
             is_checked = item.checkState() == Qt.CheckState.Checked
             self.working_visibility[i_id] = is_checked
             label = item.text().strip()
-            item.setToolTip(f"{label} — {'Widoczny na pasku' if is_checked else 'Ukryty'}")
+            item.setToolTip(
+                f"{label} — "
+                + tr("dialog.toolbar.visible" if is_checked else "dialog.toolbar.hidden")
+            )
             self._update_summary()
 
     def _update_summary(self) -> None:
         total = len(self.working_visibility)
         vis_count = sum(1 for v in self.working_visibility.values() if v)
-        self.lbl_summary.setText(f"Widoczne: {vis_count} / {total} przycisków")
+        self.lbl_summary.setText(
+            tr("dialog.toolbar.visible_count", visible=vis_count, total=total)
+        )
 
     def _filter_list(self, query: str) -> None:
         q = query.strip().lower()
@@ -1911,7 +1980,7 @@ class ToolbarCustomizerDialog(QDialog):
     def __init__(self, manager: "ToolbarManager", parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.manager = manager
-        self.setWindowTitle("Dostosuj paski narzędzi")
+        self.setWindowTitle(tr("dialog.toolbar.title"))
         self.setMinimumSize(750, 560)
         self.resize(780, 590)
         self.setModal(True)
@@ -1953,6 +2022,12 @@ class ToolbarCustomizerDialog(QDialog):
 
         self._init_ui()
         self._populate_all()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        category_id = self._get_current_category_id()
+        self.setWindowTitle(tr("dialog.toolbar.title"))
+        self._populate_all(select_cat_id=category_id)
 
     def _init_ui(self) -> None:
         self.setStyleSheet("""
@@ -2045,13 +2120,13 @@ class ToolbarCustomizerDialog(QDialog):
 
         # Header with Secondary Toolbar toggle
         header_box = QHBoxLayout()
-        lbl_info = QLabel("Dostosuj kolejność i widoczność kategorii na paskach narzędzi:")
+        lbl_info = QLabel(tr("dialog.toolbar.description"))
         lbl_info.setStyleSheet("font-size: 13px; font-weight: bold; color: #f4f4f5;")
         header_box.addWidget(lbl_info)
 
         header_box.addStretch()
 
-        self.chk_secondary_toolbar = QCheckBox("Pokaż dodatkowy pasek narzędzi (dolny)")
+        self.chk_secondary_toolbar = QCheckBox(tr("dialog.toolbar.secondary_toggle"))
         self.chk_secondary_toolbar.setChecked(self.working_secondary_visible)
         self.chk_secondary_toolbar.toggled.connect(self._on_secondary_toolbar_toggled)
         header_box.addWidget(self.chk_secondary_toolbar)
@@ -2083,7 +2158,7 @@ class ToolbarCustomizerDialog(QDialog):
         self.list_main_cats.itemChanged.connect(self._on_category_item_changed)
         self.list_main_cats.model().rowsMoved.connect(self._on_categories_reordered)
         tab_main_lay.addWidget(self.list_main_cats)
-        self.tab_toolbars.addTab(tab_main_widget, "Pasek główny (Górny)")
+        self.tab_toolbars.addTab(tab_main_widget, tr("dialog.toolbar.main_tab"))
 
         # Tab: Secondary Toolbar
         tab_sec_widget = QWidget()
@@ -2097,21 +2172,21 @@ class ToolbarCustomizerDialog(QDialog):
         self.list_sec_cats.itemChanged.connect(self._on_category_item_changed)
         self.list_sec_cats.model().rowsMoved.connect(self._on_categories_reordered)
         tab_sec_lay.addWidget(self.list_sec_cats)
-        self.tab_toolbars.addTab(tab_sec_widget, "Pasek dodatkowy (Dolny)")
+        self.tab_toolbars.addTab(tab_sec_widget, tr("dialog.toolbar.secondary_tab"))
 
         cat_box.addWidget(self.tab_toolbars)
 
         # Category action buttons: Up/Down + Move to other toolbar
         cat_btn_layout = QHBoxLayout()
-        self.btn_cat_up = QPushButton("▲ W górę")
+        self.btn_cat_up = QPushButton(tr("dialog.toolbar.up"))
         self.btn_cat_up.clicked.connect(self._move_category_up)
-        self.btn_cat_down = QPushButton("▼ W dół")
+        self.btn_cat_down = QPushButton(tr("dialog.toolbar.down"))
         self.btn_cat_down.clicked.connect(self._move_category_down)
         cat_btn_layout.addWidget(self.btn_cat_up)
         cat_btn_layout.addWidget(self.btn_cat_down)
         cat_box.addLayout(cat_btn_layout)
 
-        self.btn_switch_toolbar = QPushButton("⇄ Przenieś kategorię na drugi pasek")
+        self.btn_switch_toolbar = QPushButton(tr("dialog.toolbar.switch"))
         self.btn_switch_toolbar.setStyleSheet("""
             QPushButton {
                 background-color: #27272a;
@@ -2131,7 +2206,7 @@ class ToolbarCustomizerDialog(QDialog):
         # 2. Right panel: Items of selected category
         item_box = QVBoxLayout()
         item_box.setSpacing(8)
-        self.lbl_items_header = QLabel("Elementy w wybranej kategorii:")
+        self.lbl_items_header = QLabel(tr("dialog.toolbar.items_selected"))
         self.lbl_items_header.setStyleSheet("font-weight: 600; color: #a1a1aa;")
         item_box.addWidget(self.lbl_items_header)
 
@@ -2145,9 +2220,9 @@ class ToolbarCustomizerDialog(QDialog):
 
         # Item actions: Up/Down + Move to Category
         item_btn_layout = QHBoxLayout()
-        self.btn_item_up = QPushButton("▲ W górę")
+        self.btn_item_up = QPushButton(tr("dialog.toolbar.up"))
         self.btn_item_up.clicked.connect(self._move_item_up)
-        self.btn_item_down = QPushButton("▼ W dół")
+        self.btn_item_down = QPushButton(tr("dialog.toolbar.down"))
         self.btn_item_down.clicked.connect(self._move_item_down)
         item_btn_layout.addWidget(self.btn_item_up)
         item_btn_layout.addWidget(self.btn_item_down)
@@ -2155,14 +2230,14 @@ class ToolbarCustomizerDialog(QDialog):
 
         move_box = QHBoxLayout()
         move_box.setSpacing(6)
-        lbl_move = QLabel("Przenieś do:")
+        lbl_move = QLabel(tr("dialog.toolbar.move_to"))
         lbl_move.setStyleSheet("color: #a1a1aa;")
         move_box.addWidget(lbl_move)
 
         self.combo_target_cat = QComboBox()
         move_box.addWidget(self.combo_target_cat, 1)
 
-        self.btn_move_to_cat = QPushButton("Przenieś")
+        self.btn_move_to_cat = QPushButton(tr("dialog.toolbar.move"))
         self.btn_move_to_cat.clicked.connect(self._move_item_to_target_category)
         move_box.addWidget(self.btn_move_to_cat)
         item_box.addLayout(move_box)
@@ -2174,7 +2249,7 @@ class ToolbarCustomizerDialog(QDialog):
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(8)
 
-        self.btn_reset = QPushButton("Przywróć domyślne")
+        self.btn_reset = QPushButton(tr("dialog.toolbar.reset"))
         self.btn_reset.setStyleSheet("""
             QPushButton {
                 background-color: #3f3f46;
@@ -2190,15 +2265,15 @@ class ToolbarCustomizerDialog(QDialog):
 
         bottom_layout.addStretch()
 
-        self.btn_apply = QPushButton("Zastosuj")
+        self.btn_apply = QPushButton(tr("dialog.toolbar.apply"))
         self.btn_apply.clicked.connect(self._apply_changes)
         bottom_layout.addWidget(self.btn_apply)
 
-        self.btn_cancel = QPushButton("Anuluj")
+        self.btn_cancel = QPushButton(tr("dialog.toolbar.cancel"))
         self.btn_cancel.clicked.connect(self.reject)
         bottom_layout.addWidget(self.btn_cancel)
 
-        self.btn_ok = QPushButton("OK")
+        self.btn_ok = QPushButton(tr("dialog.toolbar.ok"))
         self.btn_ok.setStyleSheet("""
             QPushButton {
                 background-color: #2563eb;
@@ -2243,7 +2318,7 @@ class ToolbarCustomizerDialog(QDialog):
 
             icon = IconFactory.get_icon(cat.icon_name, 16)
             item_count = len(cat.item_ids)
-            label = f"{cat.title} ({item_count})"
+            label = f"{_category_title(cat)} ({item_count})"
 
             item = QListWidgetItem(icon, label)
             item.setData(Qt.ItemDataRole.UserRole, cat_id)
@@ -2388,13 +2463,23 @@ class ToolbarCustomizerDialog(QDialog):
         self.list_items.clear()
 
         if not cat_id or cat_id not in self.working_categories:
-            self.lbl_items_header.setText("Elementy w wybranej kategorii: (brak wyboru)")
+            self.lbl_items_header.setText(tr("dialog.toolbar.no_selection"))
             self.list_items.blockSignals(False)
             return
 
         cat = self.working_categories[cat_id]
-        toolbar_name = "Pasek główny" if cat.toolbar_id == "main" else "Pasek dodatkowy"
-        self.lbl_items_header.setText(f"Elementy w kategorii: {cat.title} ({toolbar_name})")
+        toolbar_name = tr(
+            "dialog.toolbar.main"
+            if cat.toolbar_id == "main"
+            else "dialog.toolbar.secondary"
+        )
+        self.lbl_items_header.setText(
+            tr(
+                "dialog.toolbar.items_category",
+                category=_category_title(cat),
+                toolbar=toolbar_name,
+            )
+        )
 
         for item_id in cat.item_ids:
             item_def = self.working_items.get(item_id)
@@ -2402,7 +2487,7 @@ class ToolbarCustomizerDialog(QDialog):
                 continue
 
             icon = IconFactory.get_icon(item_def.icon_name, 16)
-            list_item = QListWidgetItem(icon, item_def.label)
+            list_item = QListWidgetItem(icon, _toolbar_item_label(item_def))
             list_item.setData(Qt.ItemDataRole.UserRole, item_id)
             list_item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled
@@ -2442,8 +2527,12 @@ class ToolbarCustomizerDialog(QDialog):
         for cat_id in self.working_category_order:
             cat = self.working_categories.get(cat_id)
             if cat and cat_id != curr_cat_id:
-                loc = "Główny" if cat.toolbar_id == "main" else "Dodatkowy"
-                self.combo_target_cat.addItem(f"{cat.title} [{loc}]", cat_id)
+                loc = tr(
+                    "dialog.toolbar.main"
+                    if cat.toolbar_id == "main"
+                    else "dialog.toolbar.secondary"
+                )
+                self.combo_target_cat.addItem(f"{_category_title(cat)} [{loc}]", cat_id)
 
     def _move_category_up(self) -> None:
         curr_list = self._get_active_cat_list()
@@ -2771,6 +2860,31 @@ class ToolbarManager(QObject):
 
         self._init_default_categories()
         self._setup_toolbar_context_menus()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        for toolbar in (self.toolbar, self.secondary_toolbar):
+            if toolbar is None:
+                continue
+            for category_id, category_widget in getattr(
+                toolbar, "category_widgets", {}
+            ).items():
+                category = self.categories.get(category_id)
+                if category is None:
+                    continue
+                category_widget.category_def = category
+                grip = getattr(toolbar, "category_grips", {}).get(category_id)
+                if grip is not None:
+                    grip.category_def = category
+                    grip.lbl_title.setText(_category_title(category))
+                    grip.setToolTip(_category_tooltip(category, self.is_edit_mode))
+                else:
+                    title_label = category_widget.findChild(QLabel)
+                    if title_label is not None:
+                        title_label.setText(_category_title(category))
+        self.toolbar.updateGeometry()
+        if self.secondary_toolbar is not None:
+            self.secondary_toolbar.updateGeometry()
 
     def _init_default_categories(self) -> None:
         for idx, (cat_id, title, icon_name, tb_id, default_items) in enumerate(self.DEFAULT_CATEGORIES):
@@ -3024,12 +3138,8 @@ class ToolbarManager(QObject):
                     if active
                     else Qt.CursorShape.ArrowCursor
                 )
-                grip.setToolTip(
-                    f"Kategoria: {grip.category_def.title}\n"
-                    "Przeciągnij nagłówek, aby przenieść całą kategorię."
-                    if active
-                    else f"Kategoria: {grip.category_def.title}"
-                )
+                grip.lbl_title.setText(_category_title(grip.category_def))
+                grip.setToolTip(_category_tooltip(grip.category_def, active))
         if self.edit_banner:
             self.edit_banner.setVisible(active)
         self.edit_mode_changed.emit(active)
@@ -3396,9 +3506,8 @@ class ToolbarManager(QObject):
 
             grip = CategoryGripWidget(cat, manager=self, parent=category_widget)
             grip.setFixedHeight(22)
-            grip.setToolTip(
-                f"Kategoria: {cat.title}\nPrzeciągnij nagłówek, aby przenieść całą kategorię."
-            )
+            grip.lbl_title.setText(_category_title(cat))
+            grip.setToolTip(_category_tooltip(cat, self.is_edit_mode))
             grip.setEnabled(True)
             grip.setVisible(True)
             grip.setCursor(
@@ -3406,11 +3515,7 @@ class ToolbarManager(QObject):
                 if self.is_edit_mode
                 else Qt.CursorShape.ArrowCursor
             )
-            grip.setToolTip(
-                f"Kategoria: {cat.title}\nPrzeciągnij nagłówek, aby przenieść całą kategorię."
-                if self.is_edit_mode
-                else f"Kategoria: {cat.title}"
-            )
+            grip.setToolTip(_category_tooltip(cat, self.is_edit_mode))
             category_widget.set_grip(grip)
             if hasattr(target_toolbar, "category_grips"):
                 target_toolbar.category_grips[cat.id] = grip
@@ -3727,7 +3832,7 @@ class ToolbarManager(QObject):
             clicked_item = self.items[clicked_item_id]
             act_hide_this = menu.addAction(
                 IconFactory.get_icon("eye-off", 16),
-                f"Ukryj przycisk '{clicked_item.label}'",
+                tr("toolbar.hide_item", label=clicked_item.label),
             )
             act_hide_this.triggered.connect(lambda _, cid=clicked_item_id: self.hide_item(cid))
             menu.addSeparator()
@@ -3735,20 +3840,24 @@ class ToolbarManager(QObject):
         # Edit Mode Toggle (Drag & Drop)
         act_edit = menu.addAction(
             IconFactory.get_icon("edit", 16),
-            "✓ Zakończ tryb personalizacji pasków" if self.is_edit_mode else "🛠 Tryb personalizacji pasków (Drag & Drop)...",
+            tr("toolbar.edit_mode_finish" if self.is_edit_mode else "toolbar.edit_mode_start"),
         )
         act_edit.triggered.connect(self.toggle_edit_mode)
 
         menu.addSeparator()
 
         # Submenu: Button Visibility
-        menu_vis = menu.addMenu(IconFactory.get_icon("eye", 16), "Widoczność przycisków")
+        menu_vis = menu.addMenu(IconFactory.get_icon("eye", 16), tr("toolbar.visibility_menu"))
         menu_vis.setStyleSheet(menu.styleSheet())
 
-        act_show_all = menu_vis.addAction(IconFactory.get_icon("check", 16), "Pokaż wszystkie przyciski")
+        act_show_all = menu_vis.addAction(
+            IconFactory.get_icon("check", 16), tr("toolbar.show_all")
+        )
         act_show_all.triggered.connect(lambda: self.show_all_items())
 
-        act_vis_dlg = menu_vis.addAction(IconFactory.get_icon("settings", 16), "Zarządzaj widocznością...")
+        act_vis_dlg = menu_vis.addAction(
+            IconFactory.get_icon("settings", 16), tr("toolbar.manage_visibility")
+        )
         act_vis_dlg.triggered.connect(lambda: self.open_visibility_dialog())
 
         menu_vis.addSeparator()
@@ -3762,45 +3871,59 @@ class ToolbarManager(QObject):
             act_toggle.setChecked(item_def.visible)
             act_toggle.toggled.connect(lambda chk, cid=i_id: self.set_item_visible(cid, chk))
 
-        act_open_vis = menu.addAction(IconFactory.get_icon("eye", 16), "Zarządzaj widocznością przycisków...")
+        act_open_vis = menu.addAction(
+            IconFactory.get_icon("eye", 16), tr("toolbar.manage_visibility")
+        )
         act_open_vis.triggered.connect(lambda: self.open_visibility_dialog())
 
         menu.addSeparator()
 
         if self.secondary_toolbar:
-            act_sec = menu.addAction("Pokaż dodatkowy pasek narzędzi (dolny)")
+            act_sec = menu.addAction(tr("toolbar.show_secondary"))
             act_sec.setCheckable(True)
             act_sec.setChecked(self.secondary_toolbar_visible)
             act_sec.toggled.connect(self.set_secondary_toolbar_visible)
             menu.addSeparator()
 
-        act_customize = menu.addAction(IconFactory.get_icon("settings", 16), "Dostosuj paski narzędzi (Dialog)...")
+        act_customize = menu.addAction(
+            IconFactory.get_icon("settings", 16), tr("toolbar.customize_dialog")
+        )
         act_customize.triggered.connect(lambda: self.open_customizer_dialog())
 
         menu.addSeparator()
 
-        menu_main_cats = menu.addMenu(IconFactory.get_icon("layout", 16), "Kategorie (Pasek główny)")
+        menu_main_cats = menu.addMenu(
+            IconFactory.get_icon("layout", 16), tr("toolbar.categories_main")
+        )
         menu_main_cats.setStyleSheet(menu.styleSheet())
         for cat in self.get_ordered_categories():
             if cat.toolbar_id == "main":
-                act = menu_main_cats.addAction(IconFactory.get_icon(cat.icon_name, 16), cat.title)
+                act = menu_main_cats.addAction(
+                    IconFactory.get_icon(cat.icon_name, 16), _category_title(cat)
+                )
                 act.setCheckable(True)
                 act.setChecked(cat.visible)
                 act.toggled.connect(lambda chk, cid=cat.id: self.set_category_visible(cid, chk))
 
         if self.secondary_toolbar:
-            menu_sec_cats = menu.addMenu(IconFactory.get_icon("layout", 16), "Kategorie (Pasek dodatkowy)")
+            menu_sec_cats = menu.addMenu(
+                IconFactory.get_icon("layout", 16), tr("toolbar.categories_secondary")
+            )
             menu_sec_cats.setStyleSheet(menu.styleSheet())
             for cat in self.get_ordered_categories():
                 if cat.toolbar_id == "secondary":
-                    act = menu_sec_cats.addAction(IconFactory.get_icon(cat.icon_name, 16), cat.title)
+                    act = menu_sec_cats.addAction(
+                        IconFactory.get_icon(cat.icon_name, 16), _category_title(cat)
+                    )
                     act.setCheckable(True)
                     act.setChecked(cat.visible)
                     act.toggled.connect(lambda chk, cid=cat.id: self.set_category_visible(cid, chk))
 
         menu.addSeparator()
 
-        act_reset = menu.addAction(IconFactory.get_icon("undo", 16), "Przywróć domyślny układ pasków")
+        act_reset = menu.addAction(
+            IconFactory.get_icon("undo", 16), tr("toolbar.reset_layout")
+        )
         act_reset.triggered.connect(lambda: self.reset_to_default(save=True))
 
         menu.exec(source_toolbar.mapToGlobal(pos))

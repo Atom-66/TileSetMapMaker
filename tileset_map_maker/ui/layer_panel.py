@@ -333,8 +333,8 @@ class LayerPanel(QWidget):
             return
         new_name, ok = QInputDialog.getText(
             self,
-            "Zmień nazwę",
-            "Nowa nazwa:",
+            tr("layer.rename_title"),
+            tr("layer.rename_prompt"),
             text=layer.name,
         )
         if ok and new_name.strip():
@@ -374,9 +374,9 @@ class LayerPanel(QWidget):
 
         name, ok = QInputDialog.getText(
             self,
-            "Nowa warstwa",
-            "Nazwa warstwy:",
-            text=f"Warstwa {len(self.project.layers) + 1}",
+            tr("layer.add_title"),
+            tr("layer.add_prompt"),
+            text=tr("layer.default_name", index=len(self.project.layers) + 1),
         )
         if ok and name.strip():
             new_layer = Layer(name=name.strip(), group_id=parent_group_id)
@@ -390,9 +390,9 @@ class LayerPanel(QWidget):
     def _add_group(self) -> None:
         name, ok = QInputDialog.getText(
             self,
-            "Nowa grupa warstw",
-            "Nazwa grupy:",
-            text="Nowa grupa",
+            tr("layer.add_group_title"),
+            tr("layer.add_group_prompt"),
+            text=tr("layer.default_group_name"),
         )
         if ok and name.strip():
             grp = self.project.add_group(name=name.strip())
@@ -410,16 +410,21 @@ class LayerPanel(QWidget):
 
     def _delete_layer(self) -> None:
         if len(self.project.layers) <= 1:
-            QMessageBox.warning(self, "Uwaga", "Projekt musi posiadać co najmniej jedną warstwę.")
+            QMessageBox.warning(
+                self, tr("layer.delete_title"), tr("layer.delete_last")
+            )
             return
         item = self.tree_widget.currentItem()
         lid = item.data(0, Qt.ItemDataRole.UserRole) if item else self.project.active_layer_id
         target = self.project.get_layer(lid)
         if target:
-            msg = f"Czy usunąć grupę '{target.name}' wraz z zawartymi w niej warstwami?" if target.is_group else f"Czy usunąć warstwę '{target.name}'?"
+            msg = tr(
+                "layer.delete_group_confirm" if target.is_group else "layer.delete_confirm",
+                name=target.name,
+            )
             confirm = QMessageBox.question(
                 self,
-                "Potwierdź usunięcie",
+                tr("layer.delete_title"),
                 msg,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
@@ -437,8 +442,8 @@ class LayerPanel(QWidget):
         if target and not target.is_group:
             confirm = QMessageBox.question(
                 self,
-                "Wyczyść warstwę",
-                f"Czy wyczyścić kafelki z warstwy '{target.name}'?",
+                tr("layer.clear_title"),
+                tr("layer.clear_confirm", name=target.name),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if confirm == QMessageBox.StandardButton.Yes:

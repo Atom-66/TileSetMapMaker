@@ -266,7 +266,7 @@ class TilesetCanvas(QWidget):
             painter.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter,
-                "Brak załadowanego tilesetu.\nWybierz tileset z biblioteki poniżej lub zaimportuj plik (+)",
+                tr("palette.canvas_empty"),
             )
             return
 
@@ -276,7 +276,7 @@ class TilesetCanvas(QWidget):
             painter.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter,
-                f"Nie można załadować pliku graficznego:\n{self.current_asset.file_path}",
+                tr("palette.canvas_load_error", path=self.current_asset.file_path),
             )
             return
 
@@ -707,7 +707,7 @@ class GlobalImportSettingsDialog(QDialog):
     def __init__(self, config_manager: ConfigManager, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.config_manager = config_manager
-        self.setWindowTitle("Domyślne ustawienia importu tilesetów")
+        self.setWindowTitle(tr("dialog.import_settings.title"))
         self.setMinimumWidth(380)
         self._init_ui()
 
@@ -723,12 +723,12 @@ class GlobalImportSettingsDialog(QDialog):
         self.spin_width = QSpinBox()
         self.spin_width.setRange(4, 512)
         self.spin_width.setValue(cfg.get("default_tile_width", 32))
-        form.addRow("Domyślna szerokość kafelka (px):", self.spin_width)
+        form.addRow(tr("dialog.import_settings.default_width"), self.spin_width)
 
         self.spin_height = QSpinBox()
         self.spin_height.setRange(4, 512)
         self.spin_height.setValue(cfg.get("default_tile_height", 32))
-        form.addRow("Domyślna wysokość kafelka (px):", self.spin_height)
+        form.addRow(tr("dialog.import_settings.default_height"), self.spin_height)
 
         # Quick preset buttons
         preset_box = QHBoxLayout()
@@ -737,29 +737,32 @@ class GlobalImportSettingsDialog(QDialog):
             btn.setFixedHeight(24)
             btn.clicked.connect(lambda _, pw=w, ph=h: self._set_dims(pw, ph))
             preset_box.addWidget(btn)
-        form.addRow("Szybkie szablony:", preset_box)
+        form.addRow(tr("dialog.tileset_import.presets"), preset_box)
 
         self.spin_margin_x = QSpinBox()
         self.spin_margin_x.setRange(0, 128)
         self.spin_margin_x.setValue(cfg.get("default_margin_x", 0))
-        form.addRow("Margines lewy (X, px):", self.spin_margin_x)
+        form.addRow(tr("dialog.import_settings.margin_x"), self.spin_margin_x)
 
         self.spin_margin_y = QSpinBox()
         self.spin_margin_y.setRange(0, 128)
         self.spin_margin_y.setValue(cfg.get("default_margin_y", 0))
-        form.addRow("Margines górny (Y, px):", self.spin_margin_y)
+        form.addRow(tr("dialog.import_settings.margin_y"), self.spin_margin_y)
 
         self.spin_spacing_x = QSpinBox()
         self.spin_spacing_x.setRange(0, 64)
         self.spin_spacing_x.setValue(cfg.get("default_spacing_x", 0))
-        form.addRow("Odstęp poziomy (Spacing X, px):", self.spin_spacing_x)
+        form.addRow(tr("dialog.import_settings.spacing_x"), self.spin_spacing_x)
 
         self.spin_spacing_y = QSpinBox()
         self.spin_spacing_y.setRange(0, 64)
         self.spin_spacing_y.setValue(cfg.get("default_spacing_y", 0))
-        form.addRow("Odstęp pionowy (Spacing Y, px):", self.spin_spacing_y)
+        form.addRow(tr("dialog.import_settings.spacing_y"), self.spin_spacing_y)
 
-        self.chk_skip_single = SwitchToggle("Używaj automatycznie dla pojedynczych plików (bez okna konfiguracji)", checked=cfg.get("skip_dialog_on_single", False))
+        self.chk_skip_single = SwitchToggle(
+            tr("dialog.import_settings.skip_single"),
+            checked=cfg.get("skip_dialog_on_single", False),
+        )
         form.addRow(self.chk_skip_single)
 
         layout.addLayout(form)
@@ -835,6 +838,7 @@ class TilesetPaletteWidget(QWidget):
         self.btn_rename.setToolTip(tr("palette.rename_tooltip"))
         self.btn_delete.setToolTip(tr("palette.delete_tooltip"))
         self.btn_settings.setToolTip(tr("palette.settings_tooltip"))
+        self.canvas.update()
         self.refresh_tilesets()
 
     @property
@@ -888,7 +892,7 @@ class TilesetPaletteWidget(QWidget):
         top_header.setContentsMargins(2, 2, 2, 2)
         top_header.setSpacing(4)
 
-        self.lbl_active_title = ElidedLabel("Podgląd tilesetu: (Brak wyboru)")
+        self.lbl_active_title = ElidedLabel(tr("palette.preview_empty"))
         self.lbl_active_title.setStyleSheet("color: #93c5fd; font-size: 11px; font-weight: bold;")
         top_header.addWidget(self.lbl_active_title, 1)
 
@@ -989,7 +993,12 @@ class TilesetPaletteWidget(QWidget):
         lib_header.setContentsMargins(2, 2, 2, 2)
         lib_header.setSpacing(3)
 
-        self.lbl_list_title = ElidedLabel("Biblioteka tilesetów (0)" if self.standalone else "Tilesety (0)")
+        self.lbl_list_title = ElidedLabel(
+            tr(
+                "palette.library_title" if self.standalone else "palette.tilesets_title",
+                count=0,
+            )
+        )
         self.lbl_list_title.setStyleSheet("color: #e4e4e7; font-size: 11px; font-weight: 600;")
         lib_header.addWidget(self.lbl_list_title)
         lib_header.addStretch(1)
@@ -1604,8 +1613,8 @@ class TilesetPaletteWidget(QWidget):
                 return
             new_name, ok = QInputDialog.getText(
                 self,
-                "Zmień nazwę folderu",
-                "Nowa nazwa folderu:",
+                tr("dialog.library.rename_folder_title"),
+                tr("dialog.library.rename_folder_prompt"),
                 text=node.name,
             )
             if ok and new_name.strip():
@@ -1625,8 +1634,8 @@ class TilesetPaletteWidget(QWidget):
                 return
             new_name, ok = QInputDialog.getText(
                 self,
-                "Zmień nazwę tilesetu",
-                "Nowa nazwa tilesetu:",
+                tr("dialog.library.rename_tileset_title"),
+                tr("dialog.library.rename_tileset_prompt"),
                 text=asset.name,
             )
             if ok and new_name.strip():
@@ -1647,9 +1656,12 @@ class TilesetPaletteWidget(QWidget):
                 return
             confirm = QMessageBox.question(
                 self,
-                "Usuń tileset z biblioteki",
-                f"Czy na pewno chcesz usunąć tileset '{asset.name}' z biblioteki?\n\n"
-                f"(Plik na dysku '{asset.file_path}' pozostanie całkowicie nienaruszony)",
+                tr("dialog.library.delete_tileset_title"),
+                tr(
+                    "dialog.library.delete_tileset_confirm",
+                    name=asset.name,
+                    path=asset.file_path,
+                ),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -1669,15 +1681,23 @@ class TilesetPaletteWidget(QWidget):
 
             if len(all_asset_ids) > 0:
                 msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Usuwanie folderu")
+                msg_box.setWindowTitle(tr("dialog.library.delete_folder_title"))
                 msg_box.setText(
-                    f"Folder '{node.name}' zawiera {len(all_asset_ids)} tileset(ów).\n"
-                    "Co chcesz zrobić z zawartością?\n\n"
-                    "(Żadne pliki na dysku nie zostaną skasowane)"
+                    tr(
+                        "dialog.library.delete_folder_contents",
+                        name=node.name,
+                        count=len(all_asset_ids),
+                    )
                 )
-                btn_reparent = msg_box.addButton("Przenieś tilesety wyżej", QMessageBox.ButtonRole.ActionRole)
-                btn_delete_all = msg_box.addButton("Usuń tilesety z biblioteki", QMessageBox.ButtonRole.DestructiveRole)
-                btn_cancel = msg_box.addButton("Anuluj", QMessageBox.ButtonRole.RejectRole)
+                btn_reparent = msg_box.addButton(
+                    tr("dialog.library.move_tilesets_up"), QMessageBox.ButtonRole.ActionRole
+                )
+                btn_delete_all = msg_box.addButton(
+                    tr("dialog.library.delete_tilesets"), QMessageBox.ButtonRole.DestructiveRole
+                )
+                btn_cancel = msg_box.addButton(
+                    tr("button.cancel"), QMessageBox.ButtonRole.RejectRole
+                )
                 msg_box.setDefaultButton(btn_cancel)
                 msg_box.exec()
 
@@ -1689,8 +1709,8 @@ class TilesetPaletteWidget(QWidget):
             else:
                 confirm = QMessageBox.question(
                     self,
-                    "Usuń pusty folder",
-                    f"Czy na pewno chcesz usunąć pusty folder '{node.name}'?",
+                    tr("dialog.library.delete_empty_title"),
+                    tr("dialog.library.delete_empty_confirm", name=node.name),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
@@ -1707,21 +1727,22 @@ class TilesetPaletteWidget(QWidget):
         asset = self.asset_manager.get_asset(asset_id)
         if not asset:
             return
-        paths = ["(Katalog główny)"] + self.asset_manager.category_tree.get_all_paths()
+        root_label = tr("dialog.library.root_folder")
+        paths = [root_label] + self.asset_manager.category_tree.get_all_paths()
         curr_idx = 0
         if asset.category_path in paths:
             curr_idx = paths.index(asset.category_path)
 
         chosen, ok = QInputDialog.getItem(
             self,
-            "Przenieś tileset",
-            f"Wybierz docelowy folder dla tilesetu '{asset.name}':",
+            tr("dialog.library.move_tileset_title"),
+            tr("dialog.library.move_tileset_prompt", name=asset.name),
             paths,
             current=curr_idx,
             editable=False,
         )
         if ok and chosen:
-            target = "" if chosen == "(Katalog główny)" else chosen
+            target = "" if chosen == root_label else chosen
             self.asset_manager.move_asset(asset.id, target)
             self.refresh_tilesets()
             self._auto_save_library()
@@ -1733,7 +1754,7 @@ class TilesetPaletteWidget(QWidget):
 
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Wybierz pliki arkuszy tilesetów (PNG/JPG)",
+            tr("dialog.library.select_files"),
             "",
             "Grafiki (*.png *.jpg *.jpeg *.bmp *.webp);;Wszystkie pliki (*.*)",
         )
@@ -1821,9 +1842,12 @@ class TilesetPaletteWidget(QWidget):
         if len(files) > 1:
             QMessageBox.information(
                 self,
-                "Import zakończony",
-                f"Zaimportowano pomyślnie: {imported_count} tileset(ów)\n"
-                f"Pominięte duplikaty: {dup_count}",
+                tr("dialog.library.import_done_title"),
+                tr(
+                    "dialog.library.import_done",
+                    imported=imported_count,
+                    duplicates=dup_count,
+                ),
             )
 
     def import_file_from_path(self, file_path: str, target_category: str = "") -> None:
@@ -1858,7 +1882,7 @@ class TilesetPaletteWidget(QWidget):
 
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Wybierz folder z tilesetami do zaimportowania",
+            tr("dialog.library.select_folder"),
             "",
             QFileDialog.Option.ShowDirsOnly,
         )
@@ -1903,12 +1927,15 @@ class TilesetPaletteWidget(QWidget):
         error_count = res.get("error_count", len(res.get("errors", [])))
         QMessageBox.information(
             self,
-            "Import folderu zakończony",
-            f"Wynik importu folderu '{os.path.basename(folder_path)}':\n\n"
-            f"✅ Zaimportowano: {res.get('imported_count', 0)} tileset(ów)\n"
-            f"⏭️ Pominięto (pliki inne niż grafika): {res.get('skipped_count', 0)}\n"
-            f"⚠️ Duplikaty: {res.get('duplicates_count', 0)}\n"
-            f"❌ Błędy: {error_count}",
+            tr("dialog.library.import_folder_done_title"),
+            tr(
+                "dialog.library.import_folder_done",
+                folder=os.path.basename(folder_path),
+                imported=res.get("imported_count", 0),
+                skipped=res.get("skipped_count", 0),
+                duplicates=res.get("duplicates_count", 0),
+                errors=error_count,
+            ),
         )
 
     def _open_global_settings_dialog(self) -> None:

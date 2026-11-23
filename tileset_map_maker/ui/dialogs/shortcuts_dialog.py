@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from ..icons import IconFactory
+from ...core.localization import tr
 
 
 class ShortcutsDialog(QDialog):
@@ -19,58 +20,60 @@ class ShortcutsDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("Skróty klawiszowe")
+        self.setWindowTitle(tr("dialog.shortcuts.title"))
         self.resize(500, 480)
         self._init_ui()
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        lbl = QLabel("Konfigurowalne skróty klawiszowe w edytorze:")
+        lbl = QLabel(tr("dialog.shortcuts.description"))
         lbl.setStyleSheet("font-weight: 600; color: #a1a1aa;")
         layout.addWidget(lbl)
 
         table = QTableWidget()
         table.setColumnCount(2)
-        table.setHorizontalHeaderLabels(["Działanie", "Skrót klawiszowy"])
+        table.setHorizontalHeaderLabels(
+            [tr("dialog.shortcuts.action"), tr("dialog.shortcuts.shortcut")]
+        )
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
         shortcuts = [
-            ("Nowy projekt", "Ctrl + N"),
-            ("Otwórz projekt", "Ctrl + O"),
-            ("Zapisz projekt", "Ctrl + S"),
-            ("Cofnij operację", "Ctrl + Z"),
-            ("Ponów operację", "Ctrl + Y"),
-            ("Pędzel", "B"),
-            ("Gumka", "E"),
-            ("Wypełnianie (wiadro)", "G"),
-            ("Linia", "L"),
-            ("Prostokąt", "U"),
-            ("Zaznaczanie", "S"),
-            ("Swobodny obiekt", "V"),
-            ("Pipeta", "I"),
-            ("Stempel", "T"),
-            ("Obrót obiektu / stempla", "R"),
-            ("Odbicie obiektu w poziomie", "H"),
-            ("Odbicie obiektu w pionie", "V"),
-            ("Skalowanie obiektu w górę / dół", "+ / -"),
-            ("Duplikuj obiekt", "Ctrl + D"),
-            ("Przesuwanie widoku (Pan)", "Spacja + Przeciąganie / Środkowy przycisk myszy"),
-            ("Powiększenie / Pomniejszenie", "Rolka myszy"),
-            ("Kopiuj zaznaczenie", "Ctrl + C"),
-            ("Wklej (stempel)", "Ctrl + V"),
-            ("Usuń zaznaczenie / obiekt", "Delete"),
-            ("Przełącz siatkę kafelków", "Ctrl + G"),
-            ("Dopasuj mapę do okna", "Ctrl + F"),
-            ("Eksport PNG", "Ctrl + E"),
+            ("new_project", "Ctrl + N"),
+            ("open_project", "Ctrl + O"),
+            ("save_project", "Ctrl + S"),
+            ("undo", "Ctrl + Z"),
+            ("redo", "Ctrl + Y"),
+            ("brush", "B"),
+            ("eraser", "E"),
+            ("fill", "G"),
+            ("line", "L"),
+            ("rectangle", "U"),
+            ("selection", "S"),
+            ("free_object", "V"),
+            ("eyedropper", "I"),
+            ("stamp", "T"),
+            ("rotate", "R"),
+            ("flip_h", "H"),
+            ("flip_v", "V"),
+            ("scale", "+ / -"),
+            ("duplicate", "Ctrl + D"),
+            ("pan", tr("dialog.shortcuts.key_pan")),
+            ("zoom", tr("dialog.shortcuts.key_zoom")),
+            ("copy", "Ctrl + C"),
+            ("paste", "Ctrl + V"),
+            ("delete", "Delete"),
+            ("grid", "Ctrl + G"),
+            ("fit", "Ctrl + F"),
+            ("export", "Ctrl + E"),
         ]
 
         table.setRowCount(len(shortcuts))
-        for row, (action, key) in enumerate(shortcuts):
-            item_act = QTableWidgetItem(action)
+        for row, (action_key, key) in enumerate(shortcuts):
+            item_act = QTableWidgetItem(tr(f"dialog.shortcuts.{action_key}"))
             item_key = QTableWidgetItem(key)
             item_key.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 0, item_act)
@@ -78,7 +81,7 @@ class ShortcutsDialog(QDialog):
 
         layout.addWidget(table)
 
-        btn_close = QPushButton(" Zamknij")
+        btn_close = QPushButton(f" {tr('dialog.shortcuts.close')}")
         btn_close.setIcon(IconFactory.get_icon("close", 14))
         btn_close.clicked.connect(self.accept)
         btn_layout = QHBoxLayout()

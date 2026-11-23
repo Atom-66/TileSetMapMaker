@@ -62,7 +62,11 @@ class AutoTileDialog(QDialog):
     def _ensure_initial_rule(self) -> None:
         """Ensures at least one rule exists if the library was empty."""
         if not self.autotile_engine.rulesets:
-            default_rule = AutoTileRuleSet(name="Trawa – Brzegi", terrain_type="Grass", connects_with=["Grass"])
+            default_rule = AutoTileRuleSet(
+                name=tr("dialog.autotile.default_rule"),
+                terrain_type="Grass",
+                connects_with=["Grass"],
+            )
             self.autotile_engine.register_ruleset(default_rule)
             self.autotile_engine.active_ruleset_id = default_rule.id
 
@@ -71,7 +75,7 @@ class AutoTileDialog(QDialog):
         layout.setSpacing(12)
 
         # 1. Ruleset selector & Management Header
-        group_rule = QGroupBox("Zestaw reguł terenu (AutoTile Rule)")
+        group_rule = QGroupBox(tr("dialog.autotile.rule_group"))
         rule_layout = QVBoxLayout(group_rule)
         rule_layout.setSpacing(8)
 
@@ -81,13 +85,13 @@ class AutoTileDialog(QDialog):
         self.combo_rules.currentIndexChanged.connect(self._load_current_rule)
         top_rule_bar.addWidget(self.combo_rules, 1)
 
-        btn_new_rule = QPushButton(" Nowa")
+        btn_new_rule = QPushButton(f" {tr('dialog.autotile.new')}")
         btn_new_rule.setIcon(IconFactory.get_icon("plus", 14))
         btn_new_rule.setToolTip(tr("autotile.new_tooltip"))
         btn_new_rule.clicked.connect(self._create_new_rule)
         top_rule_bar.addWidget(btn_new_rule)
 
-        btn_del_rule = QPushButton(" Usuń")
+        btn_del_rule = QPushButton(f" {tr('dialog.autotile.delete')}")
         btn_del_rule.setIcon(IconFactory.get_icon("trash", 14))
         btn_del_rule.setToolTip(tr("autotile.delete_tooltip"))
         btn_del_rule.clicked.connect(self._delete_current_rule)
@@ -98,21 +102,21 @@ class AutoTileDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(6)
 
-        self.txt_name = QLineEdit("Trawa – Brzegi")
-        form.addRow("Nazwa zestawu:", self.txt_name)
+        self.txt_name = QLineEdit(tr("dialog.autotile.default_rule"))
+        form.addRow(tr("dialog.autotile.set_name"), self.txt_name)
 
         self.txt_terrain = QLineEdit("Grass")
-        form.addRow("Główny typ terenu:", self.txt_terrain)
+        form.addRow(tr("dialog.autotile.main_terrain"), self.txt_terrain)
 
         self.txt_connects = QLineEdit("Grass")
         self.txt_connects.setToolTip(tr("autotile.connects_tooltip"))
-        form.addRow("Łączy się z terenami:", self.txt_connects)
+        form.addRow(tr("dialog.autotile.connects"), self.txt_connects)
 
         rule_layout.addLayout(form)
         layout.addWidget(group_rule)
 
         # 2. Template Setup Group
-        group_template = QGroupBox("Źródło kafelków i szablon (Standard 3x3)")
+        group_template = QGroupBox(tr("dialog.autotile.tileset_group"))
         tpl_layout = QVBoxLayout(group_template)
         tpl_layout.setSpacing(8)
 
@@ -123,35 +127,35 @@ class AutoTileDialog(QDialog):
         tilesets = [a for a in self.asset_manager.assets.values() if a.asset_type == AssetType.TILESET]
         for ts in tilesets:
             self.combo_tileset.addItem(IconFactory.get_icon("map", 16), f"{ts.name} ({ts.width}x{ts.height})", ts.id)
-        form_tpl.addRow("Arkusz tilesetu:", self.combo_tileset)
+        form_tpl.addRow(tr("dialog.autotile.tileset"), self.combo_tileset)
 
         coords_bar = QHBoxLayout()
         coords_bar.setSpacing(8)
 
-        lbl_col = QLabel("Start Kolumna (X):")
+        lbl_col = QLabel(tr("dialog.autotile.start_col"))
         self.spin_col = QSpinBox()
         self.spin_col.setRange(0, 500)
         self.spin_col.setValue(0)
         coords_bar.addWidget(lbl_col)
         coords_bar.addWidget(self.spin_col)
 
-        lbl_row = QLabel("Start Wiersz (Y):")
+        lbl_row = QLabel(tr("dialog.autotile.start_row"))
         self.spin_row = QSpinBox()
         self.spin_row.setRange(0, 500)
         self.spin_row.setValue(0)
         coords_bar.addWidget(lbl_row)
         coords_bar.addWidget(self.spin_row)
 
-        btn_use_sel = QPushButton(" Zaznaczenie w palecie")
+        btn_use_sel = QPushButton(f" {tr('dialog.autotile.selection')}")
         btn_use_sel.setIcon(IconFactory.get_icon("select", 14))
         btn_use_sel.setToolTip(tr("autotile.selection_tooltip"))
         btn_use_sel.clicked.connect(self._use_palette_selection)
         coords_bar.addWidget(btn_use_sel)
 
-        form_tpl.addRow("Początek bloku 3x3:", coords_bar)
+        form_tpl.addRow(tr("dialog.autotile.block_start"), coords_bar)
         tpl_layout.addLayout(form_tpl)
 
-        btn_apply = QPushButton(" Zastosuj szablon 3x3 do tej reguły")
+        btn_apply = QPushButton(f" {tr('dialog.autotile.apply_template')}")
         btn_apply.setIcon(IconFactory.get_icon("grid-3x3-template", 16))
         btn_apply.setStyleSheet("font-weight: bold; background-color: #2563eb; color: white; padding: 6px;")
         btn_apply.clicked.connect(self._apply_template)
@@ -160,7 +164,7 @@ class AutoTileDialog(QDialog):
         layout.addWidget(group_template)
 
         # 3. Visual 3x3 Layout Preview
-        group_preview = QGroupBox("Podgląd wizualny układu kafelków (3x3 Box)")
+        group_preview = QGroupBox(tr("dialog.autotile.preview_group"))
         prev_layout = QVBoxLayout(group_preview)
         prev_layout.setSpacing(6)
 
@@ -170,18 +174,18 @@ class AutoTileDialog(QDialog):
         grid.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         slot_names = [
-            ("Narożnik LG", 0, 0),
-            ("Krawędź Górna", 1, 0),
-            ("Narożnik PG", 2, 0),
-            ("Krawędź Lewa", 0, 1),
-            ("Wnętrze (Środek)", 1, 1),
-            ("Krawędź Prawa", 2, 1),
-            ("Narożnik LD", 0, 2),
-            ("Krawędź Dolna", 1, 2),
-            ("Narożnik PD", 2, 2),
+            ("dialog.autotile.role.corner_tl", 0, 0),
+            ("dialog.autotile.role.edge_top", 1, 0),
+            ("dialog.autotile.role.corner_tr", 2, 0),
+            ("dialog.autotile.role.edge_left", 0, 1),
+            ("dialog.autotile.role.center", 1, 1),
+            ("dialog.autotile.role.edge_right", 2, 1),
+            ("dialog.autotile.role.corner_bl", 0, 2),
+            ("dialog.autotile.role.edge_bottom", 1, 2),
+            ("dialog.autotile.role.corner_br", 2, 2),
         ]
 
-        for title, cx, cy in slot_names:
+        for title_key, cx, cy in slot_names:
             slot_box = QVBoxLayout()
             slot_box.setSpacing(2)
             slot_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -191,7 +195,7 @@ class AutoTileDialog(QDialog):
             lbl_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl_thumb.setStyleSheet("background-color: #121214; border: 1px solid #3f3f46; border-radius: 4px;")
 
-            lbl_sub = QLabel(title)
+            lbl_sub = QLabel(tr(title_key))
             lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl_sub.setStyleSheet("font-size: 10px; color: #a1a1aa;")
 
@@ -211,13 +215,13 @@ class AutoTileDialog(QDialog):
         btn_bar = QHBoxLayout()
         btn_bar.addStretch()
 
-        btn_save = QPushButton(" Zapisz regułę")
+        btn_save = QPushButton(f" {tr('dialog.autotile.save_rule')}")
         btn_save.setIcon(IconFactory.get_icon("save", 16))
         btn_save.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 6px 16px;")
         btn_save.clicked.connect(self._save_rule)
         btn_bar.addWidget(btn_save)
 
-        btn_close = QPushButton(" Zamknij")
+        btn_close = QPushButton(f" {tr('dialog.autotile.close')}")
         btn_close.setIcon(IconFactory.get_icon("close", 14))
         btn_close.clicked.connect(self.accept)
         btn_bar.addWidget(btn_close)
@@ -246,7 +250,10 @@ class AutoTileDialog(QDialog):
             self._update_preview_grid(r)
 
     def _create_new_rule(self) -> None:
-        new_r = AutoTileRuleSet(name="Nowy Teren", terrain_type="Teren")
+        new_r = AutoTileRuleSet(
+            name=tr("dialog.autotile.default_name"),
+            terrain_type=tr("dialog.autotile.default_type"),
+        )
         self.autotile_engine.register_ruleset(new_r)
         self.autotile_engine.active_ruleset_id = new_r.id
         self._populate_rules_combo()
@@ -257,13 +264,15 @@ class AutoTileDialog(QDialog):
         if not rid:
             return
         if len(self.autotile_engine.rulesets) <= 1:
-            QMessageBox.warning(self, "Uwaga", "Nie można usunąć jedynej reguły.")
+            QMessageBox.warning(
+                self, tr("dialog.autotile.error_title"), tr("dialog.autotile.cannot_delete_last")
+            )
             return
 
         confirm = QMessageBox.question(
             self,
-            "Usuwanie reguły",
-            f"Czy na pewno chcesz usunąć regułę '{self.txt_name.text()}'?",
+            tr("dialog.autotile.delete_title"),
+            tr("dialog.autotile.delete_confirm", name=self.txt_name.text()),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -287,19 +296,23 @@ class AutoTileDialog(QDialog):
         else:
             QMessageBox.information(
                 self,
-                "Informacja",
-                "Zaznacz kafelek lub blok 3x3 w Palecie Tilesetów (po lewej), a następnie kliknij ten przycisk.",
+                tr("dialog.autotile.info_title"),
+                tr("dialog.autotile.select_3x3"),
             )
 
     def _apply_template(self) -> None:
         ts_id = self.combo_tileset.currentData()
         if not ts_id:
-            QMessageBox.warning(self, "Błąd", "Brak wybranego tilesetu.")
+            QMessageBox.warning(
+                self, tr("dialog.autotile.error_title"), tr("dialog.autotile.no_tileset")
+            )
             return
 
         ts_asset = self.asset_manager.get_asset(ts_id)
         if not ts_asset or not ts_asset.tileset_config:
-            QMessageBox.warning(self, "Błąd", "Wybrany zasób nie posiada konfiguracji tilesetu.")
+            QMessageBox.warning(
+                self, tr("dialog.autotile.error_title"), tr("dialog.autotile.no_tileset_config")
+            )
             return
 
         rid = self.combo_rules.currentData()
@@ -327,8 +340,13 @@ class AutoTileDialog(QDialog):
         self._save_rule(show_msg=False)
         QMessageBox.information(
             self,
-            "Sukces",
-            f"Pomyślnie skonfigurowano i zapisano układ 3x3 z '{ts_asset.name}' (kolumna {start_col}, wiersz {start_row})!",
+            tr("dialog.autotile.success_title"),
+            tr(
+                "dialog.autotile.applied",
+                name=ts_asset.name,
+                col=start_col,
+                row=start_row,
+            ),
         )
 
     def _update_preview_grid(self, ruleset: AutoTileRuleSet) -> None:
@@ -395,7 +413,7 @@ class AutoTileDialog(QDialog):
         if not r:
             return
 
-        r.name = self.txt_name.text().strip() or "Reguła"
+        r.name = self.txt_name.text().strip() or tr("dialog.autotile.default_name")
         r.terrain_type = self.txt_terrain.text().strip() or "Grass"
         connects = [c.strip() for c in self.txt_connects.text().split(",") if c.strip()]
         r.connects_with = connects or [r.terrain_type]
@@ -406,4 +424,8 @@ class AutoTileDialog(QDialog):
         self._populate_rules_combo()
 
         if show_msg:
-            QMessageBox.information(self, "Zapisano", f"Zapisano konfigurację reguły '{r.name}'.")
+            QMessageBox.information(
+                self,
+                tr("dialog.autotile.saved_title"),
+                tr("dialog.autotile.saved", name=r.name),
+            )

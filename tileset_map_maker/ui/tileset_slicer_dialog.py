@@ -25,8 +25,10 @@ from PyQt6.QtGui import (
 
 from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
 from ..core.asset_manager import AssetManager
+from ..core.localization import get_localization, tr
 from .widgets.switch_toggle import SwitchToggle
 from .icons import IconFactory
+from ..core.localization import tr
 
 
 class SlicerPreviewCanvas(QWidget):
@@ -105,7 +107,7 @@ class SlicerPreviewCanvas(QWidget):
             painter.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter,
-                f"Błąd: Nie udało się wczytać tekstury tilesetu.\n{self.asset.file_path}",
+                tr("dialog.slicer.error", path=self.asset.file_path),
             )
             return
 
@@ -253,7 +255,7 @@ class TilesetSlicerDialog(QDialog):
         super().__init__(parent)
         self.asset = asset
         self.asset_manager = asset_manager
-        self.setWindowTitle(f"Ustawienia tilesetu – {asset.name}")
+        self.setWindowTitle(tr("dialog.slicer.title", name=asset.name))
         self.resize(1000, 700)
 
         if not self.asset.tileset_config:
@@ -262,6 +264,17 @@ class TilesetSlicerDialog(QDialog):
 
         self.cfg = self.asset.tileset_config
         self._init_ui()
+        self._hover_cell: Optional[Tuple[int, int]] = None
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        self.setWindowTitle(tr("dialog.slicer.title", name=self.asset.name))
+        self._update_info()
+        if self._hover_cell:
+            self._on_cell_hovered(*self._hover_cell)
+        else:
+            self.lbl_cursor_info.setText(tr("dialog.slicer.hover_hint"))
+        self.canvas.update()
 
     def _init_ui(self) -> None:
         main_layout = QHBoxLayout(self)
@@ -272,7 +285,7 @@ class TilesetSlicerDialog(QDialog):
         ctrl_layout = QVBoxLayout(ctrl_panel)
 
         # 1. Quick presets
-        preset_group = QGroupBox("Szybki wybór rozmiaru siatki")
+        preset_group = QGroupBox(tr("dialog.slicer.presets"))
         preset_layout = QHBoxLayout(preset_group)
         for w, h in [(16, 16), (24, 24), (32, 32), (32, 48), (48, 48), (64, 64)]:
             btn = QPushButton(f"{w}x{h}")
@@ -282,67 +295,67 @@ class TilesetSlicerDialog(QDialog):
         ctrl_layout.addWidget(preset_group)
 
         # 2. Cell Dimensions
-        dim_group = QGroupBox("Rozmiar komórki (Tile Size)")
+        dim_group = QGroupBox(tr("dialog.slicer.cell_size"))
         dim_form = QFormLayout(dim_group)
 
         self.spin_w = QSpinBox()
         self.spin_w.setRange(4, 512)
         self.spin_w.setValue(self.cfg.tile_width)
         self.spin_w.valueChanged.connect(self._on_param_changed)
-        dim_form.addRow("Tile Width (px):", self.spin_w)
+        dim_form.addRow(tr("dialog.slicer.tile_width"), self.spin_w)
 
         self.spin_h = QSpinBox()
         self.spin_h.setRange(4, 512)
         self.spin_h.setValue(self.cfg.tile_height)
         self.spin_h.valueChanged.connect(self._on_param_changed)
-        dim_form.addRow("Tile Height (px):", self.spin_h)
+        dim_form.addRow(tr("dialog.slicer.tile_height"), self.spin_h)
 
         ctrl_layout.addWidget(dim_group)
 
         # 3. Margins & Spacings
-        extra_group = QGroupBox("Dodatkowe parametry siatki")
+        extra_group = QGroupBox(tr("dialog.slicer.grid_params"))
         extra_form = QFormLayout(extra_group)
 
         self.spin_margin_x = QSpinBox()
         self.spin_margin_x.setRange(0, 256)
         self.spin_margin_x.setValue(self.cfg.margin_x)
         self.spin_margin_x.valueChanged.connect(self._on_param_changed)
-        extra_form.addRow("Margin X (px):", self.spin_margin_x)
+        extra_form.addRow(tr("dialog.slicer.margin_x"), self.spin_margin_x)
 
         self.spin_margin_y = QSpinBox()
         self.spin_margin_y.setRange(0, 256)
         self.spin_margin_y.setValue(self.cfg.margin_y)
         self.spin_margin_y.valueChanged.connect(self._on_param_changed)
-        extra_form.addRow("Margin Y (px):", self.spin_margin_y)
+        extra_form.addRow(tr("dialog.slicer.margin_y"), self.spin_margin_y)
 
         self.spin_spacing_x = QSpinBox()
         self.spin_spacing_x.setRange(0, 256)
         self.spin_spacing_x.setValue(self.cfg.spacing_x)
         self.spin_spacing_x.valueChanged.connect(self._on_param_changed)
-        extra_form.addRow("Spacing X (px):", self.spin_spacing_x)
+        extra_form.addRow(tr("dialog.slicer.spacing_x"), self.spin_spacing_x)
 
         self.spin_spacing_y = QSpinBox()
         self.spin_spacing_y.setRange(0, 256)
         self.spin_spacing_y.setValue(self.cfg.spacing_y)
         self.spin_spacing_y.valueChanged.connect(self._on_param_changed)
-        extra_form.addRow("Spacing Y (px):", self.spin_spacing_y)
+        extra_form.addRow(tr("dialog.slicer.spacing_y"), self.spin_spacing_y)
 
         self.spin_start_x = QSpinBox()
         self.spin_start_x.setRange(0, 512)
         self.spin_start_x.setValue(self.cfg.start_x)
         self.spin_start_x.valueChanged.connect(self._on_param_changed)
-        extra_form.addRow("Początek siatki X:", self.spin_start_x)
+        extra_form.addRow(tr("dialog.slicer.start_x"), self.spin_start_x)
 
         self.spin_start_y = QSpinBox()
         self.spin_start_y.setRange(0, 512)
         self.spin_start_y.setValue(self.cfg.start_y)
         self.spin_start_y.valueChanged.connect(self._on_param_changed)
-        extra_form.addRow("Początek siatki Y:", self.spin_start_y)
+        extra_form.addRow(tr("dialog.slicer.start_y"), self.spin_start_y)
 
         ctrl_layout.addWidget(extra_group)
 
         # 4. Info box
-        info_group = QGroupBox("Informacje o pliku i podziale")
+        info_group = QGroupBox(tr("dialog.slicer.file_info"))
         info_layout = QVBoxLayout(info_group)
         self.lbl_info = QLabel()
         self.lbl_info.setStyleSheet("color: #d4d4d8; font-size: 12px; line-height: 1.4;")
@@ -350,7 +363,7 @@ class TilesetSlicerDialog(QDialog):
         ctrl_layout.addWidget(info_group)
 
         # Reset defaults button
-        btn_reset = QPushButton(" Przywróć domyślne (32x32, brak marginesów)")
+        btn_reset = QPushButton(f" {tr('dialog.slicer.reset')}")
         btn_reset.setIcon(IconFactory.get_icon("refresh", 14))
         btn_reset.clicked.connect(self._reset_defaults)
         ctrl_layout.addWidget(btn_reset)
@@ -359,11 +372,11 @@ class TilesetSlicerDialog(QDialog):
 
         # Action Buttons
         btn_layout = QHBoxLayout()
-        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel = QPushButton(f" {tr('dialog.slicer.cancel')}")
         btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
 
-        btn_ok = QPushButton(" Zastosuj i wybierz")
+        btn_ok = QPushButton(f" {tr('dialog.slicer.apply')}")
         btn_ok.setIcon(IconFactory.get_icon("check", 16))
         btn_ok.setProperty("class", "primary")
         btn_ok.clicked.connect(self._on_apply)
@@ -381,17 +394,17 @@ class TilesetSlicerDialog(QDialog):
 
         # Top Canvas toolbar
         canv_tools = QHBoxLayout()
-        self.chk_grid = SwitchToggle("Pokaż siatkę", checked=True)
+        self.chk_grid = SwitchToggle(tr("dialog.slicer.show_grid"), checked=True)
         self.chk_grid.toggled.connect(self._toggle_grid)
         canv_tools.addWidget(self.chk_grid)
 
-        btn_fit = QPushButton(" Dopasuj do okna")
+        btn_fit = QPushButton(f" {tr('dialog.slicer.fit')}")
         btn_fit.setIcon(IconFactory.get_icon("fit", 16))
         btn_fit.clicked.connect(self._fit_canvas)
         canv_tools.addWidget(btn_fit)
 
         canv_tools.addStretch()
-        self.lbl_cursor_info = QLabel("Wskaż komórkę na podglądzie")
+        self.lbl_cursor_info = QLabel(tr("dialog.slicer.hover_hint"))
         self.lbl_cursor_info.setStyleSheet("color: #a1a1aa; font-size: 11px;")
         canv_tools.addWidget(self.lbl_cursor_info)
         right_layout.addLayout(canv_tools)
@@ -437,36 +450,63 @@ class TilesetSlicerDialog(QDialog):
         fi = self.asset.file_info or {}
         mode = fi.get("mode", "RGBA")
         fmt = fi.get("format", "PNG")
-        alpha = "z przezroczystością" if fi.get("has_alpha", True) else "brak kanału alfa"
+        alpha = (
+            tr("dialog.slicer.alpha_yes")
+            if fi.get("has_alpha", True)
+            else tr("dialog.slicer.alpha_no")
+        )
 
         info_text = (
-            f"<b>Rozdzielczość:</b> {self.asset.width} × {self.asset.height} px<br>"
-            f"<b>Format:</b> {fmt} ({mode}, {alpha})<br>"
-            f"<b>Siatka kafelków:</b> {grid['cols']} kolumn × {grid['rows']} wierszy<br>"
-            f"<b>Pełne komórki:</b> <b>{grid['total_cells']}</b><br>"
+            f"<b>{tr('dialog.slicer.resolution')}</b> {self.asset.width} × {self.asset.height} px<br>"
+            f"<b>{tr('dialog.slicer.format')}</b> {fmt} ({mode}, {alpha})<br>"
+            f"<b>{tr('dialog.slicer.grid')}</b> {grid['cols']} × {grid['rows']}<br>"
+            f"<b>{tr('dialog.slicer.full_cells')}</b> <b>{grid['total_cells']}</b><br>"
         )
 
         if grid["has_incomplete_edges"]:
             rem_details = []
             if grid["remainder_x"] > 0:
-                rem_details.append(f"{grid['remainder_x']} px po prawej")
+                rem_details.append(
+                    tr("dialog.slicer.remainder_right", size=grid["remainder_x"])
+                )
             if grid["remainder_y"] > 0:
-                rem_details.append(f"{grid['remainder_y']} px na dole")
-            info_text += f"<span style='color: #f59e0b;'>⚠️ Niepełny fragment krawędzi: {', '.join(rem_details)} (pominięty w siatce)</span>"
+                rem_details.append(
+                    tr("dialog.slicer.remainder_bottom", size=grid["remainder_y"])
+                )
+            info_text += (
+                "<span style='color: #f59e0b;'>"
+                + tr("dialog.slicer.remainder", details=", ".join(rem_details))
+                + "</span>"
+            )
         else:
-            info_text += "<span style='color: #22c55e;'>✓ Arkusz dzieli się idealnie bez reszt</span>"
+            info_text += (
+                "<span style='color: #22c55e;'>"
+                + tr("dialog.slicer.perfect")
+                + "</span>"
+            )
 
         self.lbl_info.setText(info_text)
 
     def _on_cell_clicked(self, col: int, row: int) -> None:
         grid = self.cfg.compute_grid(self.asset.width, self.asset.height)
         idx = row * grid["cols"] + col + 1
-        self.lbl_cursor_info.setText(f"Wybrano: Kolumna {col}, Wiersz {row} (Indeks #{idx}/{grid['total_cells']})")
+        self.lbl_cursor_info.setText(
+            tr(
+                "dialog.slicer.selected",
+                col=col,
+                row=row,
+                index=idx,
+                total=grid["total_cells"],
+            )
+        )
 
     def _on_cell_hovered(self, col: int, row: int) -> None:
+        self._hover_cell = (col, row)
         grid = self.cfg.compute_grid(self.asset.width, self.asset.height)
         idx = row * grid["cols"] + col + 1
-        self.lbl_cursor_info.setText(f"Kursor: Kolumna {col}, Wiersz {row} (Indeks #{idx})")
+        self.lbl_cursor_info.setText(
+            tr("dialog.slicer.cursor", col=col, row=row, index=idx)
+        )
 
     def _toggle_grid(self, checked: bool) -> None:
         self.canvas.show_grid = checked

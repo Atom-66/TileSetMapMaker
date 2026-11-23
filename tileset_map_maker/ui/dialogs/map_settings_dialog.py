@@ -81,11 +81,11 @@ class MapSettingsDialog(QDialog):
 
         # Action buttons
         btn_layout = QHBoxLayout()
-        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel = QPushButton(f" {tr('dialog.map.cancel')}")
         btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
 
-        btn_save = QPushButton(" Zapisz zmiany")
+        btn_save = QPushButton(f" {tr('dialog.map.save')}")
         btn_save.setIcon(IconFactory.get_icon("save", 16))
         btn_save.setProperty("class", "primary")
         btn_save.clicked.connect(self._save_settings)
@@ -96,7 +96,7 @@ class MapSettingsDialog(QDialog):
 
     def _choose_color(self) -> None:
         initial = QColor(self.current_bg)
-        color = QColorDialog.getColor(initial, self, "Wybierz kolor tła mapy")
+        color = QColorDialog.getColor(initial, self, tr("dialog.map.choose_bg"))
         if color.isValid():
             self.current_bg = color.name()
             self._update_color_btn()

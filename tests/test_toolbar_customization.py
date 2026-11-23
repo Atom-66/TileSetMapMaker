@@ -18,6 +18,7 @@ from tileset_map_maker.core.tools.base import ToolContext
 from tileset_map_maker.core.tools.eraser import EraserTool
 from tileset_map_maker.models.layer import MapItem, ItemType
 from tileset_map_maker.models.brush_preset import BrushSettings
+from tileset_map_maker.core.localization import get_localization
 
 app = QApplication.instance()
 if app is None:
@@ -163,25 +164,64 @@ class TestToolbarCustomization(unittest.TestCase):
 
     def test_customizer_dialog_operations(self):
         """Verify ToolbarCustomizerDialog with multi-toolbar tabs and switching."""
+        localization = get_localization()
+        original_language = localization.get_language()
+        localization.set_language("en", persist=False)
         win = MainWindow()
         dlg = ToolbarCustomizerDialog(win.toolbar_manager, parent=win)
+        try:
+            # Check tabs exist
+            self.assertEqual(dlg.tab_toolbars.count(), 2)
 
-        # Check tabs exist
-        self.assertEqual(dlg.tab_toolbars.count(), 2)
+            # Test switching category to the other toolbar
+            dlg.tab_toolbars.setCurrentIndex(0)  # Main toolbar
+            dlg.list_main_cats.setCurrentRow(0)
+            selected_cat_id = dlg._get_current_category_id()
+            self.assertIsNotNone(selected_cat_id)
 
-        # Test switching category to the other toolbar
-        dlg.tab_toolbars.setCurrentIndex(0)  # Main toolbar
-        dlg.list_main_cats.setCurrentRow(0)
-        selected_cat_id = dlg._get_current_category_id()
-        self.assertIsNotNone(selected_cat_id)
+            initial_tb = dlg.working_categories[selected_cat_id].toolbar_id
+            dlg._switch_category_toolbar()
+            new_tb = dlg.working_categories[selected_cat_id].toolbar_id
+            self.assertNotEqual(initial_tb, new_tb)
 
-        initial_tb = dlg.working_categories[selected_cat_id].toolbar_id
-        dlg._switch_category_toolbar()
-        new_tb = dlg.working_categories[selected_cat_id].toolbar_id
-        self.assertNotEqual(initial_tb, new_tb)
+            project_list = (
+                dlg.list_main_cats if new_tb == "main" else dlg.list_sec_cats
+            )
+            dlg.tab_toolbars.setCurrentIndex(0 if new_tb == "main" else 1)
+            project_row = next(
+                row
+                for row in range(project_list.count())
+                if project_list.item(row).data(Qt.ItemDataRole.UserRole) == selected_cat_id
+            )
+            project_list.setCurrentRow(project_row)
+            new_item = next(
+                index
+                for index in range(dlg.list_items.count())
+                if dlg.list_items.item(index).data(Qt.ItemDataRole.UserRole) == "new"
+            )
+            localization.set_language("pl", persist=False)
+            self.assertEqual(dlg.list_items.item(new_item).text(), "Nowy")
+            brush_item = next(
+                category_list.item(index)
+                for category_list in (dlg.list_main_cats, dlg.list_sec_cats)
+                for index in range(category_list.count())
+                if category_list.item(index).data(Qt.ItemDataRole.UserRole) == "brush"
+            )
+            self.assertTrue(brush_item.text().startswith("Pędzel"))
 
-        dlg.close()
-        win.close()
+            localization.set_language("en", persist=False)
+            self.assertEqual(dlg.list_items.item(new_item).text(), "New")
+            brush_item = next(
+                category_list.item(index)
+                for category_list in (dlg.list_main_cats, dlg.list_sec_cats)
+                for index in range(category_list.count())
+                if category_list.item(index).data(Qt.ItemDataRole.UserRole) == "brush"
+            )
+            self.assertTrue(brush_item.text().startswith("Brush"))
+        finally:
+            dlg.close()
+            win.close()
+            localization.set_language(original_language, persist=False)
 
     def test_tool_panel_responsive_horizontal_layout(self):
         """Verify ToolPanel switches to horizontal layout when flattened (height < 250 or width > height)."""
@@ -250,21 +290,25 @@ class TestToolbarCustomization(unittest.TestCase):
     def test_mainwindow_multi_toolbar_and_randomizer_naming(self):
         """Verify MainWindow has secondary toolbar, 26px controls, and Randomizer naming."""
         win = MainWindow()
-        self.assertTrue(hasattr(win, "secondary_toolbar"))
-        self.assertIsNotNone(win.secondary_toolbar)
+        original_language = win.localization.get_language()
+        try:
+            self.assertTrue(hasattr(win, "secondary_toolbar"))
+            self.assertIsNotNone(win.secondary_toolbar)
 
-        # Randomizer name verification
-        self.assertEqual(win.brush_options.chk_variants.text(), "Randomizer")
-        self.assertEqual(win.toolbar_manager.categories["randomizer"].title, "Randomizer")
+            # Randomizer name verification
+            self.assertEqual(win.brush_options.chk_variants.text(), "Randomizer")
+            self.assertEqual(win.toolbar_manager.categories["randomizer"].title, "Randomizer")
 
-        # Active tool switches size label
-        win.tool_panel.select_tool_by_key("eraser")
-        self.assertEqual(win.brush_options.lbl_size.text(), "Gumka:")
+            # Active tool switches size label in Polish.
+            win.localization.set_language("pl")
+            win.tool_panel.select_tool_by_key("eraser")
+            self.assertEqual(win.brush_options.lbl_size.text(), "Gumka:")
 
-        win.tool_panel.select_tool_by_key("brush")
-        self.assertEqual(win.brush_options.lbl_size.text(), "Pędzel:")
-
-        win.close()
+            win.tool_panel.select_tool_by_key("brush")
+            self.assertEqual(win.brush_options.lbl_size.text(), "Pędzel:")
+        finally:
+            win.localization.set_language(original_language)
+            win.close()
 
 
 if __name__ == "__main__":

@@ -58,6 +58,14 @@ class PreferencesDialog(QDialog):
         self.combo_language.setCurrentIndex(0 if get_localization().get_language() == "en" else 1)
         self.combo_language.blockSignals(False)
         self._retranslate_controls()
+        self.table_shortcuts.setHorizontalHeaderLabels(
+            [tr("dialog.shortcuts.tool_action"), tr("dialog.shortcuts.shortcut")]
+        )
+        for row in range(self.table_shortcuts.rowCount()):
+            item = self.table_shortcuts.item(row, 0)
+            if item:
+                action_key = item.data(Qt.ItemDataRole.UserRole)
+                item.setText(tr(f"dialog.shortcuts.{action_key}"))
 
     def _retranslate_controls(self) -> None:
         self.combo_tile_size.setItemText(0, "16x16")
@@ -247,19 +255,23 @@ class PreferencesDialog(QDialog):
         s_layout.setSpacing(6)
 
         self.filter_shortcuts = QLineEdit()
-        self.filter_shortcuts.setPlaceholderText("Filtruj skróty klawiszowe...")
+        self.filter_shortcuts.setPlaceholderText(tr("dialog.shortcuts.filter"))
         self.filter_shortcuts.textChanged.connect(self._filter_shortcuts_table)
         s_layout.addWidget(self.filter_shortcuts)
 
         self.table_shortcuts = QTableWidget()
         self.table_shortcuts.setColumnCount(2)
-        self.table_shortcuts.setHorizontalHeaderLabels(["Narzędzie / Działanie", "Skrót klawiszowy"])
+        self.table_shortcuts.setHorizontalHeaderLabels(
+            [tr("dialog.shortcuts.tool_action"), tr("dialog.shortcuts.shortcut")]
+        )
         self.table_shortcuts.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table_shortcuts.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         s_layout.addWidget(self.table_shortcuts)
 
         self._populate_shortcuts_table()
-        self.tab_widget.addTab(self.tab_shortcuts, IconFactory.get_icon("shortcuts", 16), "Skróty klawiszowe")
+        self.tab_widget.addTab(
+            self.tab_shortcuts, IconFactory.get_icon("shortcuts", 16), tr("tab.shortcuts")
+        )
 
         main_layout.addWidget(self.tab_widget)
 
@@ -267,7 +279,7 @@ class PreferencesDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        btn_save = QPushButton(" Zapisz i Zastosuj")
+        btn_save = QPushButton(f" {tr('dialog.shortcuts.save_apply')}")
         btn_save.setIcon(IconFactory.get_icon("save", 16))
         btn_save.setStyleSheet("""
             QPushButton {
@@ -284,7 +296,7 @@ class PreferencesDialog(QDialog):
         btn_save.clicked.connect(self._save_and_accept)
         btn_layout.addWidget(btn_save)
 
-        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel = QPushButton(f" {tr('button.cancel')}")
         btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
@@ -293,31 +305,32 @@ class PreferencesDialog(QDialog):
 
     def _populate_shortcuts_table(self) -> None:
         shortcuts = [
-            ("Pędzel", "B"),
-            ("Gumka", "E"),
-            ("Wypełnianie", "G"),
-            ("Różdżka", "W"),
-            ("Zaznaczanie", "S"),
-            ("Swobodny obiekt", "V"),
-            ("Pipeta", "I"),
-            ("Linia", "L"),
-            ("Prostokąt", "U"),
-            ("Stempel", "T"),
-            ("Szybkie menu (Radial)", "Q"),
-            ("Cofnij operację", "Ctrl+Z"),
-            ("Ponów operację", "Ctrl+Y"),
-            ("Kopiuj zaznaczenie", "Ctrl+C"),
-            ("Wklej stempel", "Ctrl+V"),
-            ("Usuń zaznaczenie", "Delete"),
-            ("Pełny obszar roboczy", "F11"),
-            ("Zapisz projekt", "Ctrl+S"),
-            ("Otwórz projekt", "Ctrl+O"),
-            ("Eksport PNG", "Ctrl+E"),
+            ("brush", "B"),
+            ("eraser", "E"),
+            ("fill", "G"),
+            ("wand", "W"),
+            ("selection", "S"),
+            ("free_object", "V"),
+            ("eyedropper", "I"),
+            ("line", "L"),
+            ("rectangle", "U"),
+            ("stamp", "T"),
+            ("radial", "Q"),
+            ("undo", "Ctrl+Z"),
+            ("redo", "Ctrl+Y"),
+            ("copy", "Ctrl+C"),
+            ("paste_stamp", "Ctrl+V"),
+            ("delete", "Delete"),
+            ("fullscreen", "F11"),
+            ("save_project", "Ctrl+S"),
+            ("open_project", "Ctrl+O"),
+            ("export", "Ctrl+E"),
         ]
         self.table_shortcuts.setRowCount(len(shortcuts))
-        for r, (action, key) in enumerate(shortcuts):
-            it_act = QTableWidgetItem(action)
+        for r, (action_key, key) in enumerate(shortcuts):
+            it_act = QTableWidgetItem(tr(f"dialog.shortcuts.{action_key}"))
             it_act.setFlags(it_act.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            it_act.setData(Qt.ItemDataRole.UserRole, action_key)
             it_key = QTableWidgetItem(key)
             self.table_shortcuts.setItem(r, 0, it_act)
             self.table_shortcuts.setItem(r, 1, it_key)
@@ -375,8 +388,13 @@ class PreferencesDialog(QDialog):
             if key in used_shortcuts:
                 QMessageBox.warning(
                     self,
-                    "Konflikt skrótów",
-                    f"Skrót '{key}' jest przypisany zarówno do '{used_shortcuts[key]}' jak i '{act}'.\nPopraw konflikt przed zapisaniem.",
+                    tr("dialog.shortcuts.conflict_title"),
+                    tr(
+                        "dialog.shortcuts.conflict",
+                        key=key,
+                        first=used_shortcuts[key],
+                        second=act,
+                    ),
                 )
                 return
             if key:

@@ -615,10 +615,10 @@ class MainWindow(QMainWindow):
     def _show_about_dialog(self) -> None:
         QMessageBox.about(
             self,
-            "O programie TileSet Map Maker",
-            "<h3>TileSet Map Maker 2D</h3>"
-            "<p>Profesjonalny kreator i edytor map 2D z obsługą tilesetów oraz obiektów PNG.</p>"
-            "<p>Inspiracje: <b>Tiled</b>, <b>Aseprite</b>, <b>Margonem</b>.</p>",
+            tr("dialog.about.title"),
+            f"<h3>{tr('app.title')} 2D</h3>"
+            f"<p>{tr('dialog.about.description')}</p>"
+            f"<p>{tr('dialog.about.inspirations')}</p>",
         )
 
     def _init_shortcuts(self) -> None:
@@ -807,9 +807,9 @@ class MainWindow(QMainWindow):
     def _on_new_map_requested(self) -> None:
         name, ok = QInputDialog.getText(
             self,
-            "Nowa mapa",
-            "Nazwa nowej mapy w projekcie:",
-            text=f"Mapa_{len(self.project.maps) + 1}",
+            tr("map.new_title"),
+            tr("map.new_prompt"),
+            text=tr("map.default_name", index=len(self.project.maps) + 1),
         )
         if ok and name.strip():
             new_m = self.project.add_map(
@@ -953,13 +953,26 @@ class MainWindow(QMainWindow):
     def save_selection_as_stamp(self) -> None:
         tool = self.tool_panel.get_tool("select")
         if isinstance(tool, SelectTool) and tool.selection_rect:
-            name, ok = QInputDialog.getText(self, "Zapisz stempel", "Nazwa nowego stempla:", text="Mój stempel")
+            name, ok = QInputDialog.getText(
+                self,
+                tr("dialog.stamp.save_title"),
+                tr("dialog.stamp.name_prompt"),
+                text=tr("dialog.stamp.default_name"),
+            )
             if ok and name.strip():
                 preset = tool.save_as_stamp_preset(name.strip(), self.canvas.tool_context)
                 if preset:
-                    QMessageBox.information(self, "Zapisano", f"Stempel '{preset.name}' został zapisany!")
+                    QMessageBox.information(
+                        self,
+                        tr("dialog.stamp.saved_title"),
+                        tr("dialog.stamp.saved", name=preset.name),
+                    )
         else:
-            QMessageBox.warning(self, "Brak zaznaczenia", "Zaznacz najpierw obszar mapy narzędziem Zaznaczanie (S).")
+            QMessageBox.warning(
+                self,
+                tr("dialog.stamp.no_selection_title"),
+                tr("dialog.stamp.no_selection"),
+            )
 
     def open_autotile_dialog(self) -> None:
         dlg = AutoTileDialog(self.autotile_engine, self.asset_manager, self)
@@ -981,7 +994,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Autozapis wykonany ({os.path.basename(path)})", 2500)
 
     def new_project(self) -> None:
-        self.project = Project(name="Nowy Projekt", map_width=30, map_height=20, tile_size=32)
+        self.project = Project(
+            name=tr("dialog.project.new_name"),
+            map_width=30,
+            map_height=20,
+            tile_size=32,
+        )
         self.map_histories.clear()
         self._set_active_history_manager(self.get_map_history(self.project.active_map_id))
         self.autosave_manager.set_project(self.project)
@@ -1000,9 +1018,9 @@ class MainWindow(QMainWindow):
     def open_project(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Otwórz projekt mapy",
+            tr("dialog.project.open_title"),
             "",
-            "Projekty mapy (*.tmmap);;Wszystkie pliki (*.*)",
+            tr("dialog.project.file_filter"),
         )
         if path:
             proj = ProjectIO.load_project(path, self.asset_manager, autotile_engine=self.autotile_engine)
@@ -1021,15 +1039,19 @@ class MainWindow(QMainWindow):
                 self._update_title()
                 self._update_status_bar()
             else:
-                QMessageBox.critical(self, "Błąd", "Nie udało się otworzyć pliku projektu.")
+                QMessageBox.critical(
+                    self,
+                    tr("dialog.export.error_title"),
+                    tr("dialog.project.open_error"),
+                )
 
     def save_project(self) -> None:
         if not self.project.file_path:
             path, _ = QFileDialog.getSaveFileName(
                 self,
-                "Zapisz projekt mapy",
+                tr("dialog.project.save_title"),
                 f"{self.project.name.replace(' ', '_')}.tmmap",
-                "Projekty mapy (*.tmmap)",
+                tr("dialog.project.file_filter").split(";;")[0],
             )
             if not path:
                 return
@@ -1044,9 +1066,13 @@ class MainWindow(QMainWindow):
         if ok:
             self.autosave_manager.cleanup_autosave(self.project.file_path)
             self._update_title()
-            self.statusBar().showMessage("Projekt zapisany pomyślnie.", 3000)
+            self.statusBar().showMessage(tr("dialog.project.saved"), 3000)
         else:
-            QMessageBox.critical(self, "Błąd", "Nie udało się zapisać projektu.")
+            QMessageBox.critical(
+                self,
+                tr("dialog.export.error_title"),
+                tr("dialog.project.save_error"),
+            )
 
     def open_map_settings(self) -> None:
         dlg = MapSettingsDialog(self.project, self)
@@ -1182,7 +1208,11 @@ class MainWindow(QMainWindow):
 
     def save_custom_layout_action(self) -> None:
         """Prompts for a name and saves current layout."""
-        name, ok = QInputDialog.getText(self, "Zapisz układ", "Podaj unikalną nazwę dla bieżącego układu paneli:")
+        name, ok = QInputDialog.getText(
+            self,
+            tr("dialog.layout.save_title"),
+            tr("dialog.layout.save_prompt"),
+        )
         if ok and name.strip():
             self.save_custom_layout(name.strip())
 
@@ -1198,7 +1228,7 @@ class MainWindow(QMainWindow):
         settings.setValue("custom_layouts", custom_layouts)
         self._rebuild_layout_menu()
         if hasattr(self, "status_bar"):
-            self.status_bar.showMessage(f"Zapisano układ: '{name}'", 3000)
+            self.status_bar.showMessage(tr("dialog.layout.saved", name=name), 3000)
 
     def load_custom_layout(self, name: str) -> bool:
         """Loads and applies a previously saved custom layout with safe fallback."""
@@ -1212,7 +1242,9 @@ class MainWindow(QMainWindow):
             if version < 3:
                 self._reset_dock_layout()
                 if hasattr(self, "status_bar"):
-                    self.status_bar.showMessage(f"Układ '{name}' pochodzi ze starej wersji – przywrócono domyślny", 4000)
+                    self.status_bar.showMessage(
+                        tr("dialog.layout.old_version", name=name), 4000
+                    )
                 return False
             if "geometry" in data:
                 geom_bytes = QByteArray.fromBase64(data["geometry"].encode("ascii"))
@@ -1224,11 +1256,13 @@ class MainWindow(QMainWindow):
             if not success:
                 self._reset_dock_layout()
                 if hasattr(self, "status_bar"):
-                    self.status_bar.showMessage(f"Układ '{name}' jest nieprawidłowy – przywrócono domyślny", 4000)
+                    self.status_bar.showMessage(
+                        tr("dialog.layout.invalid", name=name), 4000
+                    )
                 return False
 
             if hasattr(self, "status_bar"):
-                self.status_bar.showMessage(f"Wczytano układ: '{name}'", 3000)
+                self.status_bar.showMessage(tr("dialog.layout.loaded", name=name), 3000)
             return True
         return False
 
@@ -1246,7 +1280,9 @@ class MainWindow(QMainWindow):
         settings.setValue("custom_layouts", custom_layouts)
         self._rebuild_layout_menu()
         if hasattr(self, "status_bar"):
-            self.status_bar.showMessage(f"Zmieniono nazwę układu: '{old_name}' -> '{new_name}'", 3000)
+            self.status_bar.showMessage(
+                tr("dialog.layout.renamed", old_name=old_name, new_name=new_name), 3000
+            )
         return True
 
     def rename_custom_layout_action(self, old_name: Optional[str] = None) -> None:
@@ -1254,22 +1290,40 @@ class MainWindow(QMainWindow):
         settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
         custom_layouts = settings.value("custom_layouts", {})
         if not isinstance(custom_layouts, dict) or not custom_layouts:
-            QMessageBox.information(self, "Zmień nazwę układu", "Brak zapisanych układów do zmiany nazwy.")
+            QMessageBox.information(
+                self,
+                tr("dialog.layout.rename_title"),
+                tr("dialog.layout.none_to_rename"),
+            )
             return
 
         if not old_name:
             items = sorted(custom_layouts.keys())
-            item, ok = QInputDialog.getItem(self, "Zmień nazwę układu", "Wybierz układ do zmiany nazwy:", items, 0, False)
+            item, ok = QInputDialog.getItem(
+                self,
+                tr("dialog.layout.rename_title"),
+                tr("dialog.layout.select_to_rename"),
+                items,
+                0,
+                False,
+            )
             if not ok or not item:
                 return
             old_name = item
 
         new_name, ok = QInputDialog.getText(
-            self, "Zmień nazwę układu", f"Podaj nową nazwę dla układu '{old_name}':", text=old_name
+            self,
+            tr("dialog.layout.rename_title"),
+            tr("dialog.layout.new_name", name=old_name),
+            text=old_name,
         )
         if ok and new_name.strip() and new_name.strip() != old_name:
             if not self.rename_custom_layout(old_name, new_name.strip()):
-                QMessageBox.warning(self, "Błąd", f"Nie można zmienić nazwy na '{new_name.strip()}'. Być może układ o tej nazwie już istnieje.")
+                QMessageBox.warning(
+                    self,
+                    tr("dialog.export.error_title"),
+                    tr("dialog.layout.rename_error", name=new_name.strip()),
+                )
 
     def delete_custom_layout(self, name: str) -> None:
         """Deletes a saved layout preset."""
@@ -1280,7 +1334,7 @@ class MainWindow(QMainWindow):
             settings.setValue("custom_layouts", custom_layouts)
             self._rebuild_layout_menu()
             if hasattr(self, "status_bar"):
-                self.status_bar.showMessage(f"Usunięto układ: '{name}'", 3000)
+                self.status_bar.showMessage(tr("dialog.layout.deleted", name=name), 3000)
 
     def _rebuild_layout_menu(self) -> None:
         """Rebuilds the dynamically populated Load/Rename/Delete submenus."""

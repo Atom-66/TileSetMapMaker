@@ -177,20 +177,6 @@ odczytaniu i eksporcie.
 
 ---
 
-## Faza 6 — Połączenia map i świat gry
-
-**Priorytet: P2**
-
-- `[ ]` lista przejść należących do każdej mapy,
-- `[ ]` punkty wejścia i wyjścia,
-- `[ ]` przejścia jedno- i dwukierunkowe,
-- `[ ]` walidacja brakujących map i punktów,
-- `[ ]` podgląd połączonych map,
-- `[ ]` graf lokacji i wykrywanie niespójnych przejść,
-- `[ ]` duplikowanie i przenoszenie danych przejść wraz z mapą,
-- `[ ]` tryb testowy teletransportacji.
-
-**Zależności:** stabilny model wielomapowy i osobne warstwy obiektów.
 
 ---
 

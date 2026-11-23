@@ -72,38 +72,45 @@ class ExportDialog(QDialog):
         # Export area
         self.combo_area = QComboBox()
         self.combo_area.addItems([
-            "Cała mapa (pełne wymiary)",
-            "Automatyczne przycięcie do zawartości (Bounding Box)",
+            tr("dialog.export.area_full"),
+            tr("dialog.export.area_crop"),
         ])
         form.addRow("Obszar eksportu:", self.combo_area)
 
         # Layers selection
         self.combo_layers = QComboBox()
-        self.combo_layers.addItem("Wszystkie widoczne warstwy")
+        self.combo_layers.addItem(tr("dialog.export.layers_all"))
         for layer in self.project.layers:
-            self.combo_layers.addItem(f"Tylko warstwa: {layer.name}", layer.id)
-        form.addRow("Eksportowane warstwy:", self.combo_layers)
+            self.combo_layers.addItem(
+                tr("dialog.export.layer_only", name=layer.name), layer.id
+            )
+        form.addRow(tr("dialog.export.layers_label"), self.combo_layers)
 
         # Transparency option
-        self.chk_transparent = SwitchToggle("Przezroczyste tło (Alpha)", checked=True)
+        self.chk_transparent = SwitchToggle(tr("dialog.export.transparent"), checked=True)
         self.chk_transparent.toggled.connect(self._on_transparent_toggled)
         form.addRow("", self.chk_transparent)
 
         # Custom Background Color
-        self.btn_bg_col = QPushButton(" Wybierz kolor tła")
+        self.btn_bg_col = QPushButton(f" {tr('dialog.export.choose_bg')}")
         self.btn_bg_col.setIcon(IconFactory.get_icon("palette", 14))
         self.btn_bg_col.setEnabled(False)
         self.btn_bg_col.clicked.connect(self._choose_bg_color)
-        form.addRow("Własny kolor tła:", self.btn_bg_col)
+        form.addRow(tr("dialog.export.bg_label"), self.btn_bg_col)
 
         layout.addLayout(form)
 
         # Info summary
         w_px, h_px = self.render_engine.get_map_dimensions_px(self.project)
         self.lbl_info = QLabel(
-            f"Wymiary mapy: {self.project.map_width}x{self.project.map_height} kafelków "
-            f"({w_px}x{h_px} px przy kafelku {self.project.tile_size}px)\n"
-            f"Ukryte warstwy zostaną automatycznie pominięte."
+            tr(
+                "dialog.export.info",
+                cols=self.project.map_width,
+                rows=self.project.map_height,
+                width=w_px,
+                height=h_px,
+                tile_size=self.project.tile_size,
+            )
         )
         self.lbl_info.setStyleSheet("color: #a1a1aa; font-size: 11px;")
         layout.addWidget(self.lbl_info)
@@ -112,11 +119,11 @@ class ExportDialog(QDialog):
 
         # Action buttons
         btn_layout = QHBoxLayout()
-        btn_cancel = QPushButton(" Anuluj")
+        btn_cancel = QPushButton(f" {tr('dialog.map.cancel')}")
         btn_cancel.setIcon(IconFactory.get_icon("close", 14))
         btn_cancel.clicked.connect(self.reject)
 
-        btn_export = QPushButton(" Eksportuj PNG")
+        btn_export = QPushButton(f" {tr('dialog.export.action')}")
         btn_export.setIcon(IconFactory.get_icon("export", 16))
         btn_export.setProperty("class", "primary")
         btn_export.clicked.connect(self._do_export)
@@ -128,7 +135,7 @@ class ExportDialog(QDialog):
     def _browse_path(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Wybierz plik do eksportu PNG",
+            tr("dialog.export.browse_title"),
             self.txt_path.text(),
             "Pliki PNG (*.png)",
         )
@@ -139,7 +146,9 @@ class ExportDialog(QDialog):
         self.btn_bg_col.setEnabled(not checked)
 
     def _choose_bg_color(self) -> None:
-        color = QColorDialog.getColor(QColor(self.custom_bg_hex), self, "Wybierz kolor tła eksportu")
+        color = QColorDialog.getColor(
+            QColor(self.custom_bg_hex), self, tr("dialog.export.choose_bg")
+        )
         if color.isValid():
             self.custom_bg_hex = color.name()
             self.btn_bg_col.setStyleSheet(f"background-color: {self.custom_bg_hex}; color: #000;")
@@ -147,7 +156,11 @@ class ExportDialog(QDialog):
     def _do_export(self) -> None:
         out_path = self.txt_path.text().strip()
         if not out_path:
-            QMessageBox.warning(self, "Błąd", "Wprowadź prawidłową ścieżkę pliku.")
+            QMessageBox.warning(
+                self,
+                tr("dialog.export.error_title"),
+                tr("dialog.export.invalid_path"),
+            )
             return
 
         scales = [1.0, 2.0, 4.0, 8.0]
@@ -173,7 +186,15 @@ class ExportDialog(QDialog):
         )
 
         if ok:
-            QMessageBox.information(self, "Sukces", f"Pomyślnie wyeksportowano mapę do pliku:\n{out_path}")
+            QMessageBox.information(
+                self,
+                tr("dialog.export.success_title"),
+                tr("dialog.export.success", path=out_path),
+            )
             self.accept()
         else:
-            QMessageBox.critical(self, "Błąd", "Nie udało się wyeksportować mapy do pliku PNG.")
+            QMessageBox.critical(
+                self,
+                tr("dialog.export.error_title"),
+                tr("dialog.export.failure"),
+            )

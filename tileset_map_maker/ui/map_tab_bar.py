@@ -140,7 +140,9 @@ class MapTabBar(QWidget):
 
     def _on_tab_close_requested(self, index: int) -> None:
         if self.tab_bar.count() <= 1:
-            QMessageBox.warning(self, "Nie można zamknąć", "Projekt musi zawierać co najmniej jedną mapę.")
+            QMessageBox.warning(
+                self, tr("map.delete_title"), tr("map.close_error")
+            )
             return
 
         map_id = self.tab_bar.tabData(index)
@@ -149,8 +151,8 @@ class MapTabBar(QWidget):
 
         res = QMessageBox.question(
             self,
-            "Usunięcie mapy",
-            f"Czy na pewno chcesz usunąć mapę '{name}' z projektu?",
+            tr("map.delete_title"),
+            tr("map.delete_confirm", name=name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -173,16 +175,21 @@ class MapTabBar(QWidget):
             return
 
         menu = QMenu(self)
-        act_rename = menu.addAction(IconFactory.get_icon("pencil", 16), "Zmień nazwę mapy...")
-        act_dup = menu.addAction(IconFactory.get_icon("copy", 16), "Duplikuj mapę")
+        act_rename = menu.addAction(IconFactory.get_icon("pencil", 16), tr("map.rename"))
+        act_dup = menu.addAction(IconFactory.get_icon("copy", 16), tr("map.duplicate"))
         menu.addSeparator()
-        act_close = menu.addAction(IconFactory.get_icon("trash", 16), "Usuń mapę")
+        act_close = menu.addAction(IconFactory.get_icon("trash", 16), tr("map.close"))
         if self.tab_bar.count() <= 1:
             act_close.setEnabled(False)
 
         action = menu.exec(self.tab_bar.mapToGlobal(pos))
         if action == act_rename:
-            new_name, ok = QInputDialog.getText(self, "Zmiana nazwy mapy", "Podaj nową nazwę:", text=m.name)
+            new_name, ok = QInputDialog.getText(
+                self,
+                tr("map.rename_title"),
+                tr("map.rename_prompt"),
+                text=m.name,
+            )
             if ok and new_name.strip():
                 self.project.rename_map(map_id, new_name.strip())
                 self.refresh_tabs()
