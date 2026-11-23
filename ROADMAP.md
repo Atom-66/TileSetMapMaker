@@ -191,9 +191,17 @@ Faza poświęcona usunięciu fikcyjnych elementów ("wydmuszek"), naprawie podst
   - *Opis*: Zaznaczenie obszaru (np. 2x3 kafelki drzewa) i malowanie nim z zachowaniem geometrii.
   - *Status*: `[x]` Ukończone.
 
-- **[x] `TASK-405`: Obsługa wielu arkuszy tilesetów w jednym projekcie z szybkim przełącznikiem zakładek**
-  - *Opis*: Wyświetlanie kafelków w przewijalnych zakładkach `QTabBar` na górze palety w stylu Tiled (z kontekstowym menu: Zmień nazwę, Otwórz krajalnicę, Zamknij zakładkę oraz przyciskiem `➕ Dodaj tileset`).
-  - *Status*: `[x]` Ukończone.
+- **[x] `TASK-405`: Hierarchiczna biblioteka zaimportowanych tilesetów (drzewo folderów) zamiast kart**
+  - *Opis*: Usunięcie zakładek przeglądarkowych `QTabBar` nad podglądem arkusza na rzecz przejrzystej biblioteki drzewa w dolnej sekcji (`TilesetTreeWidget`). Obsługa folderów użytkownika, podfolderów, rozwijania/zwijania, przeciągania Drag & Drop (wewnętrzne i z eksploratora plików OS), zmiany nazw, bezpiecznego usuwania bez dotykania plików na dysku oraz natychmiastowego przełączania podglądu w górnej sekcji po kliknięciu.
+  - *Status*: `[x]` Ukończone i przetestowane.
+
+- **[x] `TASK-406`: Rekurencyjny import całych folderów i automatyczne globalne parametry importu**
+  - *Opis*: Importowanie pojedynczych plików, wielu plików naraz lub całych katalogów z dysku z automatycznym odtworzeniem hierarchii folderów. Cichy import wielu plików/folderu z zastosowaniem globalnych ustawień kafelka (wymiary, marginesy, odstępy, offset) bez uciążliwych okien dialogowych per plik. Raportowanie pominiętych plików niebędących grafikami.
+  - *Status*: `[x]` Ukończone i przetestowane.
+
+- **[x] `TASK-407`: Automatyczne zapisywanie i odtwarzanie konfiguracji aplikacji i biblioteki tilesetów (ConfigManager)**
+  - *Opis*: Moduł `ConfigManager` zapewniający atomowy zapis JSON (`~/.config/tileset_map_maker/app_config.json`): zapis/odczyt geometrii okna, stanu splittera, preferencji globalnego importu oraz pełnej zaimportowanej biblioteki tilesetów (struktura folderów, ścieżki plików, konfiguracje siatek `TilesetConfig`, stan rozwinięcia i aktywny tileset).
+  - *Status*: `[x]` Ukończone i przetestowane.
 
 ---
 

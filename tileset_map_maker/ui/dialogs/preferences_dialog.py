@@ -21,6 +21,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor
 
+from ...core.config_manager import ConfigManager
+
 
 class PreferencesDialog(QDialog):
     """
@@ -32,8 +34,9 @@ class PreferencesDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("Ustawienia i Preferencje (Preferences)")
-        self.resize(620, 520)
+        self.resize(650, 550)
         self.settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
+        self.config_manager = ConfigManager()
         self._init_ui()
         self._load_preferences()
 
@@ -124,7 +127,57 @@ class PreferencesDialog(QDialog):
 
         self.tab_widget.addTab(self.tab_tools, "🛠️ Narzędzia")
 
-        # Tab 4: Skróty klawiszowe
+        # Tab 4: Domyślne parametry importu tilesetów
+        self.tab_import = QWidget()
+        i_layout = QFormLayout(self.tab_import)
+        i_layout.setContentsMargins(12, 12, 12, 12)
+        i_layout.setSpacing(10)
+
+        self.spin_imp_width = QSpinBox()
+        self.spin_imp_width.setRange(4, 512)
+        self.spin_imp_width.setValue(32)
+        i_layout.addRow("Domyślna szerokość kafelka (px):", self.spin_imp_width)
+
+        self.spin_imp_height = QSpinBox()
+        self.spin_imp_height.setRange(4, 512)
+        self.spin_imp_height.setValue(32)
+        i_layout.addRow("Domyślna wysokość kafelka (px):", self.spin_imp_height)
+
+        # Quick preset buttons
+        preset_box = QHBoxLayout()
+        for w, h in [(16, 16), (24, 24), (32, 32), (32, 48), (48, 48), (64, 64)]:
+            btn = QPushButton(f"{w}x{h}")
+            btn.setFixedHeight(24)
+            btn.clicked.connect(lambda _, pw=w, ph=h: self._set_import_dims(pw, ph))
+            preset_box.addWidget(btn)
+        i_layout.addRow("Szybkie szablony rozmiaru:", preset_box)
+
+        self.spin_imp_margin_x = QSpinBox()
+        self.spin_imp_margin_x.setRange(0, 128)
+        self.spin_imp_margin_x.setValue(0)
+        i_layout.addRow("Margines poziomy (X, px):", self.spin_imp_margin_x)
+
+        self.spin_imp_margin_y = QSpinBox()
+        self.spin_imp_margin_y.setRange(0, 128)
+        self.spin_imp_margin_y.setValue(0)
+        i_layout.addRow("Margines pionowy (Y, px):", self.spin_imp_margin_y)
+
+        self.spin_imp_spacing_x = QSpinBox()
+        self.spin_imp_spacing_x.setRange(0, 64)
+        self.spin_imp_spacing_x.setValue(0)
+        i_layout.addRow("Odstęp między kafelkami (Spacing X, px):", self.spin_imp_spacing_x)
+
+        self.spin_imp_spacing_y = QSpinBox()
+        self.spin_imp_spacing_y.setRange(0, 64)
+        self.spin_imp_spacing_y.setValue(0)
+        i_layout.addRow("Odstęp między kafelkami (Spacing Y, px):", self.spin_imp_spacing_y)
+
+        self.chk_imp_skip_single = QCheckBox("Pomiń okno dialogowe przy imporcie pojedynczego pliku (stosuj domyślne)")
+        i_layout.addRow(self.chk_imp_skip_single)
+
+        self.tab_widget.addTab(self.tab_import, "📥 Import Tilesetów")
+
+        # Tab 5: Skróty klawiszowe
         self.tab_shortcuts = QWidget()
         s_layout = QVBoxLayout(self.tab_shortcuts)
         s_layout.setContentsMargins(8, 8, 8, 8)
@@ -204,6 +257,10 @@ class PreferencesDialog(QDialog):
             self.table_shortcuts.setItem(r, 0, it_act)
             self.table_shortcuts.setItem(r, 1, it_key)
 
+    def _set_import_dims(self, w: int, h: int) -> None:
+        self.spin_imp_width.setValue(w)
+        self.spin_imp_height.setValue(h)
+
     def _filter_shortcuts_table(self, query: str) -> None:
         q = query.strip().lower()
         for r in range(self.table_shortcuts.rowCount()):
@@ -234,6 +291,16 @@ class PreferencesDialog(QDialog):
         as_idx = self.settings.value("autosave_interval_idx", 1, type=int)
         self.combo_autosave.setCurrentIndex(as_idx)
 
+        # Load Global Import Settings
+        imp_cfg = self.config_manager.get_import_settings()
+        self.spin_imp_width.setValue(imp_cfg.get("default_tile_width", 32))
+        self.spin_imp_height.setValue(imp_cfg.get("default_tile_height", 32))
+        self.spin_imp_margin_x.setValue(imp_cfg.get("default_margin_x", 0))
+        self.spin_imp_margin_y.setValue(imp_cfg.get("default_margin_y", 0))
+        self.spin_imp_spacing_x.setValue(imp_cfg.get("default_spacing_x", 0))
+        self.spin_imp_spacing_y.setValue(imp_cfg.get("default_spacing_y", 0))
+        self.chk_imp_skip_single.setChecked(imp_cfg.get("skip_dialog_on_single", False))
+
     def _save_and_accept(self) -> None:
         # Detect shortcut duplicates
         used_shortcuts: Dict[str, str] = {}
@@ -259,5 +326,16 @@ class PreferencesDialog(QDialog):
         self.settings.setValue("rot_step_idx", self.combo_rot_step.currentIndex())
         self.settings.setValue("snap_default", self.chk_snap_default.isChecked())
         self.settings.setValue("autosave_interval_idx", self.combo_autosave.currentIndex())
+
+        # Save Global Import Settings
+        self.config_manager.set_import_settings(
+            tile_width=self.spin_imp_width.value(),
+            tile_height=self.spin_imp_height.value(),
+            margin_x=self.spin_imp_margin_x.value(),
+            margin_y=self.spin_imp_margin_y.value(),
+            spacing_x=self.spin_imp_spacing_x.value(),
+            spacing_y=self.spin_imp_spacing_y.value(),
+            skip_dialog_on_single=self.chk_imp_skip_single.isChecked(),
+        )
 
         self.accept()
