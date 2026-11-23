@@ -15,7 +15,8 @@ class LineTool(BaseTool):
         self.current_row: int = 0
 
     def on_press(self, col: int, row: int, context: ToolContext) -> None:
-        if not context.active_layer or context.active_layer.locked:
+        layer = context.active_layer
+        if not layer or layer.locked or not context.project.get_effective_visible(layer):
             return
         self.is_active = True
         self.start_col = col
@@ -117,7 +118,8 @@ class RectTool(BaseTool):
         self.current_row: int = 0
 
     def on_press(self, col: int, row: int, context: ToolContext) -> None:
-        if not context.active_layer or context.active_layer.locked:
+        layer = context.active_layer
+        if not layer or layer.locked or not context.project.get_effective_visible(layer):
             return
         self.is_active = True
         self.start_col = col

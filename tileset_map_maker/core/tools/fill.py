@@ -13,7 +13,7 @@ class FillTool(BaseTool):
 
     def on_press(self, col: int, row: int, context: ToolContext) -> None:
         layer = context.active_layer
-        if not layer or layer.locked:
+        if not layer or layer.locked or not context.project.get_effective_visible(layer):
             return
 
         w = context.project.map_width

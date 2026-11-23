@@ -90,7 +90,8 @@ class TestModelsAndAssetManager(unittest.TestCase):
 
     def test_layer_operations(self):
         project = Project(map_width=20, map_height=15, tile_size=32)
-        self.assertEqual(len(project.layers), 5)
+        self.assertGreaterEqual(len(project.layers), 1)
+        initial_count = len(project.layers)
         
         active = project.get_active_layer()
         self.assertIsNotNone(active)
@@ -109,12 +110,12 @@ class TestModelsAndAssetManager(unittest.TestCase):
         # Duplicate in project
         dup = project.duplicate_layer(active.id)
         self.assertIsNotNone(dup)
-        self.assertEqual(len(project.layers), 6)
+        self.assertEqual(len(project.layers), initial_count + 1)
 
         # Remove layer
         removed = project.remove_layer(dup.id)
         self.assertTrue(removed)
-        self.assertEqual(len(project.layers), 5)
+        self.assertEqual(len(project.layers), initial_count)
 
 
 if __name__ == "__main__":

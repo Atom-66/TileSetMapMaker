@@ -177,6 +177,22 @@ class IconFactory:
         p.drawRect(QRectF(s * 0.76 - hs / 2, s * 0.76 - hs / 2, hs, hs))
 
     @staticmethod
+    def _draw_wand(p: QPainter, s: int, fg: QColor, bg: QColor) -> None:
+        # Magic wand with star sparkles
+        pen = p.pen()
+        pen.setWidthF(2.0)
+        p.setPen(pen)
+        p.drawLine(QPointF(s * 0.25, s * 0.75), QPointF(s * 0.65, s * 0.35))
+        # Tip sparkle
+        p.setBrush(QBrush(fg))
+        tip = QPointF(s * 0.72, s * 0.28)
+        p.drawEllipse(tip, 2.5, 2.5)
+        # Sparkles around tip
+        p.drawPoint(QPointF(s * 0.85, s * 0.20))
+        p.drawPoint(QPointF(s * 0.65, s * 0.15))
+        p.drawPoint(QPointF(s * 0.82, s * 0.38))
+
+    @staticmethod
     def _draw_object(p: QPainter, s: int, fg: QColor, bg: QColor) -> None:
         # Freeform object target crosshair with corner brackets
         cx, cy = s * 0.5, s * 0.5

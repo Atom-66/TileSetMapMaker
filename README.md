@@ -21,7 +21,39 @@ python3 -m tileset_map_maker.main
 
 ## 🌟 Zaawansowane Funkcjonalności (Etap 2)
 
-### 1. ⚡ Auto-Tiling – Automatyczne Łączenie Kafelków
+### 1. 🗺️ Inteligentny Import Tilesetów i Wybieranie Kafelków (Tiled-Style)
+- **Ścisła, regularna siatka (Uniform Regular Grid)**:
+  - Jeden tileset zawsze wykorzystuje jeden rozmiar komórki ustalony przez użytkownika (domyślnie 32 × 32 px, presety: 16×16, 24×24, 32×32, 32×48, 48×48, 64×64 lub dowolny własny rozmiar).
+  - Szerokość i wysokość kafelka konfigurowane w pełni niezależnie.
+  - Zero zgadywania rozmiarów, brak łączenia komórek wewnątrz tilesetu, brak zniekształcania i skalowania oryginalnego pliku PNG.
+- **Automatyczna analiza pliku**:
+  - Odczyt formatu, wymiarów w pikselach, trybu koloru (RGBA), obecności kanału alfa i przezroczystości.
+  - Wyliczanie liczby pełnych kolumn, wierszy i łącznej puli kafelków.
+  - Wykrywanie i wizualne oznaczanie niepełnych fragmentów krawędziowych (marginesy resztkowe po prawej i u dołu), które są wykluczane z wyboru.
+- **Interaktywna paleta kafelków (Tileset Palette - dok w stylu Tiled)**:
+  - Pełny dwuwymiarowy widok arkusza z tłem szachownicy dla przezroczystości.
+  - Wybór pojedynczego kafelka kliknięciem myszy.
+  - **Wybór bloków wielokafelkowych (Multi-Tile Selection)**: zaznaczanie prostokątnego obszaru kafelków (np. 2×3 drzewo, 3×3 budynek) metodą przeciągnięcia myszą.
+  - **Malowanie blokami kafelków**: malowanie pędzlem na mapie zachowuje idealne ułożenie i relacje przestrzenne kafelków w siatce mapy.
+  - Nawigacja: zoom kółkiem lub suwakiem (25% - 1600%), przesuwanie (pan) środkowym przyciskiem, podgląd współrzędnych i indeksu kafelka.
+  - Podwójne kliknięcie lub ikona ⚙️ otwiera zaawansowany konfigurator siatki i marginesów.
+
+### 2. 🗺️ Architektura Wielomapowa i Zakładki Map (Aseprite & Tiled Style)
+- **Wiele map w jednym projekcie**: Tworzenie, przełączanie, klonowanie, zmiana nazwy i usuwanie map w ramach jednego pliku `.tmmap`.
+- **Pasek zakładek map (`MapTabBar`)**: Wygodna nawigacja w górnej części obszaru roboczego z przyciskiem `➕` i menu kontekstowym.
+- **Niezależne wymiary i warstwy**: Każda mapa w projekcie posiada własne wymiary, warstwy, grupy i tło.
+- **100% kompatybilność wsteczna**: Automatyczny upgrade starszych projektów jednomapowych do architektury wielomapowej.
+
+### 3. 🏰 System Lokacji, Świata i Połączeń między Mapami (MMORPG World Graph)
+- **Strefy świata (World Locations)**: Grupowanie map w logiczne regiony (np. *Miasto Karka-han*, *Góry*, *Lochy*).
+- **Przestrzenne przejścia między mapami (Map Connections)**:
+  - Definiowanie teleportów, bram, portali, drzwi, schodów czy krawędzi mapy.
+  - Określanie współrzędnych wejścia na mapie źródłowej `(X1, Y1)` oraz wyjścia na mapie docelowej `(X2, Y2)`.
+  - Obsługa przejść dwukierunkowych i jednokierunkowych.
+- **Wizualizacja na płótnie**: Świecące znaczniki przejść z etykietami docelowych map wyświetlane podczas edycji i automatycznie wyłączane przy eksporcie graficznym.
+- **Nawigacja w panelu lokacji**: Podwójne kliknięcie mapy otwiera ją w edytorze; podwójne kliknięcie przejścia automatycznie centruje kamerę na punkcie wejścia.
+
+### 4. ⚡ Auto-Tiling – Automatyczne Łączenie Kafelków
 - **System bitmaskingu sąsiedztwa (8 sąsiadów)**: Automatyczne dobieranie kafelków centralnych, krawędzi (N, S, W, E), narożników zewnętrznych i wewnętrznych.
 - **Różne typy terenu**: Możliwość definiowania powiązań między różnymi rodzajami podłoża (np. Trawa łącząca się z Wodą lub Ziemią).
 - **Konfigurator reguł (`⚡ Auto-Tile`)**: Wizualny dialog pozwalający na tworzenie własnych zestawów reguł, mapowanie kafelków z dowolnego tilesetu oraz szybkie szablony 3x3.
@@ -66,7 +98,16 @@ python3 -m tileset_map_maker.main
   - Przełącznik *Losowe odbicie* w osi X/Y.
   - Możliwość ustawienia ziarna losowości (*Seed*) dla powtarzalnych, deterministycznych rezultatów.
 
-### 7. 💡 Usprawnienia UX
+### 8. 🧹 Gumka pod Prawym Przyciskiem Myszy i Precyzyjne Usuwanie
+- **Tymczasowa gumka (Right-Click Eraser)**:
+  - Przytrzymanie PPM podczas pracy dowolnym narzędziem natychmiast aktywuje gumkę.
+  - Zwolnienie PPM automatycznie i płynnie przywraca poprzednie aktywne narzędzie.
+  - Blokada standardowego menu kontekstowego i bezpieczne zwalnianie po wyjściu kursora poza płótno.
+- **Precyzyjne usuwanie na właściwej warstwie**:
+  - Usuwanie kafelków siatki działa wyłącznie w komórce pod kursorem.
+  - Usuwanie obiektów swobodnych uwzględnia test alfa pikseli (hit-testing) oraz kolejność Z-index (usuwa tylko najwyższy kliknięty obiekt).
+
+### 9. 💡 Usprawnienia UX
 - **Trwałość układu**: Zapamiętywanie geometrii okna oraz układu i rozmiarów paneli dokowalnych między uruchomieniami (`QSettings`).
 - **Reset paneli**: Przycisk *🔄 Reset paneli* przywracający domyślne położenie biblioteki i warstw.
 - **Szybkie przełączanie**: `B` (Pędzel), `E` (Gumka), `V` (Obiekt), `I` (Pipeta), `T` (Stempel), `S` (Zaznaczanie).
@@ -110,10 +151,10 @@ python3 -m tileset_map_maker.main
 
 ## 🧪 Testy Automatyczne
 
-Wszystkie testy jednostkowe, integracyjne oraz weryfikację 12 punktów kontroli jakości z Etapu 2 można uruchomić poleceniem:
+Wszystkie testy jednostkowe, integracyjne oraz testy weryfikacyjne z zestawem `terrain_summer.png` (512x832 px RGBA) można uruchomić poleceniem:
 
 ```bash
 python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-Wynik: **33/33 testów zaliczonych sukcesem (OK)**.
+Wynik: **57/57 testów zaliczonych sukcesem (OK)**.

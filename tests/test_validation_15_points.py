@@ -292,9 +292,8 @@ class TestValidation15Points(unittest.TestCase):
         # MainWindow instantiates and operates cleanly
         window = MainWindow()
         window.asset_manager.import_folder(bulk_dir)
-        window.asset_library.refresh_categories()
-        window.asset_library.refresh_assets_list()
-        self.assertGreaterEqual(window.asset_library.asset_list.count(), 150)
+        window.tileset_palette.refresh_tilesets()
+        self.assertGreaterEqual(len(window.asset_manager.assets), 150)
         window.close()
 
 

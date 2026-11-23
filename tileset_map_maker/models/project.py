@@ -1,10 +1,16 @@
 import uuid
 from typing import List, Optional, Dict, Any
 from .layer import Layer
+from .map_model import MapModel
 
 
 class Project:
-    """Represents a map project with multiple layers, layer groups, metadata, and settings."""
+    """
+    Represents a map project.
+    Contains:
+    - Multiple MapModels with tabbed/swappable editing
+    - Full backward compatibility proxying the active map.
+    """
 
     def __init__(
         self,
@@ -18,218 +24,224 @@ class Project:
     ):
         self.id = str(uuid.uuid4())
         self.name = name
-        self.map_width = max(1, map_width)
-        self.map_height = max(1, map_height)
-        self.tile_size = max(4, tile_size)
-        self.background_color = background_color
-        self.is_bg_transparent = is_bg_transparent
         self.file_path = file_path
         self.is_modified = False
 
-        self.layers: List[Layer] = []
-        self.active_layer_id: Optional[str] = None
+        # Collection of maps
+        self.maps: Dict[str, MapModel] = {}
+        self.active_map_id: str = ""
 
-        # Add initial default layers as per user specification: Ground, Objects, Foreground
-        self.ensure_default_layers()
+        # Create initial primary map
+        initial_map = MapModel(
+            name="Główna Mapa",
+            map_width=map_width,
+            map_height=map_height,
+            tile_size=tile_size,
+            background_color=background_color,
+            is_bg_transparent=is_bg_transparent,
+        )
+        self.maps[initial_map.id] = initial_map
+        self.active_map_id = initial_map.id
 
-    def ensure_default_layers(self) -> None:
-        if not self.layers:
-            ground = self.add_layer("Ground")
-            self.add_layer("Ground Details")
-            self.add_layer("Objects")
-            self.add_layer("Buildings")
-            self.add_layer("Foreground")
-            self.active_layer_id = ground.id
+    # ---------------------------------------------------------
+    # Multi-Map Management
+    # ---------------------------------------------------------
 
-    def add_layer(
+    def get_active_map(self) -> MapModel:
+        if self.active_map_id in self.maps:
+            return self.maps[self.active_map_id]
+        if self.maps:
+            self.active_map_id = next(iter(self.maps.keys()))
+            return self.maps[self.active_map_id]
+        # Fallback if empty
+        new_m = MapModel("Główna Mapa")
+        self.maps[new_m.id] = new_m
+        self.active_map_id = new_m.id
+        return new_m
+
+    def set_active_map(self, map_id: str) -> bool:
+        if map_id in self.maps:
+            self.active_map_id = map_id
+            return True
+        return False
+
+    def add_map(
         self,
-        name: str = "Warstwa",
-        at_index: Optional[int] = None,
-        group_id: Optional[str] = None,
-        is_group: bool = False,
-    ) -> Layer:
-        layer = Layer(name=name, group_id=group_id, is_group=is_group)
-        if at_index is not None and 0 <= at_index <= len(self.layers):
-            self.layers.insert(at_index, layer)
-        else:
-            self.layers.append(layer)
-        if not is_group:
-            self.active_layer_id = layer.id
+        name: str = "Nowa Mapa",
+        width: int = 30,
+        height: int = 20,
+        tile_size: int = 32,
+    ) -> MapModel:
+        m = MapModel(
+            name=name,
+            map_width=width,
+            map_height=height,
+            tile_size=tile_size,
+        )
+        self.maps[m.id] = m
+        self.active_map_id = m.id
         self.is_modified = True
-        return layer
+        return m
 
-    def add_group(self, name: str = "Grupa", parent_group_id: Optional[str] = None) -> Layer:
-        return self.add_layer(name=name, is_group=True, group_id=parent_group_id)
-
-    def remove_layer(self, layer_id: str) -> bool:
-        if len(self.layers) <= 1:
-            return False  # Maintain at least one layer
-        idx = self.get_layer_index(layer_id)
-        if idx is not None:
-            target = self.layers[idx]
-            # If removing a group, also remove or unparent child layers
-            child_ids = [l.id for l in self.layers if l.group_id == target.id]
-            for cid in child_ids:
-                cidx = self.get_layer_index(cid)
-                if cidx is not None:
-                    self.layers.pop(cidx)
-
-            # Re-fetch idx after child deletions
-            idx = self.get_layer_index(layer_id)
-            if idx is not None:
-                self.layers.pop(idx)
-
-            if not self.layers:
-                self.ensure_default_layers()
-
-            if self.active_layer_id == layer_id:
-                # Find first non-group layer
-                non_groups = [l for l in self.layers if not l.is_group]
-                self.active_layer_id = non_groups[0].id if non_groups else self.layers[0].id
-
+    def remove_map(self, map_id: str) -> bool:
+        if len(self.maps) <= 1:
+            return False  # Keep at least one map
+        if map_id in self.maps:
+            del self.maps[map_id]
+            if self.active_map_id == map_id:
+                self.active_map_id = next(iter(self.maps.keys()))
             self.is_modified = True
             return True
         return False
 
-    def duplicate_layer(self, layer_id: str) -> Optional[Layer]:
-        idx = self.get_layer_index(layer_id)
-        if idx is not None:
-            source = self.layers[idx]
-            clone = source.clone(f"{source.name} (Kopia)")
-            self.layers.insert(idx + 1, clone)
-            if not clone.is_group:
-                self.active_layer_id = clone.id
-            self.is_modified = True
-            return clone
-        return None
-
-    def move_layer(self, from_index: int, to_index: int) -> bool:
-        if 0 <= from_index < len(self.layers) and 0 <= to_index < len(self.layers):
-            layer = self.layers.pop(from_index)
-            self.layers.insert(to_index, layer)
-            self.is_modified = True
-            return True
-        return False
-
-    def get_layer(self, layer_id: Optional[str]) -> Optional[Layer]:
-        if not layer_id:
+    def duplicate_map(self, map_id: str, new_name: Optional[str] = None) -> Optional[MapModel]:
+        source = self.maps.get(map_id)
+        if not source:
             return None
-        for layer in self.layers:
-            if layer.id == layer_id:
-                return layer
-        return None
+        clone = source.clone(new_name or f"{source.name} (Kopia)")
+        self.maps[clone.id] = clone
+        self.active_map_id = clone.id
+        self.is_modified = True
+        return clone
 
-    def get_layer_index(self, layer_id: str) -> Optional[int]:
-        for i, layer in enumerate(self.layers):
-            if layer.id == layer_id:
-                return i
-        return None
+    def rename_map(self, map_id: str, new_name: str) -> bool:
+        if map_id in self.maps and new_name.strip():
+            self.maps[map_id].name = new_name.strip()
+            self.is_modified = True
+            return True
+        return False
+
+    # ---------------------------------------------------------
+    # Backward Compatibility Proxies (Active Map forwarding)
+    # ---------------------------------------------------------
+
+    @property
+    def active_map(self) -> MapModel:
+        return self.get_active_map()
+
+    @property
+    def active_layer(self) -> Optional[Layer]:
+        return self.get_active_layer()
+
+    @property
+    def map_width(self) -> int:
+        return self.get_active_map().map_width
+
+    @map_width.setter
+    def map_width(self, val: int):
+        self.get_active_map().map_width = max(1, val)
+
+    @property
+    def map_height(self) -> int:
+        return self.get_active_map().map_height
+
+    @map_height.setter
+    def map_height(self, val: int):
+        self.get_active_map().map_height = max(1, val)
+
+    @property
+    def tile_size(self) -> int:
+        return self.get_active_map().tile_size
+
+    @tile_size.setter
+    def tile_size(self, val: int):
+        self.get_active_map().tile_size = max(4, val)
+
+    @property
+    def background_color(self) -> str:
+        return self.get_active_map().background_color
+
+    @background_color.setter
+    def background_color(self, val: str):
+        self.get_active_map().background_color = val
+
+    @property
+    def is_bg_transparent(self) -> bool:
+        return self.get_active_map().is_bg_transparent
+
+    @is_bg_transparent.setter
+    def is_bg_transparent(self, val: bool):
+        self.get_active_map().is_bg_transparent = val
+
+    @property
+    def layers(self) -> List[Layer]:
+        return self.get_active_map().layers
+
+    @layers.setter
+    def layers(self, val: List[Layer]):
+        self.get_active_map().layers = val
+
+    @property
+    def active_layer_id(self) -> Optional[str]:
+        return self.get_active_map().active_layer_id
+
+    @active_layer_id.setter
+    def active_layer_id(self, val: Optional[str]):
+        self.get_active_map().active_layer_id = val
 
     def get_active_layer(self) -> Optional[Layer]:
-        layer = self.get_layer(self.active_layer_id)
-        if (not layer or layer.is_group) and self.layers:
-            non_groups = [l for l in self.layers if not l.is_group]
-            if non_groups:
-                self.active_layer_id = non_groups[0].id
-                return non_groups[0]
-            self.active_layer_id = self.layers[0].id
-            return self.layers[0]
-        return layer
+        return self.get_active_map().get_active_layer()
 
     def set_active_layer(self, layer_id: str) -> bool:
-        layer = self.get_layer(layer_id)
-        if layer and not layer.is_group:
-            self.active_layer_id = layer_id
-            return True
-        return False
+        return self.get_active_map().set_active_layer(layer_id)
+
+    def add_layer(self, *args, **kwargs) -> Layer:
+        return self.get_active_map().add_layer(*args, **kwargs)
+
+    def add_group(self, *args, **kwargs) -> Layer:
+        return self.get_active_map().add_group(*args, **kwargs)
+
+    def remove_layer(self, layer_id: str) -> bool:
+        return self.get_active_map().remove_layer(layer_id)
+
+    def duplicate_layer(self, layer_id: str) -> Optional[Layer]:
+        return self.get_active_map().duplicate_layer(layer_id)
+
+    def move_layer(self, from_index: int, to_index: int) -> bool:
+        return self.get_active_map().move_layer(from_index, to_index)
+
+    def get_layer(self, layer_id: Optional[str]) -> Optional[Layer]:
+        return self.get_active_map().get_layer(layer_id)
+
+    def get_layer_index(self, layer_id: str) -> Optional[int]:
+        return self.get_active_map().get_layer_index(layer_id)
 
     def get_effective_visible(self, layer: Layer) -> bool:
-        """Checks visibility traversing up through parent groups."""
-        curr: Optional[Layer] = layer
-        while curr:
-            if not curr.visible:
-                return False
-            curr = self.get_layer(curr.group_id) if curr.group_id else None
-        return True
+        return self.get_active_map().get_effective_visible(layer)
 
     def get_effective_opacity(self, layer: Layer) -> float:
-        """Calculates cumulative opacity through parent groups."""
-        op = layer.opacity
-        curr: Optional[Layer] = self.get_layer(layer.group_id) if layer.group_id else None
-        while curr:
-            op *= curr.opacity
-            curr = self.get_layer(curr.group_id) if curr.group_id else None
-        return max(0.0, min(1.0, op))
+        return self.get_active_map().get_effective_opacity(layer)
 
     def get_effective_locked(self, layer: Layer) -> bool:
-        """Checks if layer or any of its parent groups is locked."""
-        curr: Optional[Layer] = layer
-        while curr:
-            if curr.locked:
-                return True
-            curr = self.get_layer(curr.group_id) if curr.group_id else None
-        return False
+        return self.get_active_map().get_effective_locked(layer)
 
     def get_render_order_layers(self) -> List[Layer]:
-        """Returns non-group layers in ascending render order (bottom to top)."""
-        return [l for l in self.layers if not l.is_group]
+        return self.get_active_map().get_render_order_layers()
 
     def resize_map(self, new_width: int, new_height: int, anchor: str = "top_left") -> None:
-        new_width = max(1, new_width)
-        new_height = max(1, new_height)
-        if new_width == self.map_width and new_height == self.map_height:
-            return
-
-        dx = 0
-        dy = 0
-        if anchor == "center":
-            dx = (new_width - self.map_width) // 2
-            dy = (new_height - self.map_height) // 2
-        elif anchor == "bottom_right":
-            dx = new_width - self.map_width
-            dy = new_height - self.map_height
-
-        if dx != 0 or dy != 0:
-            for layer in self.layers:
-                new_tiles = {}
-                for (c, r), item in layer.tiles.items():
-                    nc = c + dx
-                    nr = r + dy
-                    if 0 <= nc < new_width and 0 <= nr < new_height:
-                        item.col = nc
-                        item.row = nr
-                        new_tiles[(nc, nr)] = item
-                layer.tiles = new_tiles
-                for obj in layer.objects:
-                    obj.col += dx
-                    obj.row += dy
-                    if obj.free_x is not None:
-                        obj.free_x += dx * self.tile_size
-                    if obj.free_y is not None:
-                        obj.free_y += dy * self.tile_size
-        else:
-            for layer in self.layers:
-                layer.tiles = {
-                    (c, r): item
-                    for (c, r), item in layer.tiles.items()
-                    if c < new_width and r < new_height
-                }
-
-        self.map_width = new_width
-        self.map_height = new_height
+        self.get_active_map().resize_map(new_width, new_height, anchor)
         self.is_modified = True
 
+    # ---------------------------------------------------------
+    # Serialization
+    # ---------------------------------------------------------
+
     def to_dict(self) -> Dict[str, Any]:
+        active_m = self.get_active_map()
         return {
+            "version": "2.0",
             "id": self.id,
             "name": self.name,
-            "map_width": self.map_width,
-            "map_height": self.map_height,
-            "tile_size": self.tile_size,
-            "background_color": self.background_color,
-            "is_bg_transparent": self.is_bg_transparent,
-            "active_layer_id": self.active_layer_id,
-            "layers": [layer.to_dict() for layer in self.layers],
+            "active_map_id": self.active_map_id,
+            "maps": [m.to_dict() for m in self.maps.values()],
+            # Legacy compatibility fields
+            "map_width": active_m.map_width,
+            "map_height": active_m.map_height,
+            "tile_size": active_m.tile_size,
+            "background_color": active_m.background_color,
+            "is_bg_transparent": active_m.is_bg_transparent,
+            "active_layer_id": active_m.active_layer_id,
+            "layers": [l.to_dict() for l in active_m.layers],
         }
 
     @classmethod
@@ -243,11 +255,21 @@ class Project:
             is_bg_transparent=data.get("is_bg_transparent", False),
         )
         proj.id = data.get("id", proj.id)
-        proj.layers = [Layer.from_dict(l_data) for l_data in data.get("layers", [])]
-        proj.active_layer_id = data.get("active_layer_id")
-        if not proj.layers:
-            proj.ensure_default_layers()
-        if not proj.get_active_layer() and proj.layers:
-            non_groups = [l for l in proj.layers if not l.is_group]
-            proj.active_layer_id = non_groups[0].id if non_groups else proj.layers[0].id
+
+        # 1. New multi-map format
+        if "maps" in data and data["maps"]:
+            proj.maps.clear()
+            for m_data in data["maps"]:
+                m = MapModel.from_dict(m_data)
+                proj.maps[m.id] = m
+            proj.active_map_id = data.get("active_map_id", next(iter(proj.maps.keys())))
+
+        # 2. Legacy single-map format upgrade
+        elif "layers" in data:
+            legacy_map = MapModel.from_dict(data)
+            legacy_map.name = data.get("name", "Główna Mapa")
+            proj.maps.clear()
+            proj.maps[legacy_map.id] = legacy_map
+            proj.active_map_id = legacy_map.id
+
         return proj

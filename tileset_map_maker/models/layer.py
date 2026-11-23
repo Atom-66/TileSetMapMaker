@@ -177,6 +177,7 @@ class Layer:
         group_id: Optional[str] = None,
         is_group: bool = False,
         auto_tiling_enabled: bool = True,
+        blend_mode: str = "normal",
     ):
         self.id = layer_id or str(uuid.uuid4())
         self.name = name
@@ -186,6 +187,7 @@ class Layer:
         self.group_id = group_id
         self.is_group = is_group
         self.auto_tiling_enabled = auto_tiling_enabled
+        self.blend_mode = blend_mode.lower() if blend_mode else "normal"
 
         # Tiles indexed by (col, row)
         self.tiles: Dict[Tuple[int, int], MapItem] = {}
@@ -238,6 +240,7 @@ class Layer:
             group_id=self.group_id,
             is_group=self.is_group,
             auto_tiling_enabled=self.auto_tiling_enabled,
+            blend_mode=self.blend_mode,
         )
         for coord, item in self.tiles.items():
             cloned.tiles[coord] = item.clone()
@@ -255,6 +258,7 @@ class Layer:
             "group_id": self.group_id,
             "is_group": self.is_group,
             "auto_tiling_enabled": self.auto_tiling_enabled,
+            "blend_mode": self.blend_mode,
             "tiles": [
                 {"col": c, "row": r, "item": item.to_dict()}
                 for (c, r), item in self.tiles.items()
@@ -273,6 +277,7 @@ class Layer:
             group_id=data.get("group_id"),
             is_group=data.get("is_group", False),
             auto_tiling_enabled=data.get("auto_tiling_enabled", True),
+            blend_mode=data.get("blend_mode", "normal"),
         )
         for tile_data in data.get("tiles", []):
             item = MapItem.from_dict(tile_data["item"])

@@ -18,7 +18,8 @@ class EraserTool(BaseTool):
         self.removed_objects: List[MapItem] = []
 
     def on_press(self, col: int, row: int, context: ToolContext) -> None:
-        if not context.active_layer or context.active_layer.locked:
+        layer = context.active_layer
+        if not layer or layer.locked or not context.project.get_effective_visible(layer):
             return
         self.is_active = True
         self.session_changes.clear()
@@ -26,7 +27,8 @@ class EraserTool(BaseTool):
         self._erase_at(col, row, context)
 
     def on_drag(self, col: int, row: int, context: ToolContext) -> None:
-        if not self.is_active or not context.active_layer or context.active_layer.locked:
+        layer = context.active_layer
+        if not self.is_active or not layer or layer.locked or not context.project.get_effective_visible(layer):
             return
         self._erase_at(col, row, context)
 

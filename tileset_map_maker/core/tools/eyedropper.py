@@ -26,6 +26,13 @@ class EyedropperTool(BaseTool):
                     target_item = layer.tiles[(col, row)]
                     break
 
+        # Also check freeform objects on layer
+        if not target_item and context.active_layer:
+            for obj in reversed(context.active_layer.objects):
+                if obj.col == col and obj.row == row:
+                    target_item = obj
+                    break
+
         if not target_item:
             return
 
@@ -35,14 +42,27 @@ class EyedropperTool(BaseTool):
 
         if asset.asset_type == AssetType.TILESET and asset.tileset_config:
             cfg = asset.tileset_config
+            tw = target_item.source_w if target_item.source_w > 0 else cfg.tile_width
+            th = target_item.source_h if target_item.source_h > 0 else cfg.tile_height
+            step_w = cfg.tile_width + cfg.spacing_x
+            step_h = cfg.tile_height + cfg.spacing_y
+            col = max(0, (target_item.source_x - cfg.start_x - cfg.margin_x) // step_w) if step_w > 0 else 0
+            row = max(0, (target_item.source_y - cfg.start_y - cfg.margin_y) // step_h) if step_h > 0 else 0
             sub_tile = SelectedSubTile(
                 asset_id=asset.id,
-                col=0,
-                row=0,
+                col=col,
+                row=row,
+                cols_count=1,
+                rows_count=1,
                 sub_x=target_item.source_x,
                 sub_y=target_item.source_y,
-                sub_w=target_item.source_w,
-                sub_h=target_item.source_h,
+                sub_w=tw,
+                sub_h=th,
+                tile_width=cfg.tile_width,
+                tile_height=cfg.tile_height,
+                spacing_x=cfg.spacing_x,
+                spacing_y=cfg.spacing_y,
+                asset_name=asset.name,
             )
             context.asset_manager.select_asset(asset, sub_tile)
         else:

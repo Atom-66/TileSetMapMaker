@@ -171,6 +171,7 @@ class RenderEngine:
         layer: Layer,
         project: Project,
         effective_opacity: float,
+        clip_rect: Optional[QRectF] = None,
     ) -> None:
         if effective_opacity <= 0.0:
             return
@@ -179,15 +180,43 @@ class RenderEngine:
         if effective_opacity < 1.0:
             painter.setOpacity(painter.opacity() * effective_opacity)
 
-        # 1. Grid tiles
-        sorted_tiles = sorted(layer.tiles.values(), key=lambda t: (t.row, t.col))
-        for item in sorted_tiles:
-            self.draw_item(painter, item, project.tile_size)
+        # Apply Blend Mode (TASK-704)
+        bm = getattr(layer, "blend_mode", "normal")
+        if bm == "multiply":
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+        elif bm == "screen":
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Screen)
+        elif bm == "overlay":
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Overlay)
+        elif bm == "add":
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
 
-        # 2. Objects
+        # 1. Grid tiles with Viewport Culling (TASK-1403)
+        ts = project.tile_size
+        if clip_rect is not None and len(layer.tiles) > 32:
+            min_col = int(math.floor(clip_rect.left() / ts)) - 1
+            max_col = int(math.ceil(clip_rect.right() / ts)) + 1
+            min_row = int(math.floor(clip_rect.top() / ts)) - 1
+            max_row = int(math.ceil(clip_rect.bottom() / ts)) + 1
+            for r in range(min_row, max_row + 1):
+                for c in range(min_col, max_col + 1):
+                    item = layer.tiles.get((c, r))
+                    if item:
+                        self.draw_item(painter, item, ts)
+        else:
+            sorted_tiles = sorted(layer.tiles.values(), key=lambda t: (t.row, t.col))
+            for item in sorted_tiles:
+                self.draw_item(painter, item, ts)
+
+        # 2. Objects with culling
         sorted_objs = sorted(layer.objects, key=lambda o: (o.z_index, o.row, o.col))
         for obj in sorted_objs:
-            self.draw_item(painter, obj, project.tile_size)
+            if clip_rect is not None:
+                ox, oy = obj.get_pixel_pos(ts)
+                obj_rect = QRectF(ox, oy, obj.dest_w * obj.scale_x, obj.dest_h * obj.scale_y)
+                if not obj_rect.intersects(clip_rect):
+                    continue
+            self.draw_item(painter, obj, ts)
 
         painter.restore()
 
@@ -226,7 +255,7 @@ class RenderEngine:
                 continue
 
             effective_op = project.get_effective_opacity(layer)
-            self.render_layer(painter, layer, project, effective_op)
+            self.render_layer(painter, layer, project, effective_op, clip_rect=clip_rect)
 
         # 3. Tool Previews
         if options.preview_items:
@@ -293,29 +322,43 @@ class RenderEngine:
         project: Project,
         selected_ids: List[str],
     ) -> None:
-        """Draws bounding boxes and transform handles around selected objects."""
+        """Draws bounding boxes and transform gizmo handles (scale corners + rotation knob) around selected objects."""
         painter.save()
-        pen = QPen(QColor(255, 193, 7, 240))
+        pen = QPen(QColor(59, 130, 246, 240))
         pen.setWidth(2)
         pen.setStyle(Qt.PenStyle.SolidLine)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
+        handle_pen = QPen(QColor(30, 30, 36), 1)
+        handle_brush = QBrush(QColor(255, 255, 255))
+
         for layer in project.layers:
             for obj in layer.objects:
                 if obj.id in selected_ids:
                     rect = self.calculate_item_bounding_rect(obj, project.tile_size)
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawRect(rect)
-                    # Corner handles
-                    handle_size = 6
-                    painter.fillRect(
-                        QRectF(rect.left() - handle_size / 2, rect.top() - handle_size / 2, handle_size, handle_size),
-                        QColor(255, 255, 255),
-                    )
-                    painter.fillRect(
-                        QRectF(rect.right() - handle_size / 2, rect.bottom() - handle_size / 2, handle_size, handle_size),
-                        QColor(255, 255, 255),
-                    )
+
+                    # Rotation stem and handle knob
+                    stem_top = QPointF(rect.center().x(), rect.top() - 16)
+                    painter.drawLine(QPointF(rect.center().x(), rect.top()), stem_top)
+
+                    painter.setPen(handle_pen)
+                    painter.setBrush(handle_brush)
+                    painter.drawEllipse(stem_top, 4.5, 4.5)
+
+                    # 4 Corner scale handles
+                    hs = 7.0
+                    corners = [
+                        rect.topLeft(),
+                        rect.topRight(),
+                        rect.bottomLeft(),
+                        rect.bottomRight(),
+                    ]
+                    for pt in corners:
+                        painter.drawRect(QRectF(pt.x() - hs / 2, pt.y() - hs / 2, hs, hs))
         painter.restore()
 
     def export_to_image(

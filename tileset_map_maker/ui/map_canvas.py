@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import QWidget, QApplication
 from PyQt6.QtGui import (
     QPainter,
     QColor,
+    QPen,
+    QBrush,
     QWheelEvent,
     QMouseEvent,
     QKeyEvent,
@@ -23,6 +25,7 @@ from ..core.tools.base import BaseTool, ToolContext
 from ..core.tools.eraser import EraserTool
 from ..core.tools.object_tool import ObjectTool
 from ..core.tools.select_tool import StampTool
+from .quick_action_menu import QuickActionMenu
 
 
 class MapCanvas(QWidget):
@@ -34,6 +37,8 @@ class MapCanvas(QWidget):
     cursor_moved = pyqtSignal(int, int)  # col, row
     zoom_changed = pyqtSignal(float)      # zoom factor
     files_dropped = pyqtSignal(list)      # paths of dropped files/folders
+    viewport_changed = pyqtSignal()
+    quick_tool_requested = pyqtSignal(str)
 
     def __init__(
         self,
@@ -71,6 +76,14 @@ class MapCanvas(QWidget):
         # Canvas options
         self.show_grid = True
         self.grid_color = QColor(255, 255, 255, 35)
+        self.show_hud = True
+        self.cursor_tile_col: int = 0
+        self.cursor_tile_row: int = 0
+        self.cursor_px_x: float = 0.0
+        self.cursor_px_y: float = 0.0
+
+        self.quick_menu = QuickActionMenu(self)
+        self.quick_menu.tool_selected.connect(self.quick_tool_requested.emit)
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -129,9 +142,38 @@ class MapCanvas(QWidget):
         self.zoom_changed.emit(self.zoom)
         self.update()
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.viewport_changed.emit()
+
+    def center_on_world_pos(self, world_x: float, world_y: float) -> None:
+        """Centers viewport on world coordinates."""
+        self.pan_offset = QPointF(
+            self.width() / 2.0 - world_x * self.zoom,
+            self.height() / 2.0 - world_y * self.zoom,
+        )
+        self.viewport_changed.emit()
+        self.update()
+
+    def show_quick_menu(self, global_pos: Optional[QPoint] = None) -> None:
+        """Displays quick action radial/grid tool menu."""
+        if not global_pos:
+            global_pos = QCursor.pos()
+        self.quick_menu.show_at(global_pos)
+
+    def pan_to_tile(self, col: int, row: int) -> None:
+        """Centers the camera viewport on the given tile coordinates."""
+        ts = self.project.tile_size
+        px = col * ts + ts / 2
+        py = row * ts + ts / 2
+        self.pan_offset = QPointF(self.width() / 2 - px * self.zoom, self.height() / 2 - py * self.zoom)
+        self.viewport_changed.emit()
+        self.update()
+
     def set_zoom(self, zoom: float) -> None:
         self.zoom = max(0.1, min(zoom, 32.0))
         self.zoom_changed.emit(self.zoom)
+        self.viewport_changed.emit()
         self.update()
 
     def screen_to_world(self, screen_pos: QPointF) -> QPointF:
@@ -169,8 +211,38 @@ class MapCanvas(QWidget):
             render_checkerboard=True,
         )
 
-        self.render_engine.render(painter, self.project, options)
+        top_left = self.screen_to_world(QPointF(0, 0))
+        bot_right = self.screen_to_world(QPointF(self.width(), self.height()))
+        clip_rect = QRectF(top_left, bot_right)
+
+        self.render_engine.render(painter, self.project, options, clip_rect=clip_rect)
         painter.restore()
+
+        # TASK-203: Floating HUD Overlay
+        if self.show_hud:
+            hud_text = f"Tile: ({self.cursor_tile_col}, {self.cursor_tile_row})  |  Pos: ({int(self.cursor_px_x)}, {int(self.cursor_px_y)})  |  Zoom: {int(self.zoom * 100)}%"
+            painter.save()
+            font = painter.font()
+            font.setPointSize(9)
+            font.setFamily("Consolas")
+            painter.setFont(font)
+            fm = painter.fontMetrics()
+            text_w = fm.horizontalAdvance(hud_text)
+            text_h = fm.height()
+            pad_x, pad_y = 12, 6
+            box_w = text_w + pad_x * 2
+            box_h = text_h + pad_y * 2
+            box_x = self.width() - box_w - 14
+            box_y = self.height() - box_h - 14
+            hud_rect = QRectF(box_x, box_y, box_w, box_h)
+
+            painter.setPen(QPen(QColor(63, 63, 70, 200), 1))
+            painter.setBrush(QBrush(QColor(24, 24, 27, 215)))
+            painter.drawRoundedRect(hud_rect, 6, 6)
+
+            painter.setPen(QColor(228, 228, 231))
+            painter.drawText(hud_rect, Qt.AlignmentFlag.AlignCenter, hud_text)
+            painter.restore()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         delta = event.angleDelta().y()
@@ -191,12 +263,19 @@ class MapCanvas(QWidget):
         self.pan_offset += (world_after - world_before) * self.zoom
 
         self.zoom_changed.emit(self.zoom)
+        self.viewport_changed.emit()
         self.update()
         event.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         pos = event.position()
         self.last_mouse_pos = pos
+
+        # Alt + Right Click: Quick Action Menu (TASK-204)
+        if event.button() == Qt.MouseButton.RightButton and (event.modifiers() & Qt.KeyboardModifier.AltModifier):
+            self.show_quick_menu(event.globalPosition().toPoint())
+            event.accept()
+            return
 
         # Pan on Middle Click or Space + Left Click
         if (
@@ -209,8 +288,15 @@ class MapCanvas(QWidget):
             return
 
         # Update cursor coordinates accurately
+        self.tool_context.active_layer = self.project.get_active_layer()
+        layer = self.tool_context.active_layer
+
         world = self.screen_to_world(pos)
         col, row = self.screen_to_tile(pos)
+        self.cursor_tile_col = col
+        self.cursor_tile_row = row
+        self.cursor_px_x = world.x()
+        self.cursor_px_y = world.y()
         self.tool_context.cursor_col = col
         self.tool_context.cursor_row = row
         self.tool_context.cursor_pixel_x = world.x()
@@ -218,6 +304,9 @@ class MapCanvas(QWidget):
 
         # Right Click: Temporarily activate Eraser!
         if event.button() == Qt.MouseButton.RightButton:
+            if not layer or layer.locked or not self.project.get_effective_visible(layer):
+                event.accept()
+                return
             self.is_right_erasing = True
             self.eraser_tool.on_press(col, row, self.tool_context)
             self.update()
@@ -236,6 +325,10 @@ class MapCanvas(QWidget):
         world = self.screen_to_world(pos)
         col, row = self.screen_to_tile(pos)
 
+        self.cursor_tile_col = col
+        self.cursor_tile_row = row
+        self.cursor_px_x = world.x()
+        self.cursor_px_y = world.y()
         self.tool_context.cursor_col = col
         self.tool_context.cursor_row = row
         self.tool_context.cursor_pixel_x = world.x()
@@ -246,6 +339,7 @@ class MapCanvas(QWidget):
             diff = pos - self.last_mouse_pos
             self.pan_offset += diff
             self.last_mouse_pos = pos
+            self.viewport_changed.emit()
             self.update()
             event.accept()
             return
@@ -324,6 +418,9 @@ class MapCanvas(QWidget):
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self.space_pressed = True
             self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+        elif event.key() == Qt.Key.Key_Q:
+            self.show_quick_menu()
             event.accept()
         elif event.key() == Qt.Key.Key_R:
             if isinstance(self.active_tool, ObjectTool):

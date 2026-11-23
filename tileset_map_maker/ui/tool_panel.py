@@ -18,6 +18,7 @@ from ..core.tools import (
     StampTool,
     EyedropperTool,
     ObjectTool,
+    WandTool,
 )
 from .icons import IconFactory
 
@@ -35,6 +36,7 @@ class ToolPanel(QWidget):
             "line": LineTool(),
             "rect": RectTool(),
             "select": SelectTool(),
+            "wand": WandTool(),
             "object": ObjectTool(),
             "eyedropper": EyedropperTool(),
             "stamp": StampTool(),
@@ -57,12 +59,34 @@ class ToolPanel(QWidget):
             ("line", "Linia (L)"),
             ("rect", "Prostokąt (U)"),
             ("select", "Zaznaczanie (S)"),
+            ("wand", "Różdżka (W)"),
             ("object", "Swobodny obiekt (V)"),
             ("eyedropper", "Pipeta (I)"),
             ("stamp", "Stempel (T)"),
         ]
 
         self.buttons: Dict[str, QToolButton] = {}
+
+        tool_btn_style = """
+            QToolButton {
+                background-color: #27272a;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                background-color: #3b82f6;
+                border-color: #60a5fa;
+            }
+            QToolButton:pressed {
+                background-color: #1d4ed8;
+                border-color: #2563eb;
+            }
+            QToolButton:checked {
+                background-color: #2563eb;
+                border: 2px solid #93c5fd;
+            }
+        """
 
         for key, tooltip in tool_defs:
             btn = QToolButton()
@@ -71,6 +95,7 @@ class ToolPanel(QWidget):
             btn.setToolTip(tooltip)
             btn.setCheckable(True)
             btn.setFixedSize(40, 40)
+            btn.setStyleSheet(tool_btn_style)
             self.btn_group.addButton(btn)
             btn.clicked.connect(lambda checked, k=key: self._on_tool_clicked(k))
             layout.addWidget(btn)

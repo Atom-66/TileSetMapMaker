@@ -13,9 +13,9 @@ class ToolContext:
         self,
         project: Project,
         asset_manager: Any,
-        history_manager: Any,
-        active_layer: Optional[Layer],
-        selected_asset: Optional[Any],  # Asset or SelectedSubTile
+        history_manager: Optional[Any] = None,
+        active_layer: Optional[Layer] = None,
+        selected_asset: Optional[Any] = None,
         autotile_engine: Optional[Any] = None,
         stamp_manager: Optional[Any] = None,
         set_manager: Optional[Any] = None,
@@ -37,6 +37,7 @@ class ToolContext:
         self.brush_settings = BrushSettings()
         self.clipboard_tiles: Dict[Tuple[int, int], MapItem] = {}
         self.selected_object_ids: List[str] = []
+        self.selected_cells: Set[Tuple[int, int]] = set()
 
 
 class BaseTool(ABC):
@@ -64,42 +65,59 @@ class BaseTool(ABC):
         self.is_active = False
 
     @staticmethod
-    def create_item_from_selection(
+    def create_items_from_selection(
         col: int,
         row: int,
         context: ToolContext,
         override_asset: Optional[Any] = None,
-    ) -> Optional[MapItem]:
+    ) -> List[MapItem]:
+        """
+        Creates one or more MapItems from selection.
+        If a multi-tile block is selected (Tiled-style), returns all tiles
+        in the block relative to (col, row).
+        """
         sel = override_asset if override_asset is not None else context.selected_asset
+        if not sel and context.asset_manager:
+            sel = context.asset_manager.selected_item
         if not sel:
-            return None
+            return []
 
-        # Brush settings random rotation/flip/jitter
         bs = context.brush_settings
         rot, fx, fy, jx, jy = bs.get_random_transform()
 
         if isinstance(sel, SelectedSubTile):
-            return MapItem(
-                asset_id=sel.asset_id,
-                col=col,
-                row=row,
-                item_type=ItemType.TILE,
-                offset_x=jx,
-                offset_y=jy,
-                source_x=sel.sub_x,
-                source_y=sel.sub_y,
-                source_w=sel.sub_w,
-                source_h=sel.sub_h,
-                dest_w=context.project.tile_size,
-                dest_h=context.project.tile_size,
-                rotation=rot,
-                flip_x=fx,
-                flip_y=fy,
-            )
+            items = []
+            for dr in range(sel.rows_count):
+                for dc in range(sel.cols_count):
+                    sx, sy, sw, sh = sel.get_tile_slice(dc, dr)
+                    # Use selection cell size or project tile size
+                    dw = sel.tile_width
+                    dh = sel.tile_height
+                    item = MapItem(
+                        asset_id=sel.asset_id,
+                        col=col + dc,
+                        row=row + dr,
+                        item_type=ItemType.TILE,
+                        offset_x=jx,
+                        offset_y=jy,
+                        source_x=sx,
+                        source_y=sy,
+                        source_w=sw,
+                        source_h=sh,
+                        dest_w=dw,
+                        dest_h=dh,
+                        rotation=rot,
+                        flip_x=fx,
+                        flip_y=fy,
+                    )
+                    items.append(item)
+            return items
+
         elif isinstance(sel, Asset):
-            if sel.asset_type == AssetType.TILESET and sel.tileset_config:
-                sx, sy, sw, sh = sel.get_tile_rect(0, 0)
-                return MapItem(
+            if sel.asset_type == AssetType.TILESET:
+                cfg = sel.tileset_config or TilesetConfig(tile_width=32, tile_height=32)
+                sx, sy, sw, sh = cfg.get_tile_rect(0, 0)
+                item = MapItem(
                     asset_id=sel.id,
                     col=col,
                     row=row,
@@ -110,19 +128,21 @@ class BaseTool(ABC):
                     source_y=sy,
                     source_w=sw,
                     source_h=sh,
-                    dest_w=context.project.tile_size,
-                    dest_h=context.project.tile_size,
+                    dest_w=cfg.tile_width,
+                    dest_h=cfg.tile_height,
                     rotation=rot,
                     flip_x=fx,
                     flip_y=fy,
                 )
+                return [item]
             else:
-                is_large = sel.width != context.project.tile_size or sel.height != context.project.tile_size
-                return MapItem(
+                # Single PNG graphic
+                is_grid_tile = (sel.width == context.project.tile_size and sel.height == context.project.tile_size)
+                item = MapItem(
                     asset_id=sel.id,
                     col=col,
                     row=row,
-                    item_type=ItemType.OBJECT if is_large else ItemType.TILE,
+                    item_type=ItemType.TILE if is_grid_tile else ItemType.OBJECT,
                     offset_x=jx,
                     offset_y=jy,
                     source_x=0,
@@ -135,4 +155,20 @@ class BaseTool(ABC):
                     flip_x=fx,
                     flip_y=fy,
                 )
-        return None
+                return [item]
+        return []
+
+    @staticmethod
+    def create_item_from_selection(
+        col: int,
+        row: int,
+        context: ToolContext,
+        override_asset: Optional[Any] = None,
+    ) -> Optional[MapItem]:
+        items = BaseTool.create_items_from_selection(col, row, context, override_asset)
+        return items[0] if items else None
+
+
+# Convenience module-level aliases
+create_items_from_selection = BaseTool.create_items_from_selection
+create_item_from_selection = BaseTool.create_item_from_selection

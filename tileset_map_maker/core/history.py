@@ -138,18 +138,25 @@ class LayerRemoveCommand(Command):
         layer = project.get_layer(layer_id)
         super().__init__(f"Usuń warstwę '{layer.name if layer else ''}'")
         self.project = project
-        self.layer = layer.clone() if layer else None
+        self.layer_id = layer_id
+        if layer:
+            self.layer = layer.clone(new_name=layer.name)
+            self.layer.id = layer.id
+        else:
+            self.layer = None
         self.index = project.get_layer_index(layer_id)
 
     def execute(self) -> None:
-        if self.layer:
-            self.project.remove_layer(self.layer.id)
+        if self.layer_id:
+            self.project.remove_layer(self.layer_id)
             self.project.is_modified = True
 
     def undo(self) -> None:
         if self.layer and self.index is not None:
-            self.project.layers.insert(self.index, self.layer.clone())
-            self.project.active_layer_id = self.layer.id
+            restored = self.layer.clone(new_name=self.layer.name)
+            restored.id = self.layer_id
+            self.project.layers.insert(self.index, restored)
+            self.project.active_layer_id = self.layer_id
             self.project.is_modified = True
 
 
@@ -210,6 +217,12 @@ class HistoryManager(QObject):
 
     def can_redo(self) -> bool:
         return len(self.redo_stack) > 0
+
+    def undo_description(self) -> str:
+        return self.undo_stack[-1].description if self.undo_stack else ""
+
+    def redo_description(self) -> str:
+        return self.redo_stack[-1].description if self.redo_stack else ""
 
     def clear(self) -> None:
         self.undo_stack.clear()

@@ -1,11 +1,14 @@
 import os
 import time
+import logging
 from typing import Dict, List, Optional, Tuple, Set, Any
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import QObject, pyqtSignal, Qt
 
 from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
 from ..models.category import CategoryTree, CategoryNode
+
+logger = logging.getLogger("AssetManager")
 
 
 class AssetManager(QObject):
@@ -41,10 +44,35 @@ class AssetManager(QObject):
                 self._touch_recent(asset.id)
             self.asset_selected.emit(sub_tile)
         elif asset is not None:
-            self.selected_item = asset
-            asset.last_used_time = time.time()
-            self._touch_recent(asset.id)
-            self.asset_selected.emit(asset)
+            if asset.asset_type == AssetType.TILESET:
+                # A tileset must NEVER be treated as a single whole-image object!
+                # Always resolve to a regular grid cell (defaulting to 0,0 if not specified).
+                cfg = asset.tileset_config or TilesetConfig(tile_width=32, tile_height=32)
+                sub_tile = SelectedSubTile(
+                    asset_id=asset.id,
+                    col=0,
+                    row=0,
+                    cols_count=1,
+                    rows_count=1,
+                    sub_x=cfg.start_x + cfg.margin_x,
+                    sub_y=cfg.start_y + cfg.margin_y,
+                    sub_w=cfg.tile_width,
+                    sub_h=cfg.tile_height,
+                    tile_width=cfg.tile_width,
+                    tile_height=cfg.tile_height,
+                    spacing_x=cfg.spacing_x,
+                    spacing_y=cfg.spacing_y,
+                    asset_name=asset.name,
+                )
+                self.selected_item = sub_tile
+                asset.last_used_time = time.time()
+                self._touch_recent(asset.id)
+                self.asset_selected.emit(sub_tile)
+            else:
+                self.selected_item = asset
+                asset.last_used_time = time.time()
+                self._touch_recent(asset.id)
+                self.asset_selected.emit(asset)
         else:
             self.selected_item = None
             self.asset_selected.emit(None)
@@ -61,11 +89,41 @@ class AssetManager(QObject):
             return self._pixmap_cache[asset_id]
         asset = self.get_asset(asset_id)
         if not asset or not os.path.exists(asset.file_path):
+            logger.warning(f"get_pixmap: asset {asset_id} not found or file does not exist: {getattr(asset, 'file_path', None)}")
             return None
+
+        # 1. Try native Qt QPixmap load
         pixmap = QPixmap(asset.file_path)
+
+        # 2. If native load fails, fallback to PIL loader (handles complex/indexed PNGs, CMYK, etc.)
+        if pixmap.isNull():
+            logger.warning(f"QPixmap native load returned null for {asset.file_path}. Attempting PIL fallback...")
+            try:
+                from PIL import Image
+                with Image.open(asset.file_path) as im:
+                    im_rgba = im.convert("RGBA")
+                    raw_data = im_rgba.tobytes("raw", "RGBA")
+                    qimg = QImage(
+                        raw_data,
+                        im_rgba.width,
+                        im_rgba.height,
+                        im_rgba.width * 4,
+                        QImage.Format.Format_RGBA8888,
+                    )
+                    pixmap = QPixmap.fromImage(qimg.copy())
+                    logger.info(f"PIL fallback successfully loaded {asset.file_path} ({im_rgba.width}x{im_rgba.height})")
+            except Exception as e:
+                logger.error(f"Failed to load image via PIL fallback for {asset.file_path}: {e}")
+
         if not pixmap.isNull():
             self._pixmap_cache[asset_id] = pixmap
+            logger.info(
+                f"[TEXTURE_LOADED] Asset '{asset.name}' (id: {asset.id[:8]}...): "
+                f"Path: {asset.file_path} | Size: {pixmap.width()}x{pixmap.height()} px | HasAlpha: {pixmap.hasAlpha()}"
+            )
             return pixmap
+
+        logger.error(f"[TEXTURE_FAILED] Could not load texture for asset '{asset.name}' from {asset.file_path}")
         return None
 
     def get_image(self, asset_id: str) -> Optional[QImage]:
@@ -153,12 +211,14 @@ class AssetManager(QObject):
         if force_asset_type is not None:
             asset.asset_type = force_asset_type
             if force_asset_type == AssetType.TILESET and not asset.tileset_config:
-                asset.tileset_config = self.auto_detect_tileset_config(asset)
+                asset.tileset_config = TilesetConfig(tile_width=32, tile_height=32)
         else:
-            # If image has multiple tiles candidate, set tileset config available
-            ts_cfg = self.auto_detect_tileset_config(asset)
-            if ts_cfg.auto_detected:
-                asset.tileset_config = ts_cfg
+            # Default to TILESET if image dimensions suggest an image sheet or multi-tile asset
+            if (asset.width >= 64 or asset.height >= 64 or (asset.width > 32 and asset.height > 32)):
+                asset.asset_type = AssetType.TILESET
+                asset.tileset_config = TilesetConfig(tile_width=32, tile_height=32)
+            else:
+                asset.asset_type = AssetType.SINGLE_IMAGE
 
         self.assets[asset.id] = asset
         self.hash_to_id[content_hash] = asset.id
@@ -254,6 +314,24 @@ class AssetManager(QObject):
             "errors": errors,
             "imported": imported,
         }
+
+    def set_asset_type(
+        self,
+        asset_id: str,
+        new_type: AssetType,
+        tile_width: int = 32,
+        tile_height: int = 32,
+    ) -> bool:
+        """Switches an asset between TILESET and SINGLE_IMAGE mode."""
+        asset = self.get_asset(asset_id)
+        if not asset:
+            return False
+        asset.asset_type = new_type
+        if new_type == AssetType.TILESET:
+            if not asset.tileset_config:
+                asset.tileset_config = TilesetConfig(tile_width=tile_width, tile_height=tile_height)
+        self.assets_changed.emit()
+        return True
 
     def remove_asset(self, asset_id: str) -> bool:
         asset = self.assets.pop(asset_id, None)

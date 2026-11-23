@@ -13,12 +13,32 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QToolButton,
     QMenu,
+    QComboBox,
 )
 from PyQt6.QtGui import QColor
 
 from ..models.project import Project
 from ..models.layer import Layer
 from ..core.history import HistoryManager, LayerAddCommand, LayerRemoveCommand, LayerMoveCommand
+
+
+class LayerTreeWidget(QTreeWidget):
+    """
+    QTreeWidget with Drag & Drop internal moving enabled
+    for natural layer stack reordering.
+    """
+    order_changed = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
+
+    def dropEvent(self, event) -> None:
+        super().dropEvent(event)
+        self.order_changed.emit()
 
 
 class LayerPanel(QWidget):
@@ -46,7 +66,7 @@ class LayerPanel(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
 
-        # Header with Opacity Slider
+        # Header with Opacity Slider and Blend Mode
         op_layout = QHBoxLayout()
         lbl_op = QLabel("Krycie:")
         lbl_op.setStyleSheet("font-size: 11px; color: #a1a1aa;")
@@ -61,10 +81,38 @@ class LayerPanel(QWidget):
         self.lbl_op_val = QLabel("100%")
         self.lbl_op_val.setStyleSheet("font-size: 11px; color: #a1a1aa; min-width: 35px;")
         op_layout.addWidget(self.lbl_op_val)
+
+        # Blend Mode Dropdown (TASK-704)
+        lbl_bm = QLabel("Tryb:")
+        lbl_bm.setStyleSheet("font-size: 11px; color: #a1a1aa; margin-left: 4px;")
+        op_layout.addWidget(lbl_bm)
+
+        self.combo_blend = QComboBox(self)
+        self.combo_blend.addItem("Zwykły", "normal")
+        self.combo_blend.addItem("Mnożenie", "multiply")
+        self.combo_blend.addItem("Ekran", "screen")
+        self.combo_blend.addItem("Nakładka", "overlay")
+        self.combo_blend.addItem("Dodawanie", "add")
+        self.combo_blend.setStyleSheet("""
+            QComboBox {
+                background: #27272a;
+                color: #e4e4e7;
+                border: 1px solid #3f3f46;
+                border-radius: 3px;
+                padding: 1px 4px;
+                font-size: 10px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+        """)
+        self.combo_blend.currentIndexChanged.connect(self._on_blend_mode_changed)
+        op_layout.addWidget(self.combo_blend)
+
         layout.addLayout(op_layout)
 
-        # Hierarchical Layer Tree Widget
-        self.tree_widget = QTreeWidget()
+        # Hierarchical Layer Tree Widget with Drag & Drop Reordering
+        self.tree_widget = LayerTreeWidget(self)
         self.tree_widget.setHeaderLabels(["Warstwa / Grupa", "Widoczność", "Blokada", "Auto-Tile"])
         self.tree_widget.setColumnWidth(0, 140)
         self.tree_widget.setColumnWidth(1, 40)
@@ -72,6 +120,7 @@ class LayerPanel(QWidget):
         self.tree_widget.setColumnWidth(3, 40)
         self.tree_widget.itemClicked.connect(self._on_item_clicked)
         self.tree_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.tree_widget.order_changed.connect(self._on_tree_order_changed)
         self.tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.tree_widget)
@@ -80,39 +129,71 @@ class LayerPanel(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(4)
 
+        btn_style = """
+            QToolButton {
+                background-color: #27272a;
+                color: #e4e4e7;
+                border: 1px solid #3f3f46;
+                border-radius: 4px;
+                padding: 4px 7px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QToolButton:hover {
+                background-color: #3b82f6;
+                color: #ffffff;
+                border-color: #60a5fa;
+            }
+            QToolButton:pressed {
+                background-color: #1d4ed8;
+            }
+            QToolButton:disabled {
+                color: #52525b;
+                border-color: #27272a;
+                background-color: #18181b;
+            }
+        """
+
         btn_add = QToolButton()
         btn_add.setText("➕")
         btn_add.setToolTip("Dodaj nową warstwę")
+        btn_add.setStyleSheet(btn_style)
         btn_add.clicked.connect(self._add_layer)
 
         btn_add_grp = QToolButton()
         btn_add_grp.setText("📁")
         btn_add_grp.setToolTip("Dodaj nową grupę warstw")
+        btn_add_grp.setStyleSheet(btn_style)
         btn_add_grp.clicked.connect(self._add_group)
 
         btn_dup = QToolButton()
         btn_dup.setText("📋")
         btn_dup.setToolTip("Duplikuj aktywną warstwę")
+        btn_dup.setStyleSheet(btn_style)
         btn_dup.clicked.connect(self._duplicate_layer)
 
         btn_del = QToolButton()
         btn_del.setText("🗑️")
         btn_del.setToolTip("Usuń wybraną warstwę lub grupę")
+        btn_del.setStyleSheet(btn_style)
         btn_del.clicked.connect(self._delete_layer)
 
         btn_clear = QToolButton()
         btn_clear.setText("🧹")
         btn_clear.setToolTip("Wyczyść zawartość aktywnej warstwy")
+        btn_clear.setStyleSheet(btn_style)
         btn_clear.clicked.connect(self._clear_layer)
 
         btn_up = QToolButton()
         btn_up.setText("⬆️")
         btn_up.setToolTip("Przesuń w górę")
+        btn_up.setStyleSheet(btn_style)
         btn_up.clicked.connect(self._move_up)
 
         btn_down = QToolButton()
         btn_down.setText("⬇️")
         btn_down.setToolTip("Przesuń w dół")
+        btn_down.setStyleSheet(btn_style)
         btn_down.clicked.connect(self._move_down)
 
         btn_layout.addWidget(btn_add)
@@ -168,6 +249,12 @@ class LayerPanel(QWidget):
                 self.tree_widget.setCurrentItem(item)
                 self.slider_opacity.setValue(int(layer.opacity * 100))
                 self.lbl_op_val.setText(f"{int(layer.opacity * 100)}%")
+                bm = getattr(layer, "blend_mode", "normal")
+                idx = self.combo_blend.findData(bm)
+                if idx >= 0:
+                    self.combo_blend.blockSignals(True)
+                    self.combo_blend.setCurrentIndex(idx)
+                    self.combo_blend.blockSignals(False)
 
             # Children if group
             if layer.is_group:
@@ -240,6 +327,16 @@ class LayerPanel(QWidget):
             self.lbl_op_val.setText(f"{val}%")
             self.layer_changed.emit()
 
+    def _on_blend_mode_changed(self, index: int) -> None:
+        item = self.tree_widget.currentItem()
+        layer_id = item.data(0, Qt.ItemDataRole.UserRole) if item else self.project.active_layer_id
+        layer = self.project.get_layer(layer_id)
+        if layer:
+            mode = self.combo_blend.currentData()
+            if mode:
+                layer.blend_mode = mode
+                self.layer_changed.emit()
+
     def _add_layer(self) -> None:
         item = self.tree_widget.currentItem()
         parent_group_id = None
@@ -260,7 +357,9 @@ class LayerPanel(QWidget):
         if ok and name.strip():
             new_layer = Layer(name=name.strip(), group_id=parent_group_id)
             cmd = LayerAddCommand(self.project, new_layer)
+            cmd.execute()
             self.history_manager.push(cmd)
+            self.project.set_active_layer(new_layer.id)
             self.refresh_layers()
             self.layer_changed.emit()
 
@@ -302,6 +401,7 @@ class LayerPanel(QWidget):
             )
             if confirm == QMessageBox.StandardButton.Yes:
                 cmd = LayerRemoveCommand(self.project, target.id)
+                cmd.execute()
                 self.history_manager.push(cmd)
                 self.refresh_layers()
                 self.layer_changed.emit()
@@ -330,6 +430,7 @@ class LayerPanel(QWidget):
         idx = self.project.get_layer_index(lid)
         if idx is not None and idx < len(self.project.layers) - 1:
             cmd = LayerMoveCommand(self.project, idx, idx + 1)
+            cmd.execute()
             self.history_manager.push(cmd)
             self.refresh_layers()
             self.layer_changed.emit()
@@ -342,6 +443,7 @@ class LayerPanel(QWidget):
         idx = self.project.get_layer_index(lid)
         if idx is not None and idx > 0:
             cmd = LayerMoveCommand(self.project, idx, idx - 1)
+            cmd.execute()
             self.history_manager.push(cmd)
             self.refresh_layers()
             self.layer_changed.emit()
@@ -372,5 +474,45 @@ class LayerPanel(QWidget):
 
     def _set_parent_group(self, layer: Layer, parent_id: Optional[str]) -> None:
         layer.group_id = parent_id
+        self.refresh_layers()
+        self.layer_changed.emit()
+
+    def _on_tree_order_changed(self) -> None:
+        """
+        Synchronizes self.project.layers when user drags and drops
+        items in the layer tree widget.
+        """
+        top_to_bottom_ids: List[str] = []
+
+        def _traverse(item: QTreeWidgetItem, parent_group_id: Optional[str] = None):
+            lid = item.data(0, Qt.ItemDataRole.UserRole)
+            layer = self.project.get_layer(lid)
+            if layer:
+                layer.group_id = parent_group_id
+                top_to_bottom_ids.append(lid)
+                for i in range(item.childCount()):
+                    _traverse(item.child(i), layer.id if layer.is_group else parent_group_id)
+
+        for i in range(self.tree_widget.topLevelItemCount()):
+            _traverse(self.tree_widget.topLevelItem(i), None)
+
+        if not top_to_bottom_ids:
+            return
+
+        # In render order, index 0 is bottommost, so reverse visual top-to-bottom list
+        new_layers = []
+        for lid in reversed(top_to_bottom_ids):
+            l = self.project.get_layer(lid)
+            if l:
+                new_layers.append(l)
+
+        # Include any remaining layers not in tree
+        existing_ids = set(top_to_bottom_ids)
+        for l in self.project.layers:
+            if l.id not in existing_ids:
+                new_layers.insert(0, l)
+
+        self.project.layers = new_layers
+        self.project.is_modified = True
         self.refresh_layers()
         self.layer_changed.emit()

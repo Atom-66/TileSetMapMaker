@@ -5,6 +5,7 @@ from .fill import FillTool
 from .shapes import LineTool, RectTool
 from .eyedropper import EyedropperTool
 from .select_tool import SelectTool, StampTool
+from .wand import WandTool
 from .object_tool import ObjectTool, ObjectTransformCommand
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "EyedropperTool",
     "SelectTool",
     "StampTool",
+    "WandTool",
     "ObjectTool",
     "ObjectTransformCommand",
 ]
