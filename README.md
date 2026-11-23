@@ -37,8 +37,9 @@ Gotowe paczki dla obu systemów można zbudować bez lokalnego Windowsa ani Linu
 
 Możesz też zbudować paczkę lokalnie na odpowiednim systemie. Skrypt tworzy lokalne
 środowisko `.venv` i instaluje w nim wymagane pakiety — nie używa systemowego `pip`.
-Potrzebny jest Python 3.10+. Na Linuxie wymagany jest dodatkowo `appimagetool` dostępny w
-`PATH`.
+Potrzebny jest Python 3.10+. Na Linuxie, jeśli `appimagetool` nie jest dostępny w `PATH`,
+skrypt pobierze go automatycznie do lokalnego katalogu `.tools/` i doda ten katalog do
+`PATH` na czas budowania. Automatyczne pobieranie jest obecnie obsługiwane na x86_64.
 
 Linux:
 
