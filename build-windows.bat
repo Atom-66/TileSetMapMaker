@@ -2,8 +2,12 @@
 setlocal
 set "PIP_DISABLE_PIP_VERSION_CHECK=1"
 cd /d "%~dp0"
+if errorlevel 1 (
+    echo Nie udalo sie przejsc do katalogu projektu.
+    goto :failed
+)
 
-set "VENV_PYTHON=.venv\Scripts\python.exe"
+set "VENV_PYTHON=%CD%\.venv\Scripts\python.exe"
 
 if exist "%VENV_PYTHON%" goto :install_deps
 
@@ -36,7 +40,7 @@ echo Nie znaleziono Pythona 3.10 lub nowszego.
 echo Zainstaluj Python z python.org i zaznacz opcje:
 echo   - Add python.exe to PATH
 echo   - Install launcher for all users
-exit /b 1
+goto :failed
 
 :install_deps
 if not exist "%VENV_PYTHON%" goto :venv_failed
@@ -44,8 +48,9 @@ if not exist "%VENV_PYTHON%" goto :venv_failed
 "%VENV_PYTHON%" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
 if errorlevel 1 (
     echo Srodowisko .venv zawiera Pythona starszego niz 3.10.
-    echo Usun katalog .venv i uruchom skrypt ponownie.
-    exit /b 1
+    echo Lub nie mozna go uruchomic. Sprawdz blad powyzej.
+    echo Jesli srodowisko jest niepoprawne, zmien nazwe katalogu .venv i uruchom skrypt ponownie.
+    goto :failed
 )
 
 echo Instalowanie zaleznosci buildowych...
@@ -57,24 +62,35 @@ if errorlevel 1 goto :deps_failed
 echo Budowanie TileSetMapMaker.exe...
 "%VENV_PYTHON%" build.py --target exe
 if errorlevel 1 goto :build_failed
+if not exist "%CD%\dist\TileSetMapMaker.exe" (
+    echo.
+    echo Build zakonczyl sie bez bledu, ale nie znaleziono pliku EXE.
+    goto :failed
+)
 
 echo.
-echo Gotowe: dist\TileSetMapMaker.exe
+echo Gotowe: "%CD%\dist\TileSetMapMaker.exe"
 exit /b 0
 
 :venv_failed
 echo.
 echo Nie udalo sie utworzyc srodowiska .venv.
 echo Sprawdz, czy Python zawiera modul venv i czy katalog projektu jest zapisywalny.
-exit /b 1
+goto :failed
 
 :deps_failed
 echo.
 echo Instalacja zaleznosci nie powiodla sie.
 echo Sprawdz polaczenie internetowe i zawartosc requirements-build.txt.
-exit /b 1
+goto :failed
 
 :build_failed
 echo.
 echo Budowanie EXE nie powiodlo sie. Log bledu znajduje sie powyzej.
+goto :failed
+
+:failed
+echo.
+echo Skopiuj komunikaty bledu powyzej, aby ustalic przyczyne.
+if /i not "%~1"=="--no-pause" pause
 exit /b 1

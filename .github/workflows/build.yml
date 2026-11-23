@@ -69,6 +69,18 @@ jobs:
           python -m pip install -r requirements-build.txt
       - name: Build EXE
         run: python build.py --target exe
+      - name: Smoke test packaged EXE
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $process = Start-Process -FilePath "dist/TileSetMapMaker.exe" -ArgumentList "--smoke-test" -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw "EXE smoke test timed out"
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "EXE smoke test failed with exit code $($process.ExitCode)"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: TileSetMapMaker-Windows

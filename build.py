@@ -19,6 +19,8 @@ def build_executable() -> None:
     if os.name != "nt":
         raise RuntimeError("Plik EXE należy budować w systemie Windows.")
 
+    spec_dir = ROOT / "build" / "windows-spec"
+    spec_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
             sys.executable,
@@ -30,11 +32,15 @@ def build_executable() -> None:
             "--onefile",
             "--name",
             APP_NAME,
+            "--workpath",
+            str(ROOT / "build" / "windows-exe"),
+            "--specpath",
+            str(spec_dir),
             "--version-file",
             str(ROOT / "build-version.txt"),
             "--add-data",
-            f"icons{os.pathsep}icons",
-            "run_app.py",
+            f"{ROOT / 'icons'}{os.pathsep}icons",
+            str(ROOT / "run_app.py"),
         ],
         cwd=ROOT,
         check=True,

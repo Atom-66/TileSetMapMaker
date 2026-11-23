@@ -49,7 +49,7 @@ Gotowe paczki dla obu systemów można zbudować bez lokalnego Windowsa ani Linu
 3. Po zakończeniu pobierz artefakty `TileSetMapMaker-AppImage` i `TileSetMapMaker-Windows`.
 
 Możesz też zbudować paczkę lokalnie na odpowiednim systemie. Skrypt tworzy lokalne
-środowisko `.venv` i instaluje w nim wymagane pakiety — nie używa systemowego `pip`.
+środowisko dla danego systemu i instaluje w nim wymagane pakiety — nie używa systemowego `pip`.
 Potrzebny jest Python 3.10+. Na Linuxie, jeśli `appimagetool` nie jest dostępny w `PATH`,
 skrypt pobierze go automatycznie do lokalnego katalogu `.tools/` i doda ten katalog do
 `PATH` na czas budowania. Automatyczne pobieranie jest obecnie obsługiwane na x86_64.
@@ -60,14 +60,28 @@ Linux:
 ./build-linux.sh
 ```
 
+Windows EXE z Linuksa x86_64:
+
+```bash
+bash build-windows.sh
+```
+
+Wymagane są Wine dla aplikacji 64-bitowych, `curl` i `sha256sum`. Skrypt pobiera
+Windowsowy Python 3.12 do osobnego środowiska Wine w `.tools/wine-windows`, instaluje
+w nim zależności i buduje `dist/TileSetMapMaker.exe`. Pierwszy build wymaga dostępu
+do internetu. To środowisko nie korzysta z linuksowego `.venv`.
+
 Windows: uruchom `build-windows.bat`. Skrypt używa Python Launcher (`py`), a jeśli go
 nie ma, automatycznie próbuje polecenia `python` z `PATH`. Wymaga Pythona 3.10+.
-Jeśli istniejące `.venv` było utworzone starszym Pythonem, usuń ten katalog i uruchom
-skrypt ponownie.
+Plik wynikowy to `dist\TileSetMapMaker.exe` w katalogu projektu. W przypadku błędu
+skrypt zatrzymuje okno, aby można było odczytać komunikat; w automatyzacji użyj
+`build-windows.bat --no-pause`. Jeśli istniejącego `.venv` nie można uruchomić lub
+zawiera starszego Pythona, zmień nazwę tego katalogu i uruchom skrypt ponownie.
 
 Wyniki znajdziesz w katalogu `dist/`. Sam builder można też uruchomić z aktywnego
 środowiska przez `python build.py --target appimage` lub `python build.py --target exe`;
-AppImage buduje się na Linuxie, a EXE na Windowsie.
+AppImage buduje się na Linuxie, a EXE za pomocą Windowsowego Pythona, natywnie
+na Windowsie albo przez Wine.
 
 ## Tworzenie wydania
 

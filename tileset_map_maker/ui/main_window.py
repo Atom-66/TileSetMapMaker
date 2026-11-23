@@ -36,6 +36,7 @@ from ..models.terrain import TerrainGenerator
 from ..core.tools.select_tool import SelectTool
 from ..core.tools.wand import WandTool
 from ..core.tools.object_tool import ObjectTool
+from ..core.tools.base import BaseTool
 from .icons import IconFactory
 from .map_canvas import MapCanvas
 from .tileset_palette_widget import TilesetPaletteWidget

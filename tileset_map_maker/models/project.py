@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Optional, Dict, Any
-from .layer import Layer
+from .layer import Layer, MapItem
 from .map_model import MapModel
 
 
