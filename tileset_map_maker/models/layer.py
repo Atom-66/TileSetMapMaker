@@ -1,4 +1,5 @@
 import uuid
+import copy
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -175,7 +176,7 @@ class MapItem:
             return self.free_x, self.free_y
         return float(self.col * tile_size + self.offset_x), float(self.row * tile_size + self.offset_y)
 
-    def clone(self) -> "MapItem":
+    def clone(self, preserve_id: bool = False) -> "MapItem":
         return MapItem(
             asset_id=self.asset_id,
             col=self.col,
@@ -191,6 +192,7 @@ class MapItem:
             dest_h=self.dest_h,
             flip_x=self.flip_x,
             flip_y=self.flip_y,
+            item_id=self.id if preserve_id else None,
             rotation=self.rotation,
             scale_x=self.scale_x,
             scale_y=self.scale_y,
@@ -203,8 +205,8 @@ class MapItem:
             terrain_type=self.terrain_type,
             is_auto_tiled=self.is_auto_tiled,
             object_type=self.object_type,
-            properties=self.properties,
-            property_types=self.property_types,
+            properties=copy.deepcopy(self.properties),
+            property_types=copy.deepcopy(self.property_types),
             interaction_label=self.interaction_label,
             interaction_radius=self.interaction_radius,
         )

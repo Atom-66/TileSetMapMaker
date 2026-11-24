@@ -1,6 +1,6 @@
 from typing import Optional, List, Tuple, Any
 from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QPoint, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtWidgets import QWidget, QApplication, QMenu
 from PyQt6.QtGui import (
     QPainter,
     QColor,
@@ -14,6 +14,7 @@ from PyQt6.QtGui import (
     QDropEvent,
     QCursor,
     QFocusEvent,
+    QRegion,
 )
 
 from ..models.project import Project
@@ -25,8 +26,10 @@ from ..core.tools.base import BaseTool, ToolContext
 from ..core.tools.eraser import EraserTool
 from ..core.tools.object_tool import ObjectTool
 from ..core.tools.select_tool import StampTool, SelectTool
+from ..core.tools.wand import WandTool
 from .quick_action_menu import QuickActionMenu
 from .styles import get_canvas_theme_colors
+from ..core.localization import tr
 
 
 class MapCanvas(QWidget):
@@ -41,6 +44,7 @@ class MapCanvas(QWidget):
     viewport_changed = pyqtSignal()
     quick_tool_requested = pyqtSignal(str)
     object_selected = pyqtSignal(object)
+    operation_error = pyqtSignal(str)
 
     def __init__(
         self,
@@ -94,6 +98,13 @@ class MapCanvas(QWidget):
         self.asset_manager.asset_selected.connect(self._on_asset_selected)
 
     def set_project(self, project: Project) -> None:
+        selection = self._selection_tool()
+        if selection:
+            selection.cancel(self.tool_context)
+            selection.clear_selection(self.tool_context)
+        if project is not self.project:
+            self.tool_context.clipboard_tiles.clear()
+            self.tool_context.clipboard_region = QRegion()
         self.project = project
         self.tool_context.project = project
         self.tool_context.active_layer = project.get_active_layer()
@@ -101,9 +112,32 @@ class MapCanvas(QWidget):
         self.update()
 
     def set_tool(self, tool: BaseTool) -> None:
-        if self.active_tool and self.active_tool.is_active:
+        if self.active_tool and (
+            self.active_tool.is_active or (
+                self.active_tool is not tool
+                and isinstance(self.active_tool, SelectTool)
+                and self.active_tool.pasting
+            )
+        ):
             self.active_tool.cancel(self.tool_context)
         self.active_tool = tool
+        if isinstance(tool, SelectTool) and tool.selection_owner is not None:
+            layer = self.project.get_active_layer()
+            owner = (self.project.active_map_id, layer.id) if layer else None
+            if owner != tool.selection_owner:
+                tool.clear_selection(self.tool_context)
+        if isinstance(tool, SelectTool):
+            tool._set_region(tool._region(), self.tool_context)
+        elif isinstance(tool, WandTool):
+            selection = self._selection_tool()
+            if selection:
+                selection._set_region(selection._region(), self.tool_context)
+                tool.selected_cells = set(self.tool_context.selected_cells)
+                tool.selection_rect = selection.selection_rect
+            else:
+                self.tool_context.selected_cells = set(tool.selected_cells)
+        else:
+            self.tool_context.selected_cells = set(getattr(tool, "selected_cells", set()))
         self.update()
 
     def _on_asset_selected(self, item: Any) -> None:
@@ -111,8 +145,21 @@ class MapCanvas(QWidget):
         self.update()
 
     def set_active_layer(self, layer: Optional[Layer]) -> None:
+        selection = self._selection_tool()
+        if selection:
+            owner = selection.selection_owner
+            target = (self.project.active_map_id, layer.id) if layer else None
+            if owner is not None and owner != target:
+                selection.cancel(self.tool_context)
+                selection.clear_selection(self.tool_context)
         self.tool_context.active_layer = layer
         self.update()
+
+    def _selection_tool(self) -> Optional[SelectTool]:
+        tool = self.tool_context.selection_tool
+        if isinstance(tool, SelectTool):
+            return tool
+        return self.active_tool if isinstance(self.active_tool, SelectTool) else None
 
     def toggle_grid(self, visible: Optional[bool] = None) -> bool:
         if visible is None:
@@ -201,10 +248,13 @@ class MapCanvas(QWidget):
 
         previews = []
         effective_tool = self.eraser_tool if self.is_right_erasing else self.active_tool
+        selection_tool = (
+            self._selection_tool() if isinstance(effective_tool, (SelectTool, WandTool)) else None
+        )
         if effective_tool and self.underMouse() and not self.is_right_erasing:
             previews = effective_tool.get_preview_items(self.tool_context)
 
-        sel_rect = getattr(effective_tool, "selection_rect", None)
+        sel_rect = selection_tool.selection_rect if selection_tool else getattr(effective_tool, "selection_rect", None)
 
         options = RenderOptions(
             show_grid=self.show_grid,
@@ -212,6 +262,13 @@ class MapCanvas(QWidget):
             show_selection=True,
             selection_rect=sel_rect,
             selection_cells=list(self.tool_context.selected_cells),
+            selection_region=(
+                self.tool_context.clipboard_region.translated(self.tool_context.cursor_col, self.tool_context.cursor_row)
+                if selection_tool and selection_tool.pasting
+                else selection_tool._region().translated(*selection_tool.move_preview)
+                if selection_tool and selection_tool.moving_selection
+                else selection_tool._region() if selection_tool else None
+            ),
             selected_object_ids=self.tool_context.selected_object_ids,
             preview_items=previews,
             render_checkerboard=True,
@@ -319,6 +376,12 @@ class MapCanvas(QWidget):
 
         # Right Click: Temporarily activate Eraser!
         if event.button() == Qt.MouseButton.RightButton:
+            if isinstance(self.active_tool, (SelectTool, WandTool)):
+                selection = self._selection_tool()
+                if selection and selection._region().contains(QPoint(col, row)):
+                    self._selection_context_menu(event.globalPosition().toPoint())
+                event.accept()
+                return
             if not layer or layer.locked or not self.project.get_effective_visible(layer):
                 event.accept()
                 return
@@ -331,7 +394,11 @@ class MapCanvas(QWidget):
         # Left Click: Standard Tool execution
         if event.button() == Qt.MouseButton.LeftButton:
             if self.active_tool:
+                self.tool_context.selection_modifiers = event.modifiers()
                 self.active_tool.on_press(col, row, self.tool_context)
+                if isinstance(self.active_tool, SelectTool) and self.active_tool.last_error:
+                    self.operation_error.emit(tr(self.active_tool.last_error))
+                    self.active_tool.last_error = ""
                 if isinstance(self.active_tool, ObjectTool):
                     selected = (
                         layer.get_object(self.active_tool.selected_ids[0])
@@ -409,6 +476,9 @@ class MapCanvas(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.active_tool and self.active_tool.is_active:
                 self.active_tool.on_release(col, row, self.tool_context)
+                if isinstance(self.active_tool, SelectTool) and self.active_tool.last_error:
+                    self.operation_error.emit(tr(self.active_tool.last_error))
+                    self.active_tool.last_error = ""
                 self.update()
             event.accept()
 
@@ -416,10 +486,69 @@ class MapCanvas(QWidget):
         # Suppress context menu so Right Click erases seamlessly without popup
         event.accept()
 
+    def _selection_context_menu(self, pos: QPoint) -> None:
+        tool = self._selection_tool()
+        if tool is None:
+            return
+        context = self.tool_context
+        editable = tool._valid_layer(context, edit=True)
+        menu = QMenu(self)
+        copy = menu.addAction(tr("selection.copy"))
+        cut = menu.addAction(tr("selection.cut"))
+        paste = menu.addAction(tr("selection.paste"))
+        duplicate = menu.addAction(tr("selection.duplicate"))
+        delete = menu.addAction(tr("selection.delete"))
+        fill = menu.addAction(tr("selection.fill"))
+        menu.addSeparator()
+        all_cells = menu.addAction(tr("selection.all"))
+        contents = menu.addAction(tr("selection.contents"))
+        invert = menu.addAction(tr("selection.invert"))
+        clear = menu.addAction(tr("selection.clear"))
+        copy.setEnabled(tool._valid_layer(context))
+        cut.setEnabled(editable)
+        delete.setEnabled(editable)
+        duplicate.setEnabled(editable)
+        fill.setEnabled(editable and bool(
+            context.selected_asset or (context.asset_manager and context.asset_manager.selected_item)
+        ))
+        paste.setEnabled(editable and (not context.clipboard_region.isEmpty() or bool(context.clipboard_tiles)))
+        action = menu.exec(pos)
+        if action == copy:
+            tool.copy_selection(context)
+        elif action == cut:
+            tool.cut_selection(context)
+        elif action == paste:
+            if not isinstance(self.active_tool, SelectTool):
+                self.quick_tool_requested.emit("select")
+            tool.start_paste(context)
+        elif action == duplicate:
+            tool.copy_selection(context)
+            if not isinstance(self.active_tool, SelectTool):
+                self.quick_tool_requested.emit("select")
+            tool.start_paste(context)
+        elif action == delete:
+            tool.delete_selection(context)
+        elif action == fill:
+            if not tool.fill_selection(context):
+                self.operation_error.emit(tr("selection.invalid_fill"))
+        elif action == all_cells:
+            tool.select_all(context)
+        elif action == contents:
+            tool.select_layer_contents(context)
+        elif action == invert:
+            tool.invert_selection(context)
+        elif action == clear:
+            tool.clear_selection(context)
+        self.update()
+
     def focusOutEvent(self, event: QFocusEvent) -> None:
         # Prevent eraser or panning from being stuck when window loses focus
-        if self.active_tool and self.active_tool.is_active:
+        if self.active_tool and (
+            self.active_tool.is_active
+            or (isinstance(self.active_tool, SelectTool) and self.active_tool.pasting)
+        ):
             self.active_tool.cancel(self.tool_context)
+            self.update()
         if self.is_right_erasing:
             self.is_right_erasing = False
             self.eraser_tool.on_release(self.tool_context.cursor_col, self.tool_context.cursor_row, self.tool_context)
@@ -435,6 +564,7 @@ class MapCanvas(QWidget):
         if not (QApplication.mouseButtons() & (Qt.MouseButton.LeftButton | Qt.MouseButton.MiddleButton | Qt.MouseButton.RightButton)):
             if self.active_tool and self.active_tool.is_active:
                 self.active_tool.cancel(self.tool_context)
+                self.update()
             self.is_panning = False
             self.is_right_erasing = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -445,7 +575,20 @@ class MapCanvas(QWidget):
         super().leaveEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+        if event.key() == Qt.Key.Key_Escape and isinstance(self.active_tool, (SelectTool, WandTool)):
+            tool = self._selection_tool()
+            if tool is None:
+                super().keyPressEvent(event)
+                return
+            if tool.is_active or tool.pasting:
+                tool.cancel(self.tool_context)
+            else:
+                tool.clear_selection(self.tool_context)
+                if isinstance(self.active_tool, WandTool):
+                    self.active_tool.clear_selection(self.tool_context)
+            self.update()
+            event.accept()
+        elif event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self.space_pressed = True
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             event.accept()

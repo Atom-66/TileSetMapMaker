@@ -104,7 +104,11 @@ nawet po wielokrotnych interakcjach Qt.
 - `[x]` obrót i odbicie zaznaczenia,
 - `[x]` przesuwanie zaznaczenia z podglądem,
 - `[x]` operacje na wielu zaznaczonych kafelkach,
-- `[x]` testy wszystkich narzędzi z wieloma warstwami i blokadami.
+- `[x]` wycinanie, wklejanie z podglądem, duplikowanie i wypełnianie obszaru,
+- `[x]` dodawanie, odejmowanie i odwracanie zaznaczenia; wybór całej mapy lub zawartości warstwy,
+- `[x]` testy historii i blokad warstw dla operacji na obszarze kafelków,
+- `[~]` ręczna weryfikacja wszystkich interakcji na natywnych pulpitach,
+- `[ ]` zaznaczanie obszarowe swobodnych obiektów i kolizji.
 
 ### 2.4 Zapis i eksport
 

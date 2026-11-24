@@ -10,6 +10,8 @@ from PyQt6.QtGui import (
     QPen,
     QBrush,
     QTransform,
+    QRegion,
+    QPainterPath,
 )
 
 from ..models.project import Project
@@ -37,12 +39,14 @@ class RenderOptions:
         custom_bg_color: Optional[QColor] = None,
         scale: float = 1.0,
         render_checkerboard: bool = True,
+        selection_region: Optional[QRegion] = None,
     ):
         self.show_grid = show_grid
         self.grid_color = grid_color
         self.show_selection = show_selection
         self.selection_rect = selection_rect
         self.selection_cells = selection_cells
+        self.selection_region = selection_region
         self.selected_object_ids = selected_object_ids or []
         self.preview_items = preview_items or []
         self.preview_opacity = preview_opacity
@@ -371,9 +375,21 @@ class RenderEngine:
 
         # 5. Selection overlay (Tile Marquee)
         if options.show_selection and (
-            options.selection_rect or options.selection_cells
+            options.selection_region or options.selection_rect or options.selection_cells
         ):
-            if options.selection_cells:
+            if options.selection_region and not options.selection_region.isEmpty():
+                painter.save()
+                painter.scale(project.tile_size, project.tile_size)
+                path = QPainterPath()
+                path.addRegion(options.selection_region)
+                pen = QPen(QColor(79, 128, 255, 230))
+                pen.setCosmetic(True)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(QColor(79, 128, 255, 55))
+                painter.drawPath(path)
+                painter.restore()
+            elif options.selection_cells:
                 self.draw_selection_cells(
                     painter, options.selection_cells, project.tile_size
                 )

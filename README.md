@@ -131,6 +131,15 @@ niezależnie przez `PROJECT_SCHEMA_VERSION`.
 - zoom i panowanie podglądu bez resetowania transformacji podczas wyboru,
 - zapisywanie konfiguracji biblioteki, aktywnego zasobu i stanu folderów.
 
+W drzewie biblioteki kliknięcie zaznacza element, Ctrl+klik zmienia
+zaznaczenie pojedynczego elementu, a Shift+klik wybiera zakres widocznych
+elementów. Przeciągnięcie zaznaczonego elementu przenosi całą grupę do
+folderu, a upuszczenie na pustym obszarze przenosi ją do katalogu głównego.
+Foldery są przenoszone z całą zawartością; konflikt nazw lub próba
+przeniesienia folderu do własnego potomka anuluje operację. Przenoszenie
+zmienia strukturę biblioteki, nie pliki źródłowe. Historia edycji mapy nie
+obejmuje zmian biblioteki.
+
 ### Narzędzia edycji
 
 - pędzel i gumka,
@@ -199,9 +208,12 @@ te operacje i generator terenu mogą wymagać dużej ilości pamięci dla dużyc
 | `Ctrl+G` | Pokaż lub ukryj siatkę |
 | `Ctrl+F` | Dopasuj mapę do widoku |
 | `Ctrl+C` | Kopiuj zaznaczenie |
+| `Ctrl+X` | Wytnij zaznaczenie |
 | `Ctrl+V` | Wklej zaznaczenie |
+| `Ctrl+A` | Zaznacz całą mapę na aktywnej warstwie kafelków |
 | `Ctrl+D` | Duplikuj zaznaczony obiekt |
-| `Delete` | Usuń zaznaczenie lub obiekt |
+| `Delete` / `Backspace` | Usuń zawartość zaznaczenia lub obiekt |
+| `Escape` | Anuluj operację lub zaznaczenie |
 | `B` | Pędzel |
 | `E` | Gumka |
 | `G` | Wypełnianie |
@@ -222,6 +234,25 @@ te operacje i generator terenu mogą wymagać dużej ilości pamięci dla dużyc
 | `Esc` | Anuluj przeciąganie lub zamknij tryb personalizacji |
 
 Pełna lista znajduje się również w oknie **Skróty**.
+
+### Zaznaczanie obszaru mapy
+
+Narzędzie `S` zaznacza komórki aktywnej warstwy kafelków. Przeciągnij, aby
+wybrać prostokąt; Shift lub Ctrl dodaje obszar, a Alt go odejmuje. Przeciągnięcie
+wewnątrz zaznaczenia przenosi jego zawartość. `Escape` anuluje operację,
+a kolejne `Escape` usuwa zaznaczenie. Menu pod prawym przyciskiem wewnątrz
+zaznaczenia zawiera m.in. duplikowanie, wypełnienie wybranym kafelkiem,
+odwrócenie oraz zaznaczenie zawartości warstwy.
+Różdżka (`W`) wybiera przylegające pasujące komórki i korzysta z tego samego
+schowka oraz operacji na zaznaczeniu.
+
+Po `Ctrl+V` wskaż miejsce na mapie i kliknij, aby wkleić; kolejne kliknięcia
+wklejają ponownie, a `Escape` kończy wklejanie. Wklejanie i przesuwanie
+zastępują zawartość docelowych zaznaczonych komórek, również pustymi
+komórkami ze źródła. Operacja jest odrzucana, jeśli obszar wykracza poza
+mapę albo warstwa jest ukryta lub zablokowana. Modyfikacje można cofnąć.
+Schowek działa pomiędzy mapami jednego projektu. Narzędzie obszaru nie
+obejmuje swobodnych obiektów ani warstw kolizji.
 
 ## Pliki projektu
 

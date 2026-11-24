@@ -143,6 +143,7 @@ class MainWindow(QMainWindow):
         mid_layout.setSpacing(0)
 
         self.tool_panel = ToolPanel()
+        self.canvas.tool_context.selection_tool = self.tool_panel.get_tool("select")
         mid_layout.addWidget(self.canvas, 1)
 
         central_layout.addWidget(mid_widget, 1)
@@ -332,17 +333,19 @@ class MainWindow(QMainWindow):
         # 2. History actions
         self.act_undo = QAction(IconFactory.get_icon("undo", 20), "Cofnij", self)
         self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self.act_undo.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.act_undo.setToolTip(tr("tooltip.undo"))
         self.act_undo.setEnabled(False)
         self.act_undo.triggered.connect(lambda: self.history_manager.undo())
-        self.addAction(self.act_undo)
+        self.canvas.addAction(self.act_undo)
 
         self.act_redo = QAction(IconFactory.get_icon("redo", 20), "Ponów", self)
         self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
+        self.act_redo.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.act_redo.setToolTip(tr("tooltip.redo"))
         self.act_redo.setEnabled(False)
         self.act_redo.triggered.connect(lambda: self.history_manager.redo())
-        self.addAction(self.act_redo)
+        self.canvas.addAction(self.act_redo)
 
         # 3. View actions
         self.act_grid = QAction(IconFactory.get_icon("grid", 20), "Siatka", self)
@@ -505,18 +508,36 @@ class MainWindow(QMainWindow):
         menu_edit.addAction(self.act_undo)
         menu_edit.addAction(self.act_redo)
         menu_edit.addSeparator()
-        act_copy = QAction(IconFactory.get_icon("copy", 16), "Kopiuj zaznaczenie", self)
+        act_copy = QAction(IconFactory.get_icon("copy", 16), tr("selection.copy"), self.canvas)
         act_copy.setShortcut(QKeySequence.StandardKey.Copy)
+        act_copy.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         act_copy.triggered.connect(self._copy_selection)
+        self.canvas.addAction(act_copy)
         menu_edit.addAction(act_copy)
-        act_paste = QAction(IconFactory.get_icon("paste", 16), "Wklej zaznaczenie (stempel)", self)
+        act_cut = QAction(tr("selection.cut"), self.canvas)
+        act_cut.setShortcut(QKeySequence.StandardKey.Cut)
+        act_cut.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        act_cut.triggered.connect(self._cut_selection)
+        self.canvas.addAction(act_cut)
+        menu_edit.addAction(act_cut)
+        act_paste = QAction(IconFactory.get_icon("paste", 16), tr("selection.paste"), self.canvas)
         act_paste.setShortcut(QKeySequence.StandardKey.Paste)
+        act_paste.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         act_paste.triggered.connect(self._paste_stamp)
+        self.canvas.addAction(act_paste)
         menu_edit.addAction(act_paste)
-        act_del = QAction(IconFactory.get_icon("trash", 16), "Usuń zaznaczenie", self)
-        act_del.setShortcut(QKeySequence.StandardKey.Delete)
+        act_del = QAction(IconFactory.get_icon("trash", 16), tr("selection.delete"), self.canvas)
+        act_del.setShortcuts([QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)])
+        act_del.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         act_del.triggered.connect(self._delete_selection)
+        self.canvas.addAction(act_del)
         menu_edit.addAction(act_del)
+        act_select_all = QAction(tr("selection.all"), self.canvas)
+        act_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
+        act_select_all.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        act_select_all.triggered.connect(self._select_all_cells)
+        self.canvas.addAction(act_select_all)
+        menu_edit.addAction(act_select_all)
         menu_edit.addSeparator()
         act_prefs = QAction(IconFactory.get_icon("settings", 16), "Preferencje...", self)
         act_prefs.setShortcut("Ctrl+,")
@@ -711,26 +732,13 @@ class MainWindow(QMainWindow):
         }
         self.tool_shortcut_actions = {}
         for key, name in tool_keys.items():
-            act = QAction(self)
+            act = QAction(self.canvas)
             act.setShortcut(QKeySequence(key))
+            act.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             act.triggered.connect(lambda checked, n=name: self.tool_panel.select_tool_by_key(n))
-            self.addAction(act)
+            self.canvas.addAction(act)
             self.tool_shortcut_actions[name] = act
 
-        act_copy = QAction(self)
-        act_copy.setShortcut(QKeySequence.StandardKey.Copy)
-        act_copy.triggered.connect(self._copy_selection)
-        self.addAction(act_copy)
-
-        act_paste = QAction(self)
-        act_paste.setShortcut(QKeySequence.StandardKey.Paste)
-        act_paste.triggered.connect(self._paste_stamp)
-        self.addAction(act_paste)
-
-        act_delete = QAction(self)
-        act_delete.setShortcut(QKeySequence.StandardKey.Delete)
-        act_delete.triggered.connect(self._delete_selection)
-        self.addAction(act_delete)
         self._apply_shortcuts()
         tool_shortcut_map = {
             "brush": "brush",
@@ -783,6 +791,7 @@ class MainWindow(QMainWindow):
         self.canvas.object_selected.connect(
             self.properties_panel.set_selected_item
         )
+        self.canvas.operation_error.connect(lambda message: self.statusBar().showMessage(message, 5000))
         self.properties_panel.object_changed.connect(self.canvas.update)
 
         self.asset_manager.asset_selected.connect(self._on_asset_selected)
@@ -1038,31 +1047,50 @@ class MainWindow(QMainWindow):
         self.tileset_palette.refresh_tilesets()
 
     def _copy_selection(self) -> None:
-        tool = self.tool_panel.get_tool("select")
+        tool = self.canvas.active_tool
+        if isinstance(tool, WandTool):
+            tool = self.canvas.tool_context.selection_tool
         if isinstance(tool, SelectTool) and tool.selection_rect:
-            tool.copy_selection(self.canvas.tool_context)
-            self.statusBar().showMessage("Skopiowano zaznaczenie do schowka.", 2500)
-            return
-        wand_tool = self.tool_panel.get_tool("wand")
-        if isinstance(wand_tool, WandTool) and wand_tool.selected_cells:
-            wand_tool.copy_selection(self.canvas.tool_context)
-            self.statusBar().showMessage("Skopiowano zaznaczenie różdżki do schowka.", 2500)
+            if tool.copy_selection(self.canvas.tool_context):
+                self.statusBar().showMessage("Skopiowano zaznaczenie do schowka.", 2500)
+            else:
+                self.statusBar().showMessage(tr("selection.invalid_edit"), 5000)
             return
 
     def _paste_stamp(self) -> None:
-        if self.canvas.tool_context.clipboard_tiles:
-            self.tool_panel.select_tool_by_key("stamp")
+        context = self.canvas.tool_context
+        if context.clipboard_tiles or not context.clipboard_region.isEmpty():
+            self.tool_panel.select_tool_by_key("select")
+            tool = self.canvas.active_tool
+            if isinstance(tool, SelectTool):
+                tool.start_paste(context)
+                self.canvas.update()
+
+    def _cut_selection(self) -> None:
+        tool = self.canvas.active_tool
+        if isinstance(tool, WandTool):
+            tool = self.canvas.tool_context.selection_tool
+        if isinstance(tool, SelectTool):
+            if not tool.cut_selection(self.canvas.tool_context):
+                self.statusBar().showMessage(tr("selection.invalid_edit"), 5000)
+            self.canvas.update()
+
+    def _select_all_cells(self) -> None:
+        self.tool_panel.select_tool_by_key("select")
+        tool = self.canvas.active_tool
+        if isinstance(tool, SelectTool):
+            tool.select_all(self.canvas.tool_context)
+            self.canvas.update()
 
     def _delete_selection(self) -> None:
-        tool = self.tool_panel.get_tool("select")
+        tool = self.canvas.active_tool
+        if isinstance(tool, WandTool):
+            tool = self.canvas.tool_context.selection_tool
         if isinstance(tool, SelectTool) and tool.selection_rect:
-            tool.delete_selection(self.canvas.tool_context)
+            if not tool.delete_selection(self.canvas.tool_context):
+                self.statusBar().showMessage(tr("selection.invalid_edit"), 5000)
             self.canvas.update()
-        wand_tool = self.tool_panel.get_tool("wand")
-        if isinstance(wand_tool, WandTool) and wand_tool.selected_cells:
-            wand_tool.delete_selection(self.canvas.tool_context)
-            self.canvas.update()
-        obj_tool = self.tool_panel.get_tool("object")
+        obj_tool = self.canvas.active_tool
         if isinstance(obj_tool, ObjectTool) and obj_tool.selected_ids and self.project.get_active_layer():
             for oid in list(obj_tool.selected_ids):
                 self.project.get_active_layer().remove_object(oid)

@@ -230,13 +230,23 @@ class ConfigManager:
             if a.asset_type == AssetType.TILESET
         ]
 
+        previous = self.config_data.get("tileset_library")
         self.config_data["tileset_library"] = {
             "assets": tileset_assets,
             "category_tree": asset_manager.category_tree.to_dict(),
             "active_asset_id": active_asset_id,
             "expanded_folders": expanded_folders or [],
         }
-        return self.save()
+        saved = False
+        try:
+            saved = self.save()
+            return saved
+        finally:
+            if not saved:
+                if previous is None:
+                    self.config_data.pop("tileset_library", None)
+                else:
+                    self.config_data["tileset_library"] = previous
 
     def restore_tileset_library(
         self,

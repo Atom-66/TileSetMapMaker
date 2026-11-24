@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, Set, Any
+from typing import Dict, List, Optional, Tuple, Set, Any, Callable
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import QObject, pyqtSignal, Qt
 
@@ -553,6 +553,96 @@ class AssetManager(QObject):
         self.assets_changed.emit()
         self.categories_changed.emit()
         return True
+
+    def move_library_items(
+        self,
+        items: List[Tuple[str, str]],
+        destination: str,
+        persist: Callable[[Dict[str, str]], bool],
+    ) -> Dict[str, str]:
+        """Move a selection as one transaction, persisting before notifying views."""
+        tree = CategoryTree.from_dict(self.category_tree.to_dict())
+        target = tree.get_node(destination)
+        if target is None or target.path != destination:
+            raise ValueError("Destination folder does not exist.")
+        if not items or len(set(items)) != len(items):
+            raise ValueError("Invalid or duplicate selection.")
+
+        folders = []
+        assets = []
+        for kind, value in items:
+            if kind == "folder":
+                node = tree.get_node(value)
+                if not value or node is None or node.path != value:
+                    raise ValueError("Source folder does not exist.")
+                folders.append(value)
+            elif kind == "tileset":
+                asset = self.get_asset(value)
+                if asset is None:
+                    raise ValueError("Source tileset does not exist.")
+                node = tree.get_node(asset.category_path)
+                if node is None or node.asset_ids.count(value) != 1:
+                    raise ValueError("Source tileset is not registered in its folder.")
+                assets.append(value)
+            else:
+                raise ValueError("Unknown library item.")
+
+        folders = [p for p in folders if not any(
+            p.startswith(other + "/") for other in folders if other != p
+        )]
+        if any(destination == p or destination.startswith(p + "/") for p in folders):
+            raise ValueError("Cannot move a folder into itself or its descendant.")
+
+        path_map: Dict[str, str] = {}
+        for path in folders:
+            node = tree.get_node(path)
+            assert node is not None
+            if node.parent == target:
+                continue
+            if node.name in target.children:
+                raise ValueError(f"A folder named '{node.name}' already exists at the destination.")
+            new_path = tree.move_category(path, destination)
+            if new_path is None:
+                raise ValueError("Unable to move folder.")
+            path_map[path] = new_path
+
+        new_paths = {}
+        for asset in self.assets.values():
+            path = asset.category_path
+            for old, new in path_map.items():
+                if path == old or path.startswith(old + "/"):
+                    path = new + path[len(old):]
+                    break
+            new_paths[asset.id] = path
+
+        for asset_id in assets:
+            asset = self.assets[asset_id]
+            if any(asset.category_path == p or asset.category_path.startswith(p + "/") for p in folders):
+                continue
+            node = tree.get_node(asset.category_path)
+            assert node is not None
+            if node != target:
+                node.asset_ids.remove(asset_id)
+                if asset_id in target.asset_ids:
+                    raise ValueError("Tileset already exists in destination.")
+                target.asset_ids.append(asset_id)
+                new_paths[asset_id] = destination
+
+        old_tree = self.category_tree
+        old_paths = {aid: asset.category_path for aid, asset in self.assets.items()}
+        self.category_tree = tree
+        for aid, path in new_paths.items():
+            self.assets[aid].category_path = path
+        try:
+            if not persist(path_map):
+                raise OSError("Could not save the tileset library.")
+        except Exception:
+            self.category_tree = old_tree
+            for aid, path in old_paths.items():
+                self.assets[aid].category_path = path
+            raise
+        self.invalidate_search_index()
+        return path_map
 
     def search_assets(
         self,

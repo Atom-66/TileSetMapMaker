@@ -1,6 +1,7 @@
 from collections import deque
 from typing import Dict, Tuple, Optional, Set
 from PyQt6.QtCore import QRect
+from PyQt6.QtGui import QRegion
 from .base import BaseTool, ToolContext
 from ...models.layer import MapItem
 from ..history import TileBatchCommand
@@ -66,6 +67,8 @@ class WandTool(BaseTool):
             self.selection_rect = QRect(min_c, min_r, max_c - min_c + 1, max_r - min_r + 1)
         else:
             self.selection_rect = None
+        if context.selection_tool is not None:
+            context.selection_tool.select_cells(visited, context)
 
     def clear_selection(self, context: Optional[ToolContext] = None) -> None:
         self.selected_cells.clear()
@@ -75,7 +78,7 @@ class WandTool(BaseTool):
 
     def delete_selection(self, context: ToolContext) -> None:
         """Deletes all selected cells on the active layer."""
-        if not self.selected_cells or not context.active_layer or context.active_layer.locked:
+        if not self.selected_cells or not context.active_layer or context.project.get_effective_locked(context.active_layer) or not context.project.get_effective_visible(context.active_layer):
             return
         layer = context.active_layer
         changes: Dict[Tuple[int, int], Tuple[Optional[MapItem], Optional[MapItem]]] = {}
@@ -102,8 +105,12 @@ class WandTool(BaseTool):
         min_c = min(c for c, r in self.selected_cells)
         min_r = min(r for c, r in self.selected_cells)
         context.clipboard_tiles.clear()
+        context.clipboard_region = QRegion()
 
         for col, row in self.selected_cells:
+            context.clipboard_region = context.clipboard_region.united(
+                QRegion(QRect(col - min_c, row - min_r, 1, 1))
+            )
             item = context.active_layer.get_tile(col, row)
             if item:
                 context.clipboard_tiles[(col - min_c, row - min_r)] = item.clone()

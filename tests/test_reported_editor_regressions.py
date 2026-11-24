@@ -77,7 +77,7 @@ class TestReportedEditorRegressions(unittest.TestCase):
         window.project.is_modified = False
         window.close()
 
-    def test_select_starts_new_selection_inside_previous_rect(self):
+    def test_select_starts_move_inside_previous_rect(self):
         project = Project(map_width=5, map_height=5)
         context = ToolContext(
             project, AssetManager(), HistoryManager(),
@@ -88,9 +88,10 @@ class TestReportedEditorRegressions(unittest.TestCase):
         tool.on_drag(3, 3, context)
         tool.on_release(3, 3, context)
         tool.on_press(2, 2, context)
-        self.assertEqual(tool.selection_rect.width(), 1)
-        self.assertEqual(tool.selection_rect.height(), 1)
-        self.assertEqual(context.selected_cells, {(2, 2)})
+        self.assertTrue(tool.moving_selection)
+        self.assertEqual(tool.selection_rect.width(), 3)
+        self.assertEqual(tool.selection_rect.height(), 3)
+        self.assertIn((2, 2), context.selected_cells)
 
     def test_wand_records_exact_irregular_selection(self):
         project = Project(map_width=5, map_height=5)

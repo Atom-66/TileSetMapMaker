@@ -44,13 +44,13 @@ class TileBatchCommand(Command):
 
     def execute(self) -> None:
         layer = self.project.get_layer(self.layer_id)
-        if not layer or layer.locked:
+        if not layer:
             return
         for (col, row), (_, after_item) in self.changes.items():
             if after_item is None:
                 layer.remove_tile(col, row)
             else:
-                layer.set_tile(col, row, after_item.clone())
+                layer.set_tile(col, row, after_item.clone(preserve_id=True))
         self.project.is_modified = True
 
     def undo(self) -> None:
@@ -61,7 +61,7 @@ class TileBatchCommand(Command):
             if before_item is None:
                 layer.remove_tile(col, row)
             else:
-                layer.set_tile(col, row, before_item.clone())
+                layer.set_tile(col, row, before_item.clone(preserve_id=True))
         self.project.is_modified = True
 
 

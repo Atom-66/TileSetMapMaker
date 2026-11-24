@@ -129,6 +129,9 @@ class CategoryTree:
         src_node = self.get_node(src_path)
         if not src_node or not src_node.parent:
             return None
+        destination = dst_parent_path.strip("/")
+        if destination == src_node.path or destination.startswith(src_node.path + "/"):
+            return None
         dst_parent = self.get_node(dst_parent_path)
         if not dst_parent:
             dst_parent = self.add_category_path(dst_parent_path)
@@ -139,6 +142,10 @@ class CategoryTree:
                 return None  # Cannot move a folder into its own child
             temp = temp.parent
 
+        if src_node.parent == dst_parent:
+            return src_node.path
+        if src_node.name in dst_parent.children:
+            return None
         del src_node.parent.children[src_node.name]
         src_node.parent = dst_parent
         dst_parent.children[src_node.name] = src_node

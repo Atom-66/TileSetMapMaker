@@ -271,7 +271,7 @@ class Asset:
         self.id = asset_id or str(uuid.uuid4())
         self.file_path = os.path.abspath(file_path)
         self.name = name or os.path.splitext(os.path.basename(file_path))[0]
-        self.category_path = category_path.strip("/") or "Custom"
+        self.category_path = category_path.strip("/")
         self.asset_type = asset_type
         self.width = width
         self.height = height

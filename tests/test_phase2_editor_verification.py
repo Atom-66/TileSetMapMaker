@@ -86,7 +86,7 @@ class TestPhase2EditorVerification(unittest.TestCase):
         )
         tool = SelectTool()
         self.assertTrue(
-            tool.set_polygon_selection([(0, 0), (3, 0), (3, 3), (0, 3)])
+            tool.set_polygon_selection([(0, 0), (3, 0), (3, 2), (0, 2)])
         )
         tool.on_press(1, 1, context)
         tool.on_drag(1, 2, context)

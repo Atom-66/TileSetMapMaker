@@ -2,8 +2,10 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple, Dict, Any, Set
 from ...models.layer import MapItem, Layer, ItemType
 from ...models.project import Project
-from ...models.asset import Asset, SelectedSubTile, AssetType
+from ...models.asset import Asset, SelectedSubTile, AssetType, TilesetConfig
 from ...models.brush_preset import BrushSettings
+from PyQt6.QtGui import QRegion
+from PyQt6.QtCore import Qt
 
 
 class ToolContext:
@@ -37,6 +39,9 @@ class ToolContext:
 
         self.brush_settings = brush_settings if brush_settings is not None else BrushSettings()
         self.clipboard_tiles: Dict[Tuple[int, int], MapItem] = {}
+        self.clipboard_region = QRegion()
+        self.selection_modifiers = Qt.KeyboardModifier.NoModifier
+        self.selection_tool: Optional[Any] = None
         self.selected_object_ids: List[str] = []
         self.selected_cells: Set[Tuple[int, int]] = set()
 

@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Tuple, List, Set, Dict, Any
 from PyQt6.QtCore import (
     Qt, QRect, QRectF, QPointF, pyqtSignal, QSize, QSettings, QByteArray, QTimer,
+    QMimeData, QItemSelectionModel,
 )
 from PyQt6.QtWidgets import (
     QWidget,
@@ -43,6 +44,7 @@ from PyQt6.QtGui import (
     QPixmap,
     QImage,
     QShowEvent,
+    QDrag,
 )
 
 from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
@@ -596,13 +598,14 @@ class TilesetTreeWidget(QTreeWidget):
         self.palette = palette_widget
         self.setHeaderHidden(True)
         self.setIndentation(16)
-        self.setAnimated(True)
+        self.setAnimated(False)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._drag_items: List[Tuple[str, str]] = []
         self.setStyleSheet("""
             QTreeWidget {
                 background-color: #18181b;
@@ -652,17 +655,64 @@ class TilesetTreeWidget(QTreeWidget):
             _collect(self.topLevelItem(i))
         return res
 
+    def selected_library_items(self) -> List[QTreeWidgetItem]:
+        selected: List[QTreeWidgetItem] = []
+
+        def collect(item: QTreeWidgetItem) -> None:
+            if item.isSelected():
+                selected.append(item)
+            for index in range(item.childCount()):
+                collect(item.child(index))
+
+        for index in range(self.topLevelItemCount()):
+            collect(self.topLevelItem(index))
+        return selected
+
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls() or event.source() == self:
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (event.button() == Qt.MouseButton.LeftButton
+                and not self.itemAt(event.position().toPoint())
+                and not self._drag_items):
+            self.palette._hidden_selection.clear()
+        super().mousePressEvent(event)
+
     def dragMoveEvent(self, event) -> None:
         if event.mimeData().hasUrls() or event.source() == self:
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
+
+    def startDrag(self, supported_actions: Qt.DropAction) -> None:
+        self._drag_items = [
+            (item.data(0, Qt.ItemDataRole.UserRole),
+             item.data(0, Qt.ItemDataRole.UserRole + 1))
+            for item in self.selected_library_items()
+        ]
+        self._drag_items.extend(
+            key for key in self.palette._hidden_selection if key not in self._drag_items
+        )
+        if not self._drag_items:
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData("application/x-tmm-library-items", b"1")
+        drag.setMimeData(mime)
+        pixmap = QPixmap(100, 30)
+        pixmap.fill(QColor("#2563eb"))
+        painter = QPainter(pixmap)
+        painter.setPen(QColor("white"))
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, str(len(self._drag_items)))
+        painter.end()
+        drag.setPixmap(pixmap)
+        try:
+            drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            self._drag_items = []
 
     def dropEvent(self, event: QDropEvent) -> None:
         pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
@@ -707,27 +757,14 @@ class TilesetTreeWidget(QTreeWidget):
             event.acceptProposedAction()
             return
 
-        # Internal drag & drop
-        source_item = self.currentItem()
-        if source_item and source_item != target_item:
-            item_type = source_item.data(0, Qt.ItemDataRole.UserRole)
-            item_val = source_item.data(0, Qt.ItemDataRole.UserRole + 1)
-            if item_type == "tileset":
-                self.palette.asset_manager.move_asset(item_val, target_category)
-                self.palette.refresh_tilesets()
-                self.palette._auto_save_library()
+        if event.source() == self and self._drag_items:
+            if self.palette._move_library_items(self._drag_items, target_category):
+                event.setDropAction(Qt.DropAction.MoveAction)
                 event.accept()
-                return
-            elif item_type == "folder":
-                # Ensure destination is not source or its descendant
-                if target_category != item_val and not target_category.startswith(item_val + "/"):
-                    self.palette.asset_manager.move_category(item_val, target_category)
-                    self.palette.refresh_tilesets()
-                    self.palette._auto_save_library()
-                    event.accept()
-                    return
-
-        super().dropEvent(event)
+            else:
+                event.ignore()
+            return
+        event.ignore()
 
 
 class GlobalImportSettingsDialog(QDialog):
@@ -844,6 +881,7 @@ class TilesetPaletteWidget(QWidget):
         self.active_asset_id: Optional[str] = None
         self.open_tileset_ids: List[str] = []  # For backward compatibility
         self.expanded_folders: List[str] = []
+        self._hidden_selection: Set[Tuple[str, str]] = set()
 
         self.setAcceptDrops(True)
         self._init_ui()
@@ -1097,6 +1135,7 @@ class TilesetPaletteWidget(QWidget):
         self.tree = TilesetTreeWidget(self, self.bottom_widget)
         self.tileset_list = self.tree
         self.tree.currentItemChanged.connect(self._on_tree_item_changed)
+        self.tree.itemSelectionChanged.connect(self._on_library_selection_changed)
         self.tree.itemExpanded.connect(self._on_item_expanded)
         self.tree.itemCollapsed.connect(self._on_item_collapsed)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1208,13 +1247,60 @@ class TilesetPaletteWidget(QWidget):
     def _get_import_config(self) -> Dict[str, Any]:
         return self.config_manager.get_import_settings()
 
-    def _auto_save_library(self) -> None:
+    def _auto_save_library(self) -> bool:
         if self.config_manager:
-            self.config_manager.save_tileset_library(
+            return self.config_manager.save_tileset_library(
                 asset_manager=self.asset_manager,
                 active_asset_id=self.active_asset_id,
                 expanded_folders=self.expanded_folders,
             )
+        return False
+
+    @staticmethod
+    def _remap_folder_path(path: str, mapping: Dict[str, str]) -> str:
+        for old, new in mapping.items():
+            if path == old or path.startswith(old + "/"):
+                return new + path[len(old):]
+        return path
+
+    def _move_library_items(self, items: List[Tuple[str, str]], destination: str) -> bool:
+        old_expanded = list(self.expanded_folders)
+
+        def persist(mapping: Dict[str, str]) -> bool:
+            self.expanded_folders = [
+                self._remap_folder_path(path, mapping) for path in old_expanded
+            ]
+            return self._auto_save_library()
+
+        try:
+            mapping = self.asset_manager.move_library_items(items, destination, persist)
+        except (ValueError, OSError) as exc:
+            self.expanded_folders = old_expanded
+            logger.warning("Library move cancelled: %s", exc)
+            QMessageBox.warning(self, tr("palette.move_error_title"), str(exc))
+            return False
+        except Exception as exc:
+            self.expanded_folders = old_expanded
+            logger.exception("Unexpected library move failure")
+            QMessageBox.warning(self, tr("palette.move_error_title"), str(exc))
+            return False
+
+        def remap_item(item: QTreeWidgetItem) -> None:
+            if item.data(0, Qt.ItemDataRole.UserRole) == "folder":
+                path = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, self._remap_folder_path(path, mapping))
+            for index in range(item.childCount()):
+                remap_item(item.child(index))
+
+        for index in range(self.tree.topLevelItemCount()):
+            remap_item(self.tree.topLevelItem(index))
+        self._hidden_selection = {
+            (kind, self._remap_folder_path(value, mapping) if kind == "folder" else value)
+            for kind, value in self._hidden_selection
+        }
+        self.asset_manager.categories_changed.emit()
+        self.asset_manager.assets_changed.emit()
+        return True
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
         itype = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1247,6 +1333,17 @@ class TilesetPaletteWidget(QWidget):
 
     def refresh_tilesets(self) -> None:
         """Syncs tilesets and category tree into hierarchical QTreeWidget."""
+        selected = {
+            (item.data(0, Qt.ItemDataRole.UserRole), item.data(0, Qt.ItemDataRole.UserRole + 1))
+            for item in self.tree.selected_library_items()
+        } | self._hidden_selection
+        current_item = self.tree.currentItem()
+        current_key = (
+            (current_item.data(0, Qt.ItemDataRole.UserRole),
+             current_item.data(0, Qt.ItemDataRole.UserRole + 1))
+            if current_item else None
+        )
+        had_items = self.tree.topLevelItemCount() > 0
         all_tilesets = [
             a for a in self.asset_manager.assets.values()
             if a.asset_type == AssetType.TILESET
@@ -1332,7 +1429,8 @@ class TilesetPaletteWidget(QWidget):
             self.active_asset_id = active_asset.id
 
         if active_asset:
-            self._select_tree_item_for_asset(active_asset.id)
+            if not had_items and not selected:
+                self._select_tree_item_for_asset(active_asset.id)
             self.canvas.set_asset(active_asset)
             self._update_info_label(active_asset)
             cfg = active_asset.tileset_config or TilesetConfig(tile_width=32, tile_height=32)
@@ -1350,10 +1448,26 @@ class TilesetPaletteWidget(QWidget):
             self.lbl_active_title.setText(tr("palette.preview_empty"))
             self.lbl_info.setText(tr("palette.no_tilesets_import_hint"))
 
+        def restore_selection(item: QTreeWidgetItem) -> None:
+            key = (item.data(0, Qt.ItemDataRole.UserRole), item.data(0, Qt.ItemDataRole.UserRole + 1))
+            if key in selected:
+                item.setSelected(True)
+            if key == current_key:
+                self.tree.setCurrentItem(item, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
+            for index in range(item.childCount()):
+                restore_selection(item.child(index))
+
+        for index in range(self.tree.topLevelItemCount()):
+            restore_selection(self.tree.topLevelItem(index))
         self.tree.blockSignals(False)
         self._apply_library_filter()
 
     def _apply_library_filter(self) -> None:
+        selected = {
+            (item.data(0, Qt.ItemDataRole.UserRole), item.data(0, Qt.ItemDataRole.UserRole + 1))
+            for item in self.tree.selected_library_items()
+        } | self._hidden_selection
+        self._hidden_selection = set()
         query = self.txt_library_search.text().strip().casefold()
         matching_ids = {
             asset.id
@@ -1364,16 +1478,27 @@ class TilesetPaletteWidget(QWidget):
 
         def filter_item(item: QTreeWidgetItem) -> bool:
             item_type = item.data(0, Qt.ItemDataRole.UserRole)
+            key = (item_type, item.data(0, Qt.ItemDataRole.UserRole + 1))
             if item_type == "tileset":
                 visible = not query or item.data(
                     0, Qt.ItemDataRole.UserRole + 1
                 ) in matching_ids
                 item.setHidden(not visible)
+                if key in selected:
+                    if visible:
+                        item.setSelected(True)
+                    else:
+                        self._hidden_selection.add(key)
                 return visible
             child_visible = False
             for child_index in range(item.childCount()):
                 child_visible = filter_item(item.child(child_index)) or child_visible
             item.setHidden(bool(query) and not child_visible)
+            if key in selected:
+                if item.isHidden():
+                    self._hidden_selection.add(key)
+                else:
+                    item.setSelected(True)
             if child_visible and query:
                 item.setExpanded(True)
             return child_visible
@@ -1382,6 +1507,11 @@ class TilesetPaletteWidget(QWidget):
         for index in range(self.tree.topLevelItemCount()):
             filter_item(self.tree.topLevelItem(index))
         self.tree.blockSignals(False)
+
+    def _on_library_selection_changed(self) -> None:
+        modifiers = QApplication.keyboardModifiers()
+        if not modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+            self._hidden_selection.clear()
 
     def _create_tileset_tree_item(self, asset: Asset) -> TilesetTreeItem:
         cfg = asset.tileset_config or TilesetConfig(tile_width=32, tile_height=32)
@@ -1442,7 +1572,10 @@ class TilesetPaletteWidget(QWidget):
             top = self.tree.topLevelItem(idx)
             found = _search(top)
             if found:
-                self.tree.setCurrentItem(found)
+                if found.isSelected():
+                    self.tree.setCurrentItem(found, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
+                else:
+                    self.tree.setCurrentItem(found)
                 # Ensure parent folders are expanded
                 p = found.parent()
                 while p:
@@ -1479,7 +1612,9 @@ class TilesetPaletteWidget(QWidget):
 
         if is_different_asset:
             self.canvas.set_asset(asset)
-            self._select_tree_item_for_asset(asset.id)
+            current = self.tree.currentItem()
+            if not current or current.data(0, Qt.ItemDataRole.UserRole + 1) != asset.id:
+                self._select_tree_item_for_asset(asset.id)
             self._auto_save_library()
 
         if sub_tile:
@@ -1543,6 +1678,10 @@ class TilesetPaletteWidget(QWidget):
         menu = QMenu(self)
 
         if item:
+            if item.isSelected():
+                self.tree.setCurrentItem(item, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
+            else:
+                self.tree.setCurrentItem(item)
             itype = item.data(0, Qt.ItemDataRole.UserRole)
             val = item.data(0, Qt.ItemDataRole.UserRole + 1)
 
@@ -1811,9 +1950,7 @@ class TilesetPaletteWidget(QWidget):
         )
         if ok and chosen:
             target = "" if chosen == root_label else chosen
-            self.asset_manager.move_asset(asset.id, target)
-            self.refresh_tilesets()
-            self._auto_save_library()
+            self._move_library_items([("tileset", asset.id)], target)
 
     def _import_files_action(self, target_category: Optional[str] = None) -> None:
         if target_category is None:
