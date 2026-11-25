@@ -24,10 +24,10 @@ class AutotileFormat(str, Enum):
 
 class CustomPathVariant:
     """
-    User-defined or auto-suggested path variant bound to a specific canonical
-    8-neighbor bitmask. Supports 1x1, 2x1, 1x2, 2x2, 3x3, and arbitrary WxH
-    multi-tile regions from any imported tileset, with priority and weighted
-    random selection.
+    Logical multi-tile or single-tile Path variant describing an indivisible
+    source composition in a tileset (1x1, 2x1, 1x2, 2x2, 2x3, 3x3, or arbitrary WxH),
+    explicitly separating tileset source coordinates/rect from map placement rules,
+    semantic role, connection bitmask, compatible neighbors, priority, and weight.
     """
 
     def __init__(
@@ -42,14 +42,20 @@ class CustomPathVariant:
         weight: float = 1.0,
         name: str = "",
         variant_id: Optional[str] = None,
+        source_rect: Optional[Tuple[int, int, int, int]] = None,
+        role: str = "auto",
+        compatible_neighbors: Optional[List[int]] = None,
     ):
         self.id = variant_id or str(uuid.uuid4())
-        self.mask = canonicalize_blob_mask(int(mask))
+        self.mask = -1 if int(mask) < 0 else canonicalize_blob_mask(int(mask))
         self.source_asset_id = str(source_asset_id)
         self.source_col = max(0, int(source_col))
         self.source_row = max(0, int(source_row))
         self.width_tiles = max(1, int(width_tiles))
         self.height_tiles = max(1, int(height_tiles))
+        self.source_rect = tuple(int(v) for v in source_rect) if source_rect and len(source_rect) == 4 else None
+        self.role = str(role or "auto")
+        self.compatible_neighbors = [int(n) for n in (compatible_neighbors or [])]
         self.priority = int(priority)
         self.weight = max(0.01, float(weight))
         self.name = name or f"Wariant {self.width_tiles}x{self.height_tiles} (maska {self.mask})"
@@ -63,6 +69,9 @@ class CustomPathVariant:
             "source_row": self.source_row,
             "width_tiles": self.width_tiles,
             "height_tiles": self.height_tiles,
+            "source_rect": list(self.source_rect) if self.source_rect else None,
+            "role": self.role,
+            "compatible_neighbors": list(self.compatible_neighbors),
             "priority": self.priority,
             "weight": self.weight,
             "name": self.name,
@@ -70,6 +79,7 @@ class CustomPathVariant:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CustomPathVariant":
+        sr = data.get("source_rect")
         return cls(
             mask=int(data.get("mask", 0)),
             source_asset_id=str(data.get("source_asset_id", "")),
@@ -81,7 +91,13 @@ class CustomPathVariant:
             weight=float(data.get("weight", 1.0)),
             name=str(data.get("name", "")),
             variant_id=data.get("id"),
+            source_rect=tuple(sr) if sr and len(sr) == 4 else None,
+            role=str(data.get("role", "auto")),
+            compatible_neighbors=data.get("compatible_neighbors"),
         )
+
+
+PathVariant = CustomPathVariant
 
 
 # ==============================================================================
@@ -475,17 +491,26 @@ def synthesize_from_single_tile(
                 min_d = min(d_t, d_b, d_l, d_r)
 
                 if inner_corner_dir:
-                    if inner_corner_dir == "tl":
-                        ic_dist = x + y
-                    elif inner_corner_dir == "tr":
-                        ic_dist = (w - 1 - x) + y
-                    elif inner_corner_dir == "bl":
-                        ic_dist = x + (h - 1 - y)
+                    cx = x if inner_corner_dir in ("tl", "bl") else (w - 1 - x)
+                    cy = y if inner_corner_dir in ("tl", "tr") else (h - 1 - y)
+                    ic_radial = (cx * cx + cy * cy) ** 0.5
+                    if edge_style == "organic":
+                        # Match exact straight-edge organic_depth so intersection never pinches
+                        if ic_radial < organic_depth:
+                            img.setPixel(px, py, 0)
+                    elif edge_style == "alpha_fade":
+                        if ic_radial < 1.0:
+                            fade_a = int(orig_a * 0.25)
+                            img.setPixel(px, py, (fade_a << 24) | (orig & 0x00FFFFFF))
+                        elif ic_radial < 2.0:
+                            fade_a = int(orig_a * 0.65)
+                            img.setPixel(px, py, (fade_a << 24) | (orig & 0x00FFFFFF))
+                    elif edge_style == "dark_outline":
+                        if cx == 0 and cy == 0:
+                            img.setPixel(px, py, (orig_a << 24) | (shadow_r << 16) | (shadow_g << 8) | shadow_b)
                     else:
-                        ic_dist = (w - 1 - x) + (h - 1 - y)
-
-                    if ic_dist < depth:
-                        img.setPixel(px, py, 0)
+                        if ic_radial < organic_depth:
+                            img.setPixel(px, py, 0)
                     continue
 
                 if min_d == 0:
@@ -611,12 +636,366 @@ def _tri_wave(idx: int, period: int) -> int:
     return m if m < period else span - m
 
 
-def _synthesize_interior_fill_from_ring(patch: QImage, ts: int) -> QImage:
+def extract_packed_tileset_image(
+    sheet: QImage,
+    tileset_config: Optional[Any] = None,
+) -> Tuple[QImage, int, int]:
+    """
+    Returns a tightly packed 1:1 tileset QImage respecting TilesetConfig
+    (tile_width, tile_height, margin_x/y, spacing_x/y, start_x/y) without
+    scaling or blurring any original pixels. When margin/spacing/start are all 0,
+    returns the original sheet directly with zero copy overhead.
+    """
+    if tileset_config is None:
+        return sheet, 32, 32
+    tw = max(8, int(getattr(tileset_config, "tile_width", 32)))
+    th = max(8, int(getattr(tileset_config, "tile_height", tw)))
+    mx = max(0, int(getattr(tileset_config, "margin_x", 0)))
+    my = max(0, int(getattr(tileset_config, "margin_y", 0)))
+    sx = max(0, int(getattr(tileset_config, "spacing_x", 0)))
+    sy = max(0, int(getattr(tileset_config, "spacing_y", 0)))
+    ox = max(0, int(getattr(tileset_config, "start_x", 0)))
+    oy = max(0, int(getattr(tileset_config, "start_y", 0)))
+    if mx == 0 and my == 0 and sx == 0 and sy == 0 and ox == 0 and oy == 0:
+        return sheet, tw, th
+
+    grid = tileset_config.compute_grid(sheet.width(), sheet.height())
+    cols = max(0, int(grid.get("cols", 0)))
+    rows = max(0, int(grid.get("rows", 0)))
+    if cols <= 0 or rows <= 0:
+        return sheet, tw, th
+
+    packed = QImage(cols * tw, rows * th, QImage.Format.Format_ARGB32)
+    packed.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(packed)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+    for r in range(rows):
+        for c in range(cols):
+            rx, ry, rw, rh = tileset_config.get_tile_rect(c, r)
+            painter.drawImage(c * tw, r * th, sheet, rx, ry, rw, rh)
+    painter.end()
+    return packed, tw, th
+
+
+def _median_rgb(pixels: List[int]) -> Tuple[int, int, int]:
+    if not pixels:
+        return (128, 128, 128)
+    rs = sorted((p >> 16) & 0xFF for p in pixels)
+    gs = sorted((p >> 8) & 0xFF for p in pixels)
+    bs = sorted(p & 0xFF for p in pixels)
+    mid = len(rs) // 2
+    return (rs[mid], gs[mid], bs[mid])
+
+
+def _analyze_patch_materials(patch_3x3: QImage, ts: int) -> Dict[str, Any]:
+    """
+    Two-prototype material classifier for a 3x3 autotile block.
+    Samples BOTH the inner core material (from center tile or immediate inner ring)
+    and the outer rim material (from the outermost 2px of the 4 cardinal edge tiles).
+    Accurately separates outer border pixels from interior highlights/tufts and outlines.
+    """
+    pw, ph = patch_3x3.width(), patch_3x3.height()
+    center_px: List[int] = []
+    for y in range(ts, min(2 * ts, ph)):
+        for x in range(ts, min(2 * ts, pw)):
+            p = patch_3x3.pixel(x, y)
+            if ((p >> 24) & 0xFF) > 180:
+                center_px.append(p)
+
+    center_opaque_ratio = len(center_px) / float(max(1, ts * ts))
+    if center_opaque_ratio >= 0.5:
+        cr, cg, cb = _median_rgb(center_px)
+    else:
+        ring_px: List[int] = []
+        for k in range(ts):
+            for sx, sy in (
+                (ts + k, ts - 1),
+                (ts + k, 2 * ts),
+                (ts - 1, ts + k),
+                (2 * ts, ts + k),
+            ):
+                if 0 <= sx < pw and 0 <= sy < ph:
+                    p = patch_3x3.pixel(sx, sy)
+                    if ((p >> 24) & 0xFF) > 180:
+                        ring_px.append(p)
+        cr, cg, cb = _median_rgb(ring_px) if ring_px else (128, 128, 128)
+
+    center_luma = 0.299 * cr + 0.587 * cg + 0.114 * cb
+
+    outer_total = 0
+    outer_opaque: List[int] = []
+    for k in range(ts):
+        for sx, sy in (
+            (ts + k, 0),
+            (ts + k, 1),
+            (ts + k, 3 * ts - 1),
+            (ts + k, 3 * ts - 2),
+            (0, ts + k),
+            (1, ts + k),
+            (3 * ts - 1, ts + k),
+            (3 * ts - 2, ts + k),
+        ):
+            if 0 <= sx < pw and 0 <= sy < ph:
+                outer_total += 1
+                p = patch_3x3.pixel(sx, sy)
+                if ((p >> 24) & 0xFF) > 20:
+                    outer_opaque.append(p)
+
+    outer_is_transparent = len(outer_opaque) < outer_total * 0.5
+    if outer_is_transparent:
+        orr, org, orb = 0, 0, 0
+        contrast = 1.0
+    else:
+        orr, org, orb = _median_rgb(outer_opaque)
+        contrast = (abs(orr - cr) + abs(org - cg) + abs(orb - cb)) / (3.0 * 255.0)
+
+    in_mean = (cr + cg + cb) / 3.0
+    in_c = (cr - in_mean, cg - in_mean, cb - in_mean)
+    in_chroma_mag = (abs(in_c[0]) + abs(in_c[1]) + abs(in_c[2])) / (3.0 * 255.0)
+    out_mean = (orr + org + orb) / 3.0
+    out_c = (orr - out_mean, org - out_mean, orb - out_mean)
+    chroma_contrast = (
+        abs(out_c[0] - in_c[0]) + abs(out_c[1] - in_c[1]) + abs(out_c[2] - in_c[2])
+    ) / (3.0 * 255.0)
+
+    def _chroma_dist(pixel: int, ref_c: Tuple[float, float, float]) -> float:
+        r = (pixel >> 16) & 0xFF
+        g = (pixel >> 8) & 0xFF
+        b = pixel & 0xFF
+        m = (r + g + b) / 3.0
+        return (abs((r - m) - ref_c[0]) + abs((g - m) - ref_c[1]) + abs((b - m) - ref_c[2])) / (3.0 * 255.0)
+
+    def is_outer(pixel: int) -> bool:
+        a = (pixel >> 24) & 0xFF
+        if outer_is_transparent:
+            return a <= 20
+        if a <= 20:
+            return True
+        if contrast < 0.08:
+            return _pixel_dist_from_rgb(pixel, cr, cg, cb) > 0.08
+        d_out = _pixel_dist_from_rgb(pixel, orr, org, orb)
+        d_in = _pixel_dist_from_rgb(pixel, cr, cg, cb)
+        if d_out < d_in * 0.85 and d_out < max(0.22, contrast * 0.65):
+            return True
+        # Catch shadowed/highlighted outer material (e.g. dark brown dirt shadow) via chroma
+        if chroma_contrast >= 0.06:
+            cd_out = _chroma_dist(pixel, out_c)
+            cd_in = _chroma_dist(pixel, in_c)
+            if cd_out < cd_in * 0.65 and cd_out < max(0.08, chroma_contrast * 0.50):
+                return True
+        return False
+
+    def is_dark_outline(pixel: int) -> bool:
+        if ((pixel >> 24) & 0xFF) <= 180:
+            return False
+        luma = (
+            0.299 * ((pixel >> 16) & 0xFF)
+            + 0.587 * ((pixel >> 8) & 0xFF)
+            + 0.114 * (pixel & 0xFF)
+        )
+        return luma < center_luma * 0.70
+
+    def is_pure_interior(pixel: int) -> bool:
+        if ((pixel >> 24) & 0xFF) <= 180:
+            return False
+        if is_outer(pixel) or is_dark_outline(pixel):
+            return False
+        if contrast < 0.08:
+            return _pixel_dist_from_rgb(pixel, cr, cg, cb) <= 0.14
+        # Reject intermediate multi-layer bank/cliff/curb materials (e.g. brown cliff between grass and water!)
+        if _pixel_dist_from_rgb(pixel, cr, cg, cb) > 0.22:
+            return False
+        if in_chroma_mag >= 0.04 and _chroma_dist(pixel, in_c) > 0.11:
+            return False
+        return True
+
+    return {
+        "cr": cr,
+        "cg": cg,
+        "cb": cb,
+        "center_luma": center_luma,
+        "center_opaque_ratio": center_opaque_ratio,
+        "outer_is_transparent": outer_is_transparent,
+        "orr": orr,
+        "org": org,
+        "orb": orb,
+        "contrast": contrast,
+        "is_outer": is_outer,
+        "is_dark_outline": is_dark_outline,
+        "is_pure_interior": is_pure_interior,
+    }
+
+
+def _tile_texture_activity(
+    img: QImage,
+    cr: int,
+    cg: int,
+    cb: int,
+    x0: int = 0,
+    y0: int = 0,
+    w: Optional[int] = None,
+    h: Optional[int] = None,
+) -> float:
+    """Measures mean pixel color variation relative to median interior color."""
+    rw = min(img.width() - x0, w if w is not None else img.width())
+    rh = min(img.height() - y0, h if h is not None else img.height())
+    if rw <= 0 or rh <= 0:
+        return 0.0
+    diff_sum = 0.0
+    cnt = 0
+    for y in range(y0, y0 + rh):
+        for x in range(x0, x0 + rw):
+            p = img.pixel(x, y)
+            if ((p >> 24) & 0xFF) > 180:
+                diff_sum += _pixel_dist_from_rgb(p, cr, cg, cb)
+                cnt += 1
+    return diff_sum / float(max(1, cnt))
+
+
+def _measure_bank_depth(
+    strip: QImage, is_inner_fn: Any, axis: str, from_start: bool
+) -> int:
+    """
+    Measures median full bank/rim depth (outer background + any intermediate cliff,
+    curb, or dark outline) from one edge until pixels reach the navigable inner surface.
+    """
+    return _measure_outer_rim(strip, lambda px: not is_inner_fn(px), axis, from_start)
+
+
+def _measure_outer_rim(
+    strip: QImage, is_outer_fn: Any, axis: str, from_start: bool
+) -> int:
+    """
+    Measures median outer-material rim thickness (in pixels) from one edge of a
+    tile or half-tile using the two-prototype outer-material classifier.
+    """
+    w, h = strip.width(), strip.height()
+    limit = w if axis == "x" else h
+    span = h if axis == "x" else w
+    if limit <= 0 or span <= 0:
+        return 0
+    depths: List[int] = []
+    for u in range(span):
+        depth = 0
+        for step in range(limit):
+            if axis == "x":
+                x = step if from_start else (w - 1 - step)
+                y = u
+            else:
+                x = u
+                y = step if from_start else (h - 1 - step)
+            if is_outer_fn(strip.pixel(x, y)):
+                depth = step + 1
+            else:
+                break
+        depths.append(depth)
+    depths.sort()
+    return depths[len(depths) // 2]
+
+
+def _find_companion_inner_corners(
+    sheet: QImage,
+    tl_col: int,
+    tl_row: int,
+    ts: int,
+    mat: Dict[str, Any],
+) -> Optional[QImage]:
+    """
+    Universally detects an artist-drawn 2x2 inner-corner companion block adjacent
+    to a 3x3 terrain block (below, to the right, or above — e.g. LPC and custom
+    sheets). Validated strictly by pixel material signature:
+    - Outer perimeter of the 2x2 matches the 3x3 INNER material
+    - Central junction around (ts, ts) matches the 3x3 OUTER material
+    - All 4 quadrants contain both outer material near (ts, ts) and inner material away from it
+    """
+    if mat["contrast"] < 0.08:
+        return None
+    cr, cg, cb = mat["cr"], mat["cg"], mat["cb"]
+    is_outer = mat["is_outer"]
+    inner_tol = max(0.11, mat["contrast"] * 0.45)
+
+    sw, sh = sheet.width(), sheet.height()
+    candidates = (
+        (tl_col, tl_row + 3),
+        (tl_col + 3, tl_row),
+        (tl_col, tl_row - 2),
+        (tl_col + 1, tl_row + 3),
+        (tl_col + 3, tl_row + 1),
+    )
+
+    for ic_col, ic_row in candidates:
+        px_x = ic_col * ts
+        px_y = ic_row * ts
+        if px_x < 0 or px_y < 0 or px_x + 2 * ts > sw or px_y + 2 * ts > sh:
+            continue
+        cand = sheet.copy(px_x, px_y, 2 * ts, 2 * ts)
+
+        # 1. Check outer perimeter matches inner material
+        perim_pts = []
+        step = max(2, ts // 4)
+        for k in range(2, 2 * ts - 2, step):
+            perim_pts.append((k, 1))
+            perim_pts.append((k, 2 * ts - 2))
+            perim_pts.append((1, k))
+            perim_pts.append((2 * ts - 2, k))
+        perim_ok = 0
+        for x, y in perim_pts:
+            p = cand.pixel(x, y)
+            if (
+                ((p >> 24) & 0xFF) > 180
+                and not is_outer(p)
+                and _pixel_dist_from_rgb(p, cr, cg, cb) <= inner_tol
+            ):
+                perim_ok += 1
+        if perim_ok < len(perim_pts) * 0.80:
+            continue
+
+        # 2. Check central junction (ts-2..ts+1, ts-2..ts+1) matches outer material
+        center_ok = 0
+        center_tot = 0
+        for dy in range(-2, 2):
+            for dx in range(-2, 2):
+                center_tot += 1
+                if is_outer(cand.pixel(ts + dx, ts + dy)):
+                    center_ok += 1
+        if center_ok < center_tot * 0.80:
+            continue
+
+        # 3. Verify outer-material cutout extends reasonably in all 4 cardinal directions from (ts, ts)
+        cardinal_radii = []
+        for dx_dir, dy_dir in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            rad = 0
+            for d in range(1, ts):
+                sx = ts + dx_dir * d - (1 if dx_dir < 0 else 0)
+                sy = ts + dy_dir * d - (1 if dy_dir < 0 else 0)
+                if is_outer(cand.pixel(sx, sy)):
+                    rad = d
+                else:
+                    break
+            cardinal_radii.append(rad)
+        if min(cardinal_radii) < 2 or max(cardinal_radii) >= ts - 2:
+            continue
+
+        return cand
+
+    return None
+
+
+def _synthesize_interior_fill_from_ring(
+    patch: QImage,
+    ts: int,
+    mat: Optional[Dict[str, Any]] = None,
+    st: int = 0,
+    sb: int = 0,
+    target_rim: Optional[int] = None,
+) -> QImage:
     """
     Reconstructs a clean, seamless ts x ts interior tile for a 3x3 ring whose
-    center has a transparent gap, sampling ONLY from the pure inner-facing rows
-    of Top/Bottom (and Left/Right fallback) that are completely free of outer-rim
-    or dark-outline pixels, tiled periodically without mirror artifacts.
+    center has a transparent gap. Uses ONLY original pixels (zero blurring or
+    interpolation) from the pure interior rows bordering the shifted arm strips
+    so the center texture matches the incoming arms continuously without
+    chopped half-features or dead flat bands.
     """
     fill = QImage(ts, ts, QImage.Format.Format_ARGB32)
     pw, ph = patch.width(), patch.height()
@@ -624,82 +1003,101 @@ def _synthesize_interior_fill_from_ring(patch: QImage, ts: int) -> QImage:
     cx = (pw - ts) // 2
     cy = (ph - ts) // 2
 
-    # 1. Estimate pure interior color from the 1-pixel inner ring immediately bordering the center
-    inner_rs: List[int] = []
-    inner_gs: List[int] = []
-    inner_bs: List[int] = []
-    for k in range(ts):
-        for sx, sy in (
-            (cx + k, cy - 1),
-            (cx + k, cy + ts),
-            (cx - 1, cy + k),
-            (cx + ts, cy + k),
-        ):
-            if 0 <= sx < pw and 0 <= sy < ph:
-                px = patch.pixel(sx, sy)
-                if ((px >> 24) & 0xFF) > 180:
-                    inner_rs.append((px >> 16) & 0xFF)
-                    inner_gs.append((px >> 8) & 0xFF)
-                    inner_bs.append(px & 0xFF)
-
-    if inner_rs:
-        inner_rs.sort()
-        inner_gs.sort()
-        inner_bs.sort()
-        mid = len(inner_rs) // 2
-        ref_r, ref_g, ref_b = inner_rs[mid], inner_gs[mid], inner_bs[mid]
-        fallback_pixel = QColor(ref_r, ref_g, ref_b, 255).rgba()
-    else:
-        ref_r, ref_g, ref_b = 150, 120, 80
-        fallback_pixel = QColor(ref_r, ref_g, ref_b, 255).rgba()
-
-    def _is_pure_inner(px: int) -> bool:
-        if ((px >> 24) & 0xFF) <= 180:
-            return False
-        return _pixel_dist_from_rgb(px, ref_r, ref_g, ref_b) <= 0.14
+    if mat is None:
+        mat = _analyze_patch_materials(patch, ts)
+    cr, cg, cb = mat["cr"], mat["cg"], mat["cb"]
+    is_pure_inner = mat["is_pure_interior"]
+    fallback_pixel = QColor(cr, cg, cb, 255).rgba()
 
     def _row_is_pure(sy: int) -> bool:
         if not (0 <= sy < ph):
             return False
         pure = 0
         for x in range(ts):
-            if _is_pure_inner(patch.pixel(cx + x, sy)):
+            if is_pure_inner(patch.pixel(cx + x, sy)):
                 pure += 1
-        return pure >= int(ts * 0.85)
+        return pure >= ts
 
-    # 2. Collect ONLY pure interior rows adjacent to the center (never touching outer rim/tufts!)
-    max_band = max(4, ts // 3)
-    bot_pure_rows: List[int] = []
-    for dy in range(max_band):
-        sy = cy + ts + dy
+    def _row_texture_activity(sy: int) -> float:
+        diff_sum = 0.0
+        for x in range(ts):
+            diff_sum += _pixel_dist_from_rgb(patch.pixel(cx + x, sy), cr, cg, cb)
+        return diff_sum / float(max(1, ts))
+
+    t_rim = target_rim if target_rim is not None else max(3, int(round(ht * 0.40)))
+    top_start = max(0, st + t_rim - 1)
+    bot_end = min(ph, 3 * ts - sb - t_rim + 1)
+
+    # Collect contiguous pure interior rows on Top and Bottom (zero outer/cliff/outline pixels)
+    top_clean: List[int] = []
+    for sy in range(cy - 1, top_start - 1, -1):
         if _row_is_pure(sy):
-            bot_pure_rows.append(sy)
+            top_clean.append(sy)
+        else:
+            break
+    top_clean.reverse()
+
+    bot_clean: List[int] = []
+    for sy in range(cy + ts, bot_end):
+        if _row_is_pure(sy):
+            bot_clean.append(sy)
         else:
             break
 
-    top_pure_rows: List[int] = []
-    for dy in range(max_band):
-        sy = cy - 1 - dy
-        if _row_is_pure(sy):
-            top_pure_rows.append(sy)
+    # Align to the texture zone actually visible at the inner edges of q_top / q_bot
+    arm_top_edge = min(cy - 1, st + ht - 1)
+    arm_bot_edge = max(cy + ts, 3 * ts - ht - sb)
+    top_near = [sy for sy in top_clean if sy <= arm_top_edge + 2]
+    bot_near = [sy for sy in bot_clean if sy >= arm_bot_edge - 2]
+
+    def _filter_textured_rows(rows: List[int]) -> List[int]:
+        if len(rows) <= 4:
+            return rows
+        acts = [_row_texture_activity(r) for r in rows]
+        max_a = max(acts)
+        if max_a < 0.015:
+            return rows
+        active = [r for r, a in zip(rows, acts) if a >= max_a * 0.25]
+        return active if len(active) >= 4 else rows
+
+    top_f = _filter_textured_rows(top_near) if top_near else _filter_textured_rows(top_clean)
+    bot_f = _filter_textured_rows(bot_near) if bot_near else _filter_textured_rows(bot_clean)
+
+    # Pick the single cleanest coherent band (prevents mosaicing disparate sides!)
+    if top_f and bot_f:
+        top_act = sum(_row_texture_activity(sy) for sy in top_f) / len(top_f)
+        bot_act = sum(_row_texture_activity(sy) for sy in bot_f) / len(bot_f)
+        if len(top_f) >= len(bot_f) and top_act >= bot_act * 0.85:
+            band = top_f
+        elif len(bot_f) > len(top_f) + 1:
+            band = bot_f
         else:
-            break
-    top_pure_rows.reverse()  # Top-to-bottom order ending at cy - 1
+            band = top_f if top_act >= bot_act else bot_f
+    elif top_f:
+        band = top_f
+    elif bot_f:
+        band = bot_f
+    else:
+        band = top_clean if len(top_clean) >= len(bot_clean) else bot_clean
 
-    # Combine into one coherent, periodic vertical band of pure interior texture
-    pure_rows = bot_pure_rows + top_pure_rows
+    # Check if band has real pixel-art texture variation (stagger x-shift per cycle only when textured!)
+    is_textured = bool(band) and (
+        sum(_row_texture_activity(sy) for sy in band) / len(band) > 0.015
+    )
 
+    n_b = len(band)
     for y in range(ts):
+        cycle = (y // n_b) if n_b > 0 else 0
+        x_shift = ((cycle * ht) % ts) if is_textured else 0
         for x in range(ts):
             chosen: Optional[int] = None
-            if pure_rows:
-                sy = pure_rows[y % len(pure_rows)]
-                cand = patch.pixel(cx + x, sy)
-                if _is_pure_inner(cand):
+            if n_b > 0:
+                sy = band[y % n_b]
+                cand = patch.pixel(cx + ((x + x_shift) % ts), sy)
+                if is_pure_inner(cand):
                     chosen = cand
 
             if chosen is None:
-                # Fallback to nearest pure inner pixel from the 4 immediate borders
                 for sx, sy in (
                     (cx + x, cy - 1),
                     (cx + x, cy + ts),
@@ -708,7 +1106,7 @@ def _synthesize_interior_fill_from_ring(patch: QImage, ts: int) -> QImage:
                 ):
                     if 0 <= sx < pw and 0 <= sy < ph:
                         cand = patch.pixel(sx, sy)
-                        if _is_pure_inner(cand):
+                        if is_pure_inner(cand):
                             chosen = cand
                             break
 
@@ -748,101 +1146,70 @@ def _measure_rim_thickness(
     Measures how many pixels from the outer border of an edge tile belong to the
     outer rim material (before reaching the inner center material).
     """
-    w, h = strip.width(), strip.height()
-    limit = w if axis == "x" else h
-    samples = []
-    if axis == "x":
-        for y in range(0, h, max(1, h // 8)):
-            depth = 0
-            for step in range(limit):
-                x = step if from_start else (w - 1 - step)
-                if _pixel_dist_from_rgb(strip.pixel(x, y), cr, cg, cb) > thresh:
-                    depth = step + 1
-                else:
-                    break
-            samples.append(depth)
-    else:
-        for x in range(0, w, max(1, w // 8)):
-            depth = 0
-            for step in range(limit):
-                y = step if from_start else (h - 1 - step)
-                if _pixel_dist_from_rgb(strip.pixel(x, y), cr, cg, cb) > thresh:
-                    depth = step + 1
-                else:
-                    break
-            samples.append(depth)
-    if not samples:
-        return 0
-    samples.sort()
-    return samples[len(samples) // 2]
+    return _measure_outer_rim(
+        strip,
+        lambda px: _pixel_dist_from_rgb(px, cr, cg, cb) > thresh,
+        axis,
+        from_start,
+    )
 
 
-def synthesize_vx_ace_from_3x3(patch_3x3: QImage, tile_size: int = 32) -> QImage:
+def synthesize_vx_ace_from_3x3(
+    patch_3x3: QImage,
+    tile_size: int = 32,
+    companion_2x2: Optional[QImage] = None,
+    rim_balance: float = 0.40,
+) -> QImage:
     """
     Converts a 3x3 tilesheet block into a full RPG Maker VX Ace (2x3 tiles = 4x6 half-tiles)
     source image with:
-    - Pattern-preserving opaque center synthesis if the 3x3 center tile is transparent (LPC ring fix)
-    - Balanced outer rim thickness (shifts sampling inward if the 3x3 border is >50% of a half-tile,
-      so 1-tile peninsulas and 1x1 islands keep a lush interior instead of getting pinched)
-    - Smoothly rounded edge-intersection 4 inner corners reproducing the exact outer material
-      and organic transition tufts of the side tiles with zero black holes
+    - Three-zone material classification (outer background / intermediate bank, cliff or outline /
+      navigable inner surface) — handles grass+dirt, grass+transparent, AND multi-layer water+cliff+grass!
+    - Equalized full bank depth across all 4 cardinal directions so horizontal and vertical arms
+      keep consistent, matching surface widths without sudden steps or narrowing
+    - Texture-continuity check on the center tile: synthesizes a crisp pixel-art interior from the
+      arms both when the 3x3 center is transparent AND when an opaque center tile is flat/featureless
+      compared to richly textured incoming arms (eliminating disconnected flat center patches!)
+    - Seam-verified inner-corner composition: uses companion 2x2 inner corners ONLY when they pass
+      strict multi-layer bank-depth AND RGB seam alignment against the incoming arms; otherwise
+      uses seam-locked multi-layer radial contour synthesis (0px contour step across all layers!)
     """
     import math
 
     ts = max(8, int(tile_size))
     ht = ts // 2
     src = patch_3x3.copy()
-    center_tile = src.copy(ts, ts, ts, ts)
-    if _tile_alpha_ratio(center_tile) < 0.999:
-        filled = _synthesize_interior_fill_from_ring(src, ts)
-        for y in range(ts):
-            for x in range(ts):
-                if ((center_tile.pixel(x, y) >> 24) & 0xFF) <= 20:
-                    center_tile.setPixel(x, y, filled.pixel(x, y))
-        p_fix = QPainter(src)
-        p_fix.drawImage(ts, ts, center_tile)
-        p_fix.end()
+    mat = _analyze_patch_materials(src, ts)
+    is_inner = mat["is_pure_interior"]
+    cr, cg, cb = mat["cr"], mat["cg"], mat["cb"]
 
-    cr, cg, cb = _avg_opaque_rgb(center_tile)
-
-    # Measure outer rim thickness on the 4 cardinal edge tiles (full ts depth)
-    # If the outer rim occupies >50% of a half-tile (common in LPC terrain transitions where
-    # dirt takes ~13-14px of a 16px half-tile), shift the half-tile extraction window inward
-    # so 1-tile strips and 1x1 islands retain a rich, balanced green/interior core!
+    # Measure full bank/rim depth (outer + intermediate cliff/curb/outline) up to navigable inner surface
     top_tile = src.copy(ts, 0, ts, ts)
     bot_tile = src.copy(ts, 2 * ts, ts, ts)
     left_tile = src.copy(0, ts, ts, ts)
     right_tile = src.copy(2 * ts, ts, ts, ts)
 
-    rim_contrast = max(
-        _pixel_dist_from_rgb(top_tile.pixel(ts // 2, 0), cr, cg, cb),
-        _pixel_dist_from_rgb(left_tile.pixel(0, ts // 2), cr, cg, cb),
-        _pixel_dist_from_rgb(bot_tile.pixel(ts // 2, ts - 1), cr, cg, cb),
-        _pixel_dist_from_rgb(right_tile.pixel(ts - 1, ts // 2), cr, cg, cb),
-    )
-    thresh = max(0.06, min(0.18, rim_contrast * 0.35))
+    bank_t = _measure_bank_depth(top_tile, is_inner, "y", True)
+    bank_b = _measure_bank_depth(bot_tile, is_inner, "y", False)
+    bank_l = _measure_bank_depth(left_tile, is_inner, "x", True)
+    bank_r = _measure_bank_depth(right_tile, is_inner, "x", False)
 
-    rim_t = _measure_rim_thickness(top_tile, cr, cg, cb, "y", True, thresh)
-    rim_b = _measure_rim_thickness(bot_tile, cr, cg, cb, "y", False, thresh)
-    rim_l = _measure_rim_thickness(left_tile, cr, cg, cb, "x", True, thresh)
-    rim_r = _measure_rim_thickness(right_tile, cr, cg, cb, "x", False, thresh)
-
-    # Target rim depth inside each half-tile: ~45% of ht (e.g. ~7px on 32px tiles -> ~18px interior!)
-    target_rim = max(3, int(ht * 0.45))
+    # Target bank depth inside each half-tile (default ~40% of ht -> ~6px bank, ~20px uniform path width!)
+    clamped_balance = max(0.18, min(0.65, float(rim_balance)))
+    target_bank = max(3, int(round(ht * clamped_balance)))
     max_shift = max(0, ts - ht)
 
-    def _calc_shift(rim_px: int) -> int:
-        # Only shift if rim actually ends inside the tile (rim_px < ts - 2) and exceeds target_rim
-        if target_rim < rim_px < ts - 2:
-            return min(max_shift, rim_px - target_rim)
+    def _calc_shift(bank_px: int) -> int:
+        if target_bank < bank_px < ts - 2:
+            return min(max_shift, bank_px - target_bank)
         return 0
 
-    st = _calc_shift(rim_t)
-    sb = _calc_shift(rim_b)
-    sl = _calc_shift(rim_l)
-    sr = _calc_shift(rim_r)
+    st = _calc_shift(bank_t)
+    sb = _calc_shift(bank_b)
+    sl = _calc_shift(bank_l)
+    sr = _calc_shift(bank_r)
 
-    # Extract shifted outer corner and edge half-tiles
+    # Extract shifted outer corner and edge half-tiles (all 4 directions balanced!)
     q_tl = src.copy(sl, st, ht, ht)
     q_tr = src.copy(3 * ts - ht - sr, st, ht, ht)
     q_bl = src.copy(sl, 3 * ts - ht - sb, ht, ht)
@@ -857,6 +1224,30 @@ def synthesize_vx_ace_from_3x3(patch_3x3: QImage, tile_size: int = 32) -> QImage
     q_left_b = src.copy(sl, ts + ht, ht, ht)
     q_right_t = src.copy(3 * ts - ht - sr, ts, ht, ht)
     q_right_b = src.copy(3 * ts - ht - sr, ts + ht, ht, ht)
+
+    # Check center tile: synthesize if transparent OR if flat/featureless while arm interiors are richly textured!
+    center_tile = src.copy(ts, ts, ts, ts)
+    c_alpha = _tile_alpha_ratio(center_tile)
+    c_act = _tile_texture_activity(center_tile, cr, cg, cb) if c_alpha >= 0.999 else 0.0
+    arm_inner_act = max(
+        _tile_texture_activity(q_top_l, cr, cg, cb, 0, min(ht - 1, target_bank), ht, max(1, ht - target_bank)),
+        _tile_texture_activity(q_bot_l, cr, cg, cb, 0, 0, ht, max(1, ht - target_bank)),
+    )
+    need_synth_center = (c_alpha < 0.999) or (c_act < 0.010 and arm_inner_act > 0.020)
+    if need_synth_center:
+        filled = _synthesize_interior_fill_from_ring(
+            src, ts, mat=mat, st=st, sb=sb, target_rim=target_bank
+        )
+        if c_alpha < 0.999:
+            for y in range(ts):
+                for x in range(ts):
+                    if ((center_tile.pixel(x, y) >> 24) & 0xFF) <= 20:
+                        center_tile.setPixel(x, y, filled.pixel(x, y))
+        else:
+            center_tile = filled
+        p_fix = QPainter(src)
+        p_fix.drawImage(ts, ts, center_tile)
+        p_fix.end()
 
     res = QImage(2 * ts, 3 * ts, QImage.Format.Format_ARGB32)
     res.fill(QColor(0, 0, 0, 0))
@@ -890,8 +1281,7 @@ def synthesize_vx_ace_from_3x3(patch_3x3: QImage, tile_size: int = 32) -> QImage
     p.drawImage(3 * ht, 5 * ht, q_br)
     p.end()
 
-    # Row 0-1 (cols 2..3): Synthesize the 4 Inner Corners with smooth organic rounding
-    # matching the exact balanced side edges (zero square bulge, zero black holes!)
+    # Row 0-1 (cols 2..3): Build the 4 Inner Corners with strict multi-layer seam alignment
     inner_defs = (
         (2 * ht, 0, q_left_t, q_top_l, center_tile.copy(0, 0, ht, ht), True, True),
         (3 * ht, 0, q_right_t, q_top_r, center_tile.copy(ht, 0, ht, ht), False, True),
@@ -899,101 +1289,212 @@ def synthesize_vx_ace_from_3x3(patch_3x3: QImage, tile_size: int = 32) -> QImage
         (3 * ht, ht, q_right_b, q_bot_r, center_tile.copy(ht, ht, ht, ht), False, False),
     )
 
+    has_valid_comp = (
+        companion_2x2 is not None
+        and companion_2x2.width() >= 2 * ts
+        and companion_2x2.height() >= 2 * ts
+    )
+
     for dest_x, dest_y, v_quad, h_quad, c_quad, cut_left, cut_top in inner_defs:
-        rx = max(2, _measure_rim_thickness(v_quad, cr, cg, cb, "x", cut_left, thresh))
-        ry = max(2, _measure_rim_thickness(h_quad, cr, cg, cb, "y", cut_top, thresh))
+        rx = _measure_bank_depth(v_quad, is_inner, "x", cut_left)
+        ry = _measure_bank_depth(h_quad, is_inner, "y", cut_top)
 
-        # Detect the real dark outline/border color along the side edge transition
-        # (e.g., dark forest green between brown dirt and green grass)
-        center_luma = 0.299 * cr + 0.587 * cg + 0.114 * cb
-        dark_border_pixel: Optional[int] = None
-        darkest_luma = center_luma * 0.78  # Must be noticeably darker than center to count as outline
-        for probe_img in (v_quad, h_quad):
-            for py in range(ht):
-                for px_i in range(ht):
-                    p_val = probe_img.pixel(px_i, py)
-                    if ((p_val >> 24) & 0xFF) <= 180:
+        # 1. Try companion_2x2 ONLY when BOTH bank depth AND multi-layer RGB seam match tightly!
+        used_comp = False
+        if has_valid_comp:
+            best_off: Optional[Tuple[int, int, float]] = None
+            best_score = 1e9
+            v_seam_y = 0 if cut_top else (ht - 1)
+            h_seam_x = 0 if cut_left else (ht - 1)
+            max_ic_shift = max(0, ts - ht)
+            for sy_off in range(max_ic_shift + 1):
+                for sx_off in range(max_ic_shift + 1):
+                    d_x = 0
+                    for step in range(ht):
+                        px_c = (ts + sx_off + step) if cut_left else (ts - 1 - sx_off - step)
+                        py_c = (ts + sy_off) if cut_top else (ts - 1 - sy_off)
+                        if not is_inner(companion_2x2.pixel(px_c, py_c)):
+                            d_x = step + 1
+                        else:
+                            break
+                    d_y = 0
+                    for step in range(ht):
+                        px_c = (ts + sx_off) if cut_left else (ts - 1 - sx_off)
+                        py_c = (ts + sy_off + step) if cut_top else (ts - 1 - sy_off - step)
+                        if not is_inner(companion_2x2.pixel(px_c, py_c)):
+                            d_y = step + 1
+                        else:
+                            break
+                    if abs(d_x - rx) > 1 or abs(d_y - ry) > 1:
                         continue
-                    pr = (p_val >> 16) & 0xFF
-                    pg = (p_val >> 8) & 0xFF
-                    pb = p_val & 0xFF
-                    luma = 0.299 * pr + 0.587 * pg + 0.114 * pb
-                    if luma < darkest_luma:
-                        darkest_luma = luma
-                        dark_border_pixel = p_val
+                    rgb_err = 0.0
+                    for u in range(ht):
+                        cx_v = (ts + sx_off + u) if cut_left else (ts - sx_off - ht + u)
+                        cy_v = (ts + sy_off) if cut_top else (ts - 1 - sy_off)
+                        pv1 = companion_2x2.pixel(cx_v, cy_v)
+                        pv2 = v_quad.pixel(u, v_seam_y)
+                        rgb_err += _pixel_dist_from_rgb(
+                            pv1, (pv2 >> 16) & 0xFF, (pv2 >> 8) & 0xFF, pv2 & 0xFF
+                        )
+                        cx_h = (ts + sx_off) if cut_left else (ts - 1 - sx_off)
+                        cy_h = (ts + sy_off + u) if cut_top else (ts - sy_off - ht + u)
+                        ph1 = companion_2x2.pixel(cx_h, cy_h)
+                        ph2 = h_quad.pixel(h_seam_x, u)
+                        rgb_err += _pixel_dist_from_rgb(
+                            ph1, (ph2 >> 16) & 0xFF, (ph2 >> 8) & 0xFF, ph2 & 0xFF
+                        )
+                    mean_err = rgb_err / float(2 * ht)
+                    score = mean_err + (abs(d_x - rx) + abs(d_y - ry)) * 0.04
+                    if score < best_score:
+                        best_score = score
+                        best_off = (sx_off, sy_off, mean_err)
+            if best_off is not None and best_off[2] <= 0.11:
+                sx_off, sy_off, _ = best_off
+                for y in range(ht):
+                    for x in range(ht):
+                        src_x = (ts + sx_off + x) if cut_left else (ts - sx_off - ht + x)
+                        src_y = (ts + sy_off + y) if cut_top else (ts - sy_off - ht + y)
+                        res.setPixel(dest_x + x, dest_y + y, companion_2x2.pixel(src_x, src_y))
+                used_comp = True
 
-        # Track outer mask per pixel in this quadrant to close any 1px gap in the dark outline
-        is_outer_grid = [[False] * ht for _ in range(ht)]
+        if used_comp:
+            continue
+
+        # 2. Universal seam-locked multi-layer radial contour synthesis (0px step on ALL layers!)
+        if rx == 0 and ry == 0:
+            for y in range(ht):
+                for x in range(ht):
+                    res.setPixel(dest_x + x, dest_y + y, c_quad.pixel(x, y))
+            continue
+
+        rx_f = float(max(1, rx))
+        ry_f = float(max(1, ry))
+        seam_band = max(2, min(4, ht // 4))
 
         for y in range(ht):
             for x in range(ht):
                 dx = x if cut_left else (ht - 1 - x)
                 dy = y if cut_top else (ht - 1 - y)
-                pc = c_quad.pixel(x, y)
+                nx = dx / rx_f
+                ny = dy / ry_f
+                r_norm = math.sqrt(nx * nx + ny * ny)
 
-                # Smooth quarter-ellipse distance: equals 1.0 at (rx, 0) and (0, ry)
-                # so it aligns 100% with adjacent side tiles while rounding off the sharp corner!
-                r_norm = math.sqrt((dx / float(rx)) ** 2 + (dy / float(ry)) ** 2)
-                if r_norm <= 1.08:
-                    pv = v_quad.pixel(x, y)
-                    ph = h_quad.pixel(x, y)
-                    if r_norm <= 0.78:
-                        # Deep inside inner corner: copy real outer texture (e.g. brown dirt pebbles)
-                        chosen = pv if dx <= dy else ph
-                        res.setPixel(dest_x + x, dest_y + y, chosen)
-                        is_outer_grid[y][x] = True
+                if r_norm <= 1.25:
+                    if nx >= ny:
+                        sample_d = min(ht - 1, int(round(r_norm * rx_f)))
+                        sx = sample_d if cut_left else (ht - 1 - sample_d)
+                        cand = v_quad.pixel(sx, y)
                     else:
-                        # Organic transition zone: sample the edge strip at the radial depth
-                        # so the exact pixel-art grass tufts wrap smoothly around the curve!
-                        sample_depth = min(ht - 1, int(r_norm * (rx if dx >= dy else ry)))
-                        if dx >= dy:
-                            sx = sample_depth if cut_left else (ht - 1 - sample_depth)
-                            cand = v_quad.pixel(sx, y)
-                        else:
-                            sy = sample_depth if cut_top else (ht - 1 - sample_depth)
-                            cand = h_quad.pixel(x, sy)
-                        if _pixel_dist_from_rgb(cand, cr, cg, cb) > thresh:
-                            res.setPixel(dest_x + x, dest_y + y, cand)
-                            is_outer_grid[y][x] = True
-                        else:
-                            res.setPixel(dest_x + x, dest_y + y, pc)
-                else:
-                    res.setPixel(dest_x + x, dest_y + y, pc)
+                        sample_d = min(ht - 1, int(round(r_norm * ry_f)))
+                        sy = sample_d if cut_top else (ht - 1 - sample_d)
+                        cand = h_quad.pixel(x, sy)
 
-        # Ensure unbroken 1px dark outline wherever inner material directly touches outer material
-        if dark_border_pixel is not None:
-            for y in range(ht):
-                for x in range(ht):
-                    if is_outer_grid[y][x]:
-                        continue
-                    touches_outer = False
-                    for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                        nx, ny = x + ox, y + oy
-                        if 0 <= nx < ht and 0 <= ny < ht and is_outer_grid[ny][nx]:
-                            touches_outer = True
-                            break
-                    if touches_outer:
-                        cur = res.pixel(dest_x + x, dest_y + y)
-                        cur_luma = (
-                            0.299 * ((cur >> 16) & 0xFF)
-                            + 0.587 * ((cur >> 8) & 0xFF)
-                            + 0.114 * (cur & 0xFF)
-                        )
-                        if cur_luma > center_luma * 0.80:
-                            res.setPixel(dest_x + x, dest_y + y, dark_border_pixel)
+                    if r_norm <= 1.0 or not is_inner(cand):
+                        res.setPixel(dest_x + x, dest_y + y, cand)
+                    else:
+                        if nx >= ny and is_inner(v_quad.pixel(x, y)):
+                            res.setPixel(dest_x + x, dest_y + y, v_quad.pixel(x, y))
+                        elif is_inner(h_quad.pixel(x, y)):
+                            res.setPixel(dest_x + x, dest_y + y, h_quad.pixel(x, y))
+                        else:
+                            res.setPixel(dest_x + x, dest_y + y, c_quad.pixel(x, y))
+                else:
+                    if dy < seam_band and is_inner(v_quad.pixel(x, y)):
+                        res.setPixel(dest_x + x, dest_y + y, v_quad.pixel(x, y))
+                    elif dx < seam_band and is_inner(h_quad.pixel(x, y)):
+                        res.setPixel(dest_x + x, dest_y + y, h_quad.pixel(x, y))
+                    else:
+                        res.setPixel(dest_x + x, dest_y + y, c_quad.pixel(x, y))
 
     return res
 
 
-def synthesize_vx_ace_from_2x2(patch_2x2: QImage, tile_size: int = 32) -> QImage:
+def _is_closed_2x2_patch(patch_2x2: QImage, ts: int) -> Tuple[bool, Tuple[int, int, int, int]]:
+    """
+    Detects whether a 2x2 tilesheet block (2*ts x 2*ts) is a closed circular/tight
+    central patch surrounded by a different outer background material (e.g. LPC 2x2
+    dirt-in-grass or island-in-water inner-corner blocks), where naive half-tile
+    duplication would leave outer-material walls on the horizontal/vertical edges.
+    Returns (is_closed_tight_patch, (ix0, ix1, iy0, iy1)) of the central interior span.
+    """
+    ht = ts // 2
+    inner_px = [
+        patch_2x2.pixel(ts + dx, ts + dy)
+        for dy in range(-3, 3)
+        for dx in range(-3, 3)
+        if ((patch_2x2.pixel(ts + dx, ts + dy) >> 24) & 0xFF) > 180
+    ]
+    if len(inner_px) < 18:
+        return False, (ht, 3 * ht - 1, ht, 3 * ht - 1)
+
+    cr, cg, cb = _median_rgb(inner_px)
+    in_m = (cr + cg + cb) / 3.0
+    in_c = (cr - in_m, cg - in_m, cb - in_m)
+    in_chroma_mag = (abs(in_c[0]) + abs(in_c[1]) + abs(in_c[2])) / (3.0 * 255.0)
+    center_luma = 0.299 * cr + 0.587 * cg + 0.114 * cb
+
+    outer_px: List[int] = []
+    for k in range(2 * ts):
+        for sx, sy in ((k, 0), (k, 2 * ts - 1), (0, k), (2 * ts - 1, k)):
+            p = patch_2x2.pixel(sx, sy)
+            if ((p >> 24) & 0xFF) > 20:
+                outer_px.append(p)
+    if not outer_px:
+        return False, (ht, 3 * ht - 1, ht, 3 * ht - 1)
+    orr, org, orb = _median_rgb(outer_px)
+    contrast = (abs(orr - cr) + abs(org - cg) + abs(orb - cb)) / (3.0 * 255.0)
+    if contrast < 0.08:
+        return False, (ht, 3 * ht - 1, ht, 3 * ht - 1)
+
+    def _is_in(p: int) -> bool:
+        if ((p >> 24) & 0xFF) <= 180:
+            return False
+        luma = 0.299 * ((p >> 16) & 0xFF) + 0.587 * ((p >> 8) & 0xFF) + 0.114 * (p & 0xFF)
+        if luma < center_luma * 0.65:
+            return False
+        if _pixel_dist_from_rgb(p, orr, org, orb) < _pixel_dist_from_rgb(p, cr, cg, cb) * 0.90:
+            return False
+        if in_chroma_mag >= 0.04:
+            r, g, b = (p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF
+            m = (r + g + b) / 3.0
+            cd = (abs((r - m) - in_c[0]) + abs((g - m) - in_c[1]) + abs((b - m) - in_c[2])) / (3.0 * 255.0)
+            if cd > 0.11:
+                return False
+        return True
+
+    ix0 = ts
+    while ix0 > 0 and _is_in(patch_2x2.pixel(ix0 - 1, ts)):
+        ix0 -= 1
+    ix1 = ts
+    while ix1 < 2 * ts - 1 and _is_in(patch_2x2.pixel(ix1 + 1, ts)):
+        ix1 += 1
+    iy0 = ts
+    while iy0 > 0 and _is_in(patch_2x2.pixel(ts, iy0 - 1)):
+        iy0 -= 1
+    iy1 = ts
+    while iy1 < 2 * ts - 1 and _is_in(patch_2x2.pixel(ts, iy1 + 1)):
+        iy1 += 1
+
+    # Tight/closed patch: interior does not extend past the half-tile boundaries (ht .. 3*ht-1)
+    is_tight = (ix0 > ht - 2) or (ix1 < 3 * ht + 1) or (iy0 > ht - 2) or (iy1 < 3 * ht + 1)
+    has_valid_core = (ix1 - ix0 >= 6) and (iy1 - iy0 >= 6)
+    return (is_tight and has_valid_core), (ix0, ix1, iy0, iy1)
+
+
+def synthesize_vx_ace_from_2x2(
+    patch_2x2: QImage, tile_size: int = 32, rim_balance: float = 0.40
+) -> QImage:
     """
     Converts a 2x2 tilesheet block (4 tiles = 4x4 half-tiles) into a complete
     RPG Maker VX Ace (2x3 tiles = 4x6 half-tiles) autotile source image.
-    Ideal for 2x2 corner/island/path blocks like LPC 2x2 terrain transitions.
+    Handles BOTH standard full-width 2x2 blocks AND closed circular/tight 2x2
+    patches (e.g. dirt-in-grass medallions), sampling edge strips strictly from
+    the flat central tangent chord and the center strictly from the inscribed
+    pure-interior core so paths connect continuously without repeating circles
+    or outer-material divider walls.
     """
     ts = max(8, int(tile_size))
     ht = ts // 2
-    # Upscale/extract 2x2 into a virtual 3x3 by duplicating middle strips for H/V edges
     virtual_3x3 = QImage(3 * ts, 3 * ts, QImage.Format.Format_ARGB32)
     virtual_3x3.fill(QColor(0, 0, 0, 0))
     p = QPainter(virtual_3x3)
@@ -1002,22 +1503,52 @@ def synthesize_vx_ace_from_2x2(patch_2x2: QImage, tile_size: int = 32) -> QImage
     p.drawImage(2 * ts, 0, patch_2x2, ts, 0, ts, ts)                 # TR
     p.drawImage(0, 2 * ts, patch_2x2, 0, ts, ts, ts)                 # BL
     p.drawImage(2 * ts, 2 * ts, patch_2x2, ts, ts, ts, ts)           # BR
-    # Top edge (middle strip of top half)
+
+    is_tight, (ix0, ix1, iy0, iy1) = _is_closed_2x2_patch(patch_2x2, ts)
+    if is_tight:
+        p.end()
+        # Use flat middle tangent chord (~55% of radius) for smooth straight edges (zero wavy scallops!)
+        rx_core = max(2, int((ix1 - ix0) * 0.28))
+        ry_core = max(2, int((iy1 - iy0) * 0.28))
+        cx_mid = (ix0 + ix1) // 2
+        cy_mid = (iy0 + iy1) // 2
+        sx0, sx1 = max(ix0 + 1, cx_mid - rx_core), min(ix1 - 1, cx_mid + rx_core)
+        sy0, sy1 = max(iy0 + 1, cy_mid - ry_core), min(iy1 - 1, cy_mid + ry_core)
+        sw_span = max(1, sx1 - sx0 + 1)
+        sh_span = max(1, sy1 - sy0 + 1)
+
+        # Seamless Top & Bottom edges (strictly inside flat tangent chord -> zero vertical walls!)
+        for x in range(ts):
+            src_x = sx0 + _tri_wave(x, sw_span)
+            for y in range(ts):
+                virtual_3x3.setPixel(ts + x, y, patch_2x2.pixel(src_x, y))
+                virtual_3x3.setPixel(ts + x, 2 * ts + y, patch_2x2.pixel(src_x, ts + y))
+        # Seamless Left & Right edges (strictly inside flat tangent chord -> zero horizontal walls!)
+        for y in range(ts):
+            src_y = sy0 + _tri_wave(y, sh_span)
+            for x in range(ts):
+                virtual_3x3.setPixel(x, ts + y, patch_2x2.pixel(x, src_y))
+                virtual_3x3.setPixel(2 * ts + x, ts + y, patch_2x2.pixel(ts + x, src_y))
+        # Pure inscribed interior center (guaranteed 100% inside circular patch -> zero outer specks!)
+        for y in range(ts):
+            src_y = sy0 + _tri_wave(y, sh_span)
+            for x in range(ts):
+                src_x = sx0 + _tri_wave(x, sw_span)
+                virtual_3x3.setPixel(ts + x, ts + y, patch_2x2.pixel(src_x, src_y))
+        return synthesize_vx_ace_from_3x3(virtual_3x3, ts, rim_balance=rim_balance)
+
+    # Standard full-width 2x2 block
     p.drawImage(ts, 0, patch_2x2, ht, 0, ht, ts)
     p.drawImage(ts + ht, 0, patch_2x2, ts, 0, ht, ts)
-    # Bottom edge
     p.drawImage(ts, 2 * ts, patch_2x2, ht, ts, ht, ts)
     p.drawImage(ts + ht, 2 * ts, patch_2x2, ts, ts, ht, ts)
-    # Left edge
     p.drawImage(0, ts, patch_2x2, 0, ht, ts, ht)
     p.drawImage(0, ts + ht, patch_2x2, 0, ts, ts, ht)
-    # Right edge
     p.drawImage(2 * ts, ts, patch_2x2, ts, ht, ts, ht)
     p.drawImage(2 * ts, ts + ht, patch_2x2, ts, ts, ts, ht)
-    # Center (innermost 2x2 half-tiles)
     p.drawImage(ts, ts, patch_2x2, ht, ht, ts, ts)
     p.end()
-    return synthesize_vx_ace_from_3x3(virtual_3x3, ts)
+    return synthesize_vx_ace_from_3x3(virtual_3x3, ts, rim_balance=rim_balance)
 
 
 def analyze_tileset_region(
@@ -1169,10 +1700,13 @@ def synthesize_from_tileset_context(
     edge_style: str = "organic",
     w_tiles: int = 1,
     h_tiles: int = 1,
+    rim_balance: float = 0.40,
 ) -> Tuple[QImage, AutotileFormat, str]:
     """
     Extracts a tile or WxH region from a tileset sheet and synthesizes an
-    accurate 47-combination Autotile with proper inner corners and transparent-center handling.
+    accurate 47-combination Autotile (or preserves a logical WxH multi-cell
+    composition) with proper multi-layer inner corners, texture continuity,
+    and transparent-center handling.
     """
     ts = max(8, int(tile_size))
     w_t = max(1, int(w_tiles))
@@ -1197,11 +1731,31 @@ def synthesize_from_tileset_context(
     if mode == "auto":
         effective_mode = analysis["suggested_mode"]
 
+    # 0. Explicit multi-cell logical composition WxH (occupies WxH map cells as 1 indivisible unit!)
+    if effective_mode == "composition_wxh" and (w_t > 1 or h_t > 1):
+        comp_patch = sheet.copy(col * ts, row * ts, w_t * ts, h_t * ts)
+        # Also synthesize a clean VX Ace fallback atlas (with representative 1x1 thumbnail from comp_patch)
+        if w_t == 2 and h_t == 2:
+            fallback_vx = synthesize_vx_ace_from_2x2(comp_patch, ts, rim_balance=rim_balance)
+        elif w_t == 3 and h_t == 3:
+            fallback_vx = synthesize_vx_ace_from_3x3(comp_patch, ts, rim_balance=rim_balance)
+        else:
+            fallback_vx = synthesize_from_single_tile(
+                sheet.copy(col * ts, row * ts, ts, ts), ts, edge_style
+            )
+        return (
+            fallback_vx,
+            AutotileFormat.VX_ACE_2X3,
+            f"Kompozycja wielokafelkowa {w_t}×{h_t} (1 wariant = {w_t * h_t} komórek mapy)",
+        )
+
     # 1. Explicit or detected 2x2 block
     if effective_mode == "block_2x2" and (col + 2) * ts <= sheet.width() and (row + 2) * ts <= sheet.height():
         patch_2x2 = sheet.copy(col * ts, row * ts, 2 * ts, 2 * ts)
-        img = synthesize_vx_ace_from_2x2(patch_2x2, ts)
-        return img, AutotileFormat.VX_ACE_2X3, f"Blok 2×2 z tilesetu ({analysis['summary']})"
+        is_tight, _ = _is_closed_2x2_patch(patch_2x2, ts)
+        img = synthesize_vx_ace_from_2x2(patch_2x2, ts, rim_balance=rim_balance)
+        extra = " (ciągła ścieżka z kompozycji 2×2)" if is_tight else ""
+        return img, AutotileFormat.VX_ACE_2X3, f"Blok 2×2 z tilesetu{extra} ({analysis['summary']})"
 
     # 2. 3x3 block centered at (col, row) -> converted to full VX Ace with inner corners & transparent-center fix
     has_3x3_center = (
@@ -1211,15 +1765,21 @@ def synthesize_from_tileset_context(
     )
     if has_3x3_center and effective_mode == "block_3x3_center":
         patch_3x3 = sheet.copy((col - 1) * ts, (row - 1) * ts, 3 * ts, 3 * ts)
-        img = synthesize_vx_ace_from_3x3(patch_3x3, ts)
-        return img, AutotileFormat.VX_ACE_2X3, f"Blok 3×3 (środek) + narożniki wewn. ({analysis['summary']})"
+        mat = _analyze_patch_materials(patch_3x3, ts)
+        comp = _find_companion_inner_corners(sheet, col - 1, row - 1, ts, mat)
+        img = synthesize_vx_ace_from_3x3(patch_3x3, ts, companion_2x2=comp, rim_balance=rim_balance)
+        ic_tag = "narożniki 2×2 z arkusza" if comp is not None else "narożniki wewn."
+        return img, AutotileFormat.VX_ACE_2X3, f"Blok 3×3 (środek) + {ic_tag} ({analysis['summary']})"
 
     # 3. 3x3 block starting at (col, row) as Top-Left
     has_3x3_tl = (col + 3) * ts <= sheet.width() and (row + 3) * ts <= sheet.height()
     if has_3x3_tl and effective_mode == "block_3x3_tl":
         patch_3x3 = sheet.copy(col * ts, row * ts, 3 * ts, 3 * ts)
-        img = synthesize_vx_ace_from_3x3(patch_3x3, ts)
-        return img, AutotileFormat.VX_ACE_2X3, "Blok 3×3 z tilesetu (róg TL + narożniki wewn.)"
+        mat = _analyze_patch_materials(patch_3x3, ts)
+        comp = _find_companion_inner_corners(sheet, col, row, ts, mat)
+        img = synthesize_vx_ace_from_3x3(patch_3x3, ts, companion_2x2=comp, rim_balance=rim_balance)
+        ic_tag = "narożniki 2×2 z arkusza" if comp is not None else "narożniki wewn."
+        return img, AutotileFormat.VX_ACE_2X3, f"Blok 3×3 z tilesetu (róg TL + {ic_tag})"
 
     # 4. 2x3 RPG Maker VX Ace block starting at (col, row)
     has_2x3 = (col + 2) * ts <= sheet.width() and (row + 3) * ts <= sheet.height()
@@ -1250,7 +1810,7 @@ def synthesize_from_tileset_context(
                 ts,
             )
         painter.end()
-        img = synthesize_vx_ace_from_2x2(representative, ts)
+        img = synthesize_vx_ace_from_2x2(representative, ts, rim_balance=rim_balance)
         return img, AutotileFormat.VX_ACE_2X3, f"Obszar niestandardowy {w_t}×{h_t} z arkusza"
 
     # 6. Default: single tile organic/soft/outline synthesis
@@ -1313,6 +1873,10 @@ class RPGAutotile:
         source_h_tiles: int = 1,
         generation_mode: str = "auto",
         edge_style: str = "organic",
+        composition_width: int = 1,
+        composition_height: int = 1,
+        path_width: int = 1,
+        rim_balance: float = 0.40,
         id: Optional[str] = None,
         tileset_id: Optional[str] = None,
         archived: bool = False,
@@ -1337,6 +1901,13 @@ class RPGAutotile:
         self.source_h_tiles = max(1, int(source_h_tiles))
         self.generation_mode = generation_mode
         self.edge_style = edge_style
+        self.composition_width = max(1, int(composition_width))
+        self.composition_height = max(1, int(composition_height))
+        if self.generation_mode == "composition_wxh" and self.composition_width == 1 and self.composition_height == 1:
+            self.composition_width = self.source_w_tiles
+            self.composition_height = self.source_h_tiles
+        self.path_width = max(1, min(6, int(path_width)))
+        self.rim_balance = max(0.18, min(0.65, float(rim_balance)))
         self.archived = bool(archived)
 
         # Center / decorative variants: list of dicts with {"weight": float, "sub_coords": tuple}
@@ -1353,6 +1924,12 @@ class RPGAutotile:
     @property
     def is_autotile(self) -> bool:
         return True
+
+    @property
+    def is_multi_cell_composition(self) -> bool:
+        return self.generation_mode == "composition_wxh" and (
+            self.composition_width > 1 or self.composition_height > 1
+        )
 
     def get_half_tile_size(self) -> int:
         return self.tile_size // 2
@@ -1374,12 +1951,17 @@ class RPGAutotile:
             pm = asset_manager.get_pixmap(self.source_asset_id)
             if pm and not pm.isNull():
                 sheet = pm.toImage()
+                asset_obj = asset_manager.get_asset(self.source_asset_id) if hasattr(asset_manager, "get_asset") else None
+                ts_cfg = getattr(asset_obj, "tileset_config", None) if asset_obj else None
+                if ts_cfg is not None:
+                    sheet, _, _ = extract_packed_tileset_image(sheet, ts_cfg)
                 src_img, fmt, _ = synthesize_from_tileset_context(
                     sheet, self.source_col, self.source_row, self.tile_size,
                     mode=self.generation_mode,
                     edge_style=self.edge_style,
                     w_tiles=self.source_w_tiles,
                     h_tiles=self.source_h_tiles,
+                    rim_balance=self.rim_balance,
                 )
                 self.format = fmt
                 self._source_qimage = src_img
@@ -1578,6 +2160,10 @@ class RPGAutotile:
             "source_h_tiles": self.source_h_tiles,
             "generation_mode": self.generation_mode,
             "edge_style": self.edge_style,
+            "composition_width": self.composition_width,
+            "composition_height": self.composition_height,
+            "path_width": self.path_width,
+            "rim_balance": self.rim_balance,
             "archived": self.archived,
             "center_variants": self.center_variants,
             "custom_variants": [v.to_dict() for v in self.custom_variants],
@@ -1601,6 +2187,10 @@ class RPGAutotile:
             source_h_tiles=int(data.get("source_h_tiles", 1)),
             generation_mode=data.get("generation_mode", "auto"),
             edge_style=data.get("edge_style", "organic"),
+            composition_width=int(data.get("composition_width", 1)),
+            composition_height=int(data.get("composition_height", 1)),
+            path_width=int(data.get("path_width", 1)),
+            rim_balance=float(data.get("rim_balance", 0.40)),
             archived=bool(data.get("archived", False)),
         )
         autotile.center_variants = list(data.get("center_variants", []))
@@ -1623,6 +2213,8 @@ def create_rpg_autotile_from_tile(
     seed: int = 42,
     w_tiles: int = 1,
     h_tiles: int = 1,
+    path_width: int = 1,
+    rim_balance: float = 0.40,
 ) -> RPGAutotile:
     """
     Factory creating a ready-to-paint RPGAutotile from a selected tile or WxH region
@@ -1630,7 +2222,7 @@ def create_rpg_autotile_from_tile(
     """
     src_img, fmt, desc = synthesize_from_tileset_context(
         sheet, col, row, tile_size, mode=mode, edge_style=edge_style,
-        w_tiles=w_tiles, h_tiles=h_tiles,
+        w_tiles=w_tiles, h_tiles=h_tiles, rim_balance=rim_balance,
     )
     ts = max(8, int(tile_size))
     autotile = RPGAutotile(
@@ -1647,6 +2239,10 @@ def create_rpg_autotile_from_tile(
         source_h_tiles=h_tiles,
         generation_mode=mode,
         edge_style=edge_style,
+        composition_width=w_tiles if mode == "composition_wxh" else 1,
+        composition_height=h_tiles if mode == "composition_wxh" else 1,
+        path_width=path_width,
+        rim_balance=rim_balance,
     )
     autotile.set_source_qimage(src_img)
     return autotile

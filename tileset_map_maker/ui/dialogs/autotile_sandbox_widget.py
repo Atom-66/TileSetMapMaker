@@ -181,18 +181,30 @@ class AutoTileSandboxWidget(QWidget):
         for r in range(self.rows + 1):
             painter.drawLine(0, r * ts, self.cols * ts, r * ts)
 
-        # Draw path tiles via RPG autotile engine
+        # Draw path tiles via RPG autotile engine (supports custom WxH variants & multi-cell compositions!)
         if self.active_rpg_autotile:
             evaluated_rpg = self.engine.evaluate_rpg_sandbox_grid(
-                self.active_cells, self.active_rpg_autotile, self.cols, self.rows
+                self.active_cells,
+                self.active_rpg_autotile,
+                self.cols,
+                self.rows,
+                asset_manager=self.asset_manager,
             )
             atlas_pm = self.active_rpg_autotile.atlas_pixmap
-            for (c, r) in self.active_cells:
+            for (c, r), tile_info in evaluated_rpg.items():
                 rect = QRect(c * ts, r * ts, ts, ts)
-                tile_info = evaluated_rpg.get((c, r))
-                if tile_info and atlas_pm and not atlas_pm.isNull():
-                    _, sx, sy, sw, sh = tile_info
-                    painter.drawPixmap(rect, atlas_pm, QRect(sx, sy, sw, sh))
+                aid, sx, sy, sw, sh = tile_info
+                src_pm = atlas_pm
+                if (
+                    aid != self.active_rpg_autotile.id
+                    and self.asset_manager is not None
+                    and hasattr(self.asset_manager, "get_pixmap")
+                ):
+                    custom_pm = self.asset_manager.get_pixmap(aid)
+                    if custom_pm and not custom_pm.isNull():
+                        src_pm = custom_pm
+                if src_pm and not src_pm.isNull():
+                    painter.drawPixmap(rect, src_pm, QRect(sx, sy, sw, sh))
                 else:
                     painter.fillRect(rect, QColor("#2563eb"))
         else:

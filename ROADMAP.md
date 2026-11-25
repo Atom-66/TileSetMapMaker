@@ -342,6 +342,13 @@ wynik `OK`, czas 332,084 s.
   - Potwierdzono testem `test_05_archiving_saved_path_preserves_map_tiles_across_reload`.
 - `[x]` Naprawa samoczynnego rozszerzania panelu Tools po uruchomieniu:
   - Usunięto źródłową przyczynę w `ToolPanel._update_orientation()` (przedwczesne przełączanie do orientacji poziomej z `minWidth=404` przed wyrenderowaniem docelowej wysokości okna) oraz podbito `LAYOUT_VERSION = 4` w celu wyczyszczenia uszkodzonych stanów z poprzedniej wersji.
+- `[x]` Naprawa skrzyżowań, wielowarstwowych brzegów, ciągłości tekstur i większych kompozycji W×H w systemie Paths:
+  - Wprowadzono trójstrefową analizę materiałów (`_analyze_patch_materials`, `_measure_bank_depth`) rozróżniającą podłoże zewnętrzne, pośrednie warstwy brzegowe (klif, krawężnik, ciemny obrys) oraz właściwą nawierzchnię wewnętrzną — wyrównując szerokości wszystkich 4 ramion i eliminując krzywe połączenia oraz schodki na ścieżkach wodnych.
+  - Dodano analizę aktywności tekstury (`_tile_texture_activity`) dla środka bloków 3×3: płaskie/jednolite środki otoczone fakturowanymi ramionami (np. trawa bez podłoża, gładki środek wody) są automatycznie syntetyzowane z oryginalnych pikseli ramion (100% pixel art, bez rozmywania i interpolacji).
+  - Dodano ścisłą weryfikację szwów RGB i głębokości brzegów dla gotowych narożników 2×2 z arkusza (`_find_companion_inner_corners`) oraz wielowarstwowy fallback proceduralny zablokowany na szwach.
+  - Naprawiono syntezę zamkniętych bloków 2×2 (`_is_closed_2x2_patch`, `synthesize_vx_ace_from_2x2`): próbkowanie płaskiej cięciwy stycznej i wpisanego rdzenia eliminuje powtarzające się odizolowane koła oraz przegrody na ścieżkach z bloków 2×2.
+  - Wprowadzono pełny model logicznych kompozycji wielokafelkowych `W×H` (`PathVariant`/`CustomPathVariant` z `source_rect`, `role`, `compatible_neighbors`; tryb `composition_wxh` z atomowym rozmieszczaniem, gumkowaniem bez osieroconych kafelków, podglądem na żywo w sandboxie, zapisem `.tmmap` i Undo/Redo) oraz regulację szerokości ścieżki (`path_width`, `rim_balance`) w `PathGeneratorDialog`.
+  - Zweryfikowano testami `tests/test_paths_intersections_comprehensive.py` (14 testów obejmujących wszystkie 4 przykłady referencyjne, kompozycje 2×2/2×3/3×2/3×3, rozmiary kafelków 16/24/32/48 px, `margin`/`spacing`, zapis/odczyt i Undo/Redo) oraz pozostałymi zestawami Paths.
 
 ---
 

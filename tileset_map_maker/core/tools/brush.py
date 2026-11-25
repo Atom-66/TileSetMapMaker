@@ -97,11 +97,10 @@ class BrushTool(BaseTool):
                                     item.asset_id = rpg_at.id
                                     item.terrain_type = rpg_at.terrain_type
 
-                            layer.set_tile(item.col, item.row, item)
-                            self.session_changes[coord] = (prev_clone, item.clone())
-                            self.painted_coords.add(coord)
-
-                            if rpg_at and context.autotile_engine:
+                            if rpg_at and context.autotile_engine and (
+                                getattr(rpg_at, "is_multi_cell_composition", False)
+                                or getattr(rpg_at, "path_width", 1) > 1
+                            ):
                                 stroke_changes = context.autotile_engine.apply_rpg_autotile_stroke(
                                     layer,
                                     [coord],
@@ -109,12 +108,33 @@ class BrushTool(BaseTool):
                                     context.project,
                                     asset_manager=context.asset_manager,
                                 )
-                                for ch_coord, (ch_before, ch_after) in stroke_changes.items():
-                                    if ch_coord in self.session_changes:
-                                        init_before, _ = self.session_changes[ch_coord]
-                                        self.session_changes[ch_coord] = (init_before, ch_after)
-                                    else:
-                                        self.session_changes[ch_coord] = (ch_before, ch_after)
+                                if stroke_changes:
+                                    self.painted_coords.add(coord)
+                                    for ch_coord, (ch_before, ch_after) in stroke_changes.items():
+                                        if ch_coord in self.session_changes:
+                                            init_before, _ = self.session_changes[ch_coord]
+                                            self.session_changes[ch_coord] = (init_before, ch_after)
+                                        else:
+                                            self.session_changes[ch_coord] = (ch_before, ch_after)
+                            else:
+                                layer.set_tile(item.col, item.row, item)
+                                self.session_changes[coord] = (prev_clone, item.clone())
+                                self.painted_coords.add(coord)
+
+                                if rpg_at and context.autotile_engine:
+                                    stroke_changes = context.autotile_engine.apply_rpg_autotile_stroke(
+                                        layer,
+                                        [coord],
+                                        rpg_at,
+                                        context.project,
+                                        asset_manager=context.asset_manager,
+                                    )
+                                    for ch_coord, (ch_before, ch_after) in stroke_changes.items():
+                                        if ch_coord in self.session_changes:
+                                            init_before, _ = self.session_changes[ch_coord]
+                                            self.session_changes[ch_coord] = (init_before, ch_after)
+                                        else:
+                                            self.session_changes[ch_coord] = (ch_before, ch_after)
 
     def on_release(self, col: int, row: int, context: ToolContext) -> None:
         if not self.is_active:

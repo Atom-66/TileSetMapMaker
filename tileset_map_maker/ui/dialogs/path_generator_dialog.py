@@ -36,6 +36,7 @@ from ...core.rpg_autotile import (
     AutotileFormat,
     CustomPathVariant,
     SelectedAutotile,
+    extract_packed_tileset_image,
     synthesize_from_single_tile,
     synthesize_from_tileset_context,
     create_rpg_autotile_from_tile,
@@ -64,6 +65,7 @@ class TilesetSheetCanvas(QWidget):
         self.pixmap: Optional[QPixmap] = None
         self.tile_w: int = 32
         self.tile_h: int = 32
+        self.tileset_config: Optional[Any] = None
         self.sel_col: int = 0
         self.sel_row: int = 0
         self.sel_w_tiles: int = 1
@@ -75,8 +77,15 @@ class TilesetSheetCanvas(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def set_sheet(self, pixmap: Optional[QPixmap], tile_w: int = 32, tile_h: int = 32) -> None:
+    def set_sheet(
+        self,
+        pixmap: Optional[QPixmap],
+        tile_w: int = 32,
+        tile_h: int = 32,
+        tileset_config: Optional[Any] = None,
+    ) -> None:
         self.pixmap = pixmap
+        self.tileset_config = tileset_config
         self.tile_w = max(8, int(tile_w))
         self.tile_h = max(8, int(tile_h))
         if pixmap and not pixmap.isNull():
@@ -84,6 +93,32 @@ class TilesetSheetCanvas(QWidget):
         else:
             self.setFixedSize(320, 240)
         self.update()
+
+    def _grid_dims(self) -> Tuple[int, int]:
+        if not self.pixmap or self.pixmap.isNull():
+            return 0, 0
+        if self.tileset_config is not None:
+            g = self.tileset_config.compute_grid(self.pixmap.width(), self.pixmap.height())
+            return int(g["cols"]), int(g["rows"])
+        return self.pixmap.width() // self.tile_w, self.pixmap.height() // self.tile_h
+
+    def _cell_rect(self, col: int, row: int, w_tiles: int = 1, h_tiles: int = 1) -> QRect:
+        if self.tileset_config is not None:
+            x0, y0, tw, th = self.tileset_config.get_tile_rect(col, row)
+            x1, y1, tw2, th2 = self.tileset_config.get_tile_rect(
+                col + max(1, w_tiles) - 1, row + max(1, h_tiles) - 1
+            )
+            return QRect(x0, y0, (x1 + tw2) - x0, (y1 + th2) - y0)
+        return QRect(col * self.tile_w, row * self.tile_h, w_tiles * self.tile_w, h_tiles * self.tile_h)
+
+    def _pos_to_cell(self, px: float, py: float) -> Tuple[int, int]:
+        if self.tileset_config is not None:
+            ox = self.tileset_config.start_x + self.tileset_config.margin_x
+            oy = self.tileset_config.start_y + self.tileset_config.margin_y
+            step_w = max(1, self.tileset_config.tile_width + self.tileset_config.spacing_x)
+            step_h = max(1, self.tileset_config.tile_height + self.tileset_config.spacing_y)
+            return int((px - ox) // step_w), int((py - oy) // step_h)
+        return int(px // self.tile_w), int(py // self.tile_h)
 
     def set_selected_tile(self, col: int, row: int, w_tiles: int = 1, h_tiles: int = 1) -> None:
         self.sel_col = max(0, col)
@@ -94,10 +129,8 @@ class TilesetSheetCanvas(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self.pixmap and not self.pixmap.isNull():
-            col = int(event.position().x() // self.tile_w)
-            row = int(event.position().y() // self.tile_h)
-            max_c = self.pixmap.width() // self.tile_w
-            max_r = self.pixmap.height() // self.tile_h
+            col, row = self._pos_to_cell(event.position().x(), event.position().y())
+            max_c, max_r = self._grid_dims()
             if 0 <= col < max_c and 0 <= row < max_r:
                 if self._dragging:
                     ac, ar = self._drag_anchor
@@ -124,10 +157,8 @@ class TilesetSheetCanvas(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self.pixmap and not self.pixmap.isNull():
-            col = int(event.position().x() // self.tile_w)
-            row = int(event.position().y() // self.tile_h)
-            max_c = self.pixmap.width() // self.tile_w
-            max_r = self.pixmap.height() // self.tile_h
+            col, row = self._pos_to_cell(event.position().x(), event.position().y())
+            max_c, max_r = self._grid_dims()
             if 0 <= col < max_c and 0 <= row < max_r:
                 self._dragging = True
                 self._drag_anchor = (col, row)
@@ -152,33 +183,38 @@ class TilesetSheetCanvas(QWidget):
         if self.pixmap and not self.pixmap.isNull():
             painter.drawPixmap(0, 0, self.pixmap)
 
-            pw = self.pixmap.width()
-            ph = self.pixmap.height()
+            max_c, max_r = self._grid_dims()
 
-            # Regular grid
+            # Regular grid (respecting margin, spacing, and grid start offset)
             grid_pen = QPen(QColor(255, 255, 255, 35), 1)
             painter.setPen(grid_pen)
-            for x in range(0, pw + 1, self.tile_w):
-                painter.drawLine(x, 0, x, ph)
-            for y in range(0, ph + 1, self.tile_h):
-                painter.drawLine(0, y, pw, y)
+            if self.tileset_config is not None and (
+                self.tileset_config.margin_x
+                or self.tileset_config.margin_y
+                or self.tileset_config.spacing_x
+                or self.tileset_config.spacing_y
+                or self.tileset_config.start_x
+                or self.tileset_config.start_y
+            ):
+                for r in range(max_r):
+                    for c in range(max_c):
+                        painter.drawRect(self._cell_rect(c, r, 1, 1))
+            else:
+                pw = self.pixmap.width()
+                ph = self.pixmap.height()
+                for x in range(0, pw + 1, self.tile_w):
+                    painter.drawLine(x, 0, x, ph)
+                for y in range(0, ph + 1, self.tile_h):
+                    painter.drawLine(0, y, pw, y)
 
             # Hover tile
             if self.hover_col >= 0 and self.hover_row >= 0 and not self._dragging:
-                hr = QRect(
-                    self.hover_col * self.tile_w,
-                    self.hover_row * self.tile_h,
-                    self.tile_w,
-                    self.tile_h,
-                )
+                hr = self._cell_rect(self.hover_col, self.hover_row, 1, 1)
                 painter.fillRect(hr, QColor(255, 255, 255, 45))
 
             # Selected tile / WxH region
-            sr = QRect(
-                self.sel_col * self.tile_w,
-                self.sel_row * self.tile_h,
-                self.sel_w_tiles * self.tile_w,
-                self.sel_h_tiles * self.tile_h,
+            sr = self._cell_rect(
+                self.sel_col, self.sel_row, self.sel_w_tiles, self.sel_h_tiles
             )
             painter.fillRect(sr, QColor(56, 189, 248, 70))
             sel_pen = QPen(QColor("#38bdf8"), 2)
@@ -408,12 +444,31 @@ class PathGeneratorDialog(QDialog):
         self.cmb_mode.addItem("Automatyczny (analiza krawędzi i otoczenia)", "auto")
         self.cmb_mode.addItem("Pojedynczy kafelek (synteza krawędzi)", "single_tile")
         self.cmb_mode.addItem("Blok 2×2 z arkusza (4 narożniki / wyspa)", "block_2x2")
+        self.cmb_mode.addItem("Kompozycja wielokafelkowa W×H (1 wariant = W×H komórek)", "composition_wxh")
         self.cmb_mode.addItem("Blok 3×3 z arkusza (kafel jako środek)", "block_3x3_center")
         self.cmb_mode.addItem("Blok 3×3 z arkusza (kafel jako róg TL)", "block_3x3_tl")
         self.cmb_mode.addItem("Układ 2×3 RPG Maker VX z arkusza", "block_2x3_vx")
         self.cmb_mode.addItem("Zaznaczony obszar W×H (niestandardowy)", "custom_region")
         self.cmb_mode.currentIndexChanged.connect(self._regenerate_autotile)
         form_params.addRow("Tryb generowania:", self.cmb_mode)
+
+        width_row = QHBoxLayout()
+        self.spin_path_width = QSpinBox(grp_params)
+        self.spin_path_width.setRange(1, 4)
+        self.spin_path_width.setValue(1)
+        self.spin_path_width.setSuffix(" kaf.")
+        self.spin_path_width.setToolTip("Szerokość malowanej ścieżki w kafelkach (1 = pojedyncza, 2 = podwójna itd.)")
+        self.spin_path_width.valueChanged.connect(self._regenerate_autotile)
+        width_row.addWidget(self.spin_path_width)
+
+        self.cmb_rim_balance = QComboBox(grp_params)
+        self.cmb_rim_balance.addItem("Nawierzchnia: Szeroka", 0.28)
+        self.cmb_rim_balance.addItem("Nawierzchnia: Zrównoważona", 0.40)
+        self.cmb_rim_balance.addItem("Nawierzchnia: Wąska", 0.52)
+        self.cmb_rim_balance.setCurrentIndex(1)
+        self.cmb_rim_balance.currentIndexChanged.connect(self._regenerate_autotile)
+        width_row.addWidget(self.cmb_rim_balance, 1)
+        form_params.addRow("Szerokość ścieżki:", width_row)
 
         self.cmb_style = QComboBox(grp_params)
         self.cmb_style.addItem("Organiczny kontur RPG (cieniowany)", "organic")
@@ -451,6 +506,8 @@ class PathGeneratorDialog(QDialog):
         self.cmb_variant_mask.addItem("Prosta pionowa (N+S)", 17)
         self.cmb_variant_mask.addItem("Rozgałęzienie T (W+E+S)", 84)
         self.cmb_variant_mask.addItem("Rozgałęzienie T (W+E+N)", 69)
+        self.cmb_variant_mask.addItem("Rozgałęzienie T (N+S+E)", 21)
+        self.cmb_variant_mask.addItem("Rozgałęzienie T (N+S+W)", 81)
         self.cmb_variant_mask.addItem("Izolowany 1×1 (0)", 0)
         var_row1.addWidget(self.cmb_variant_mask, 1)
 
@@ -634,12 +691,17 @@ class PathGeneratorDialog(QDialog):
             return
 
         pm = self.asset_manager.get_pixmap(asset.id)
-        tw = asset.tileset_config.tile_width if asset.tileset_config else 32
-        th = asset.tileset_config.tile_height if asset.tileset_config else 32
-        self.sheet_canvas.set_sheet(pm, tw, th)
+        ts_cfg = asset.tileset_config
+        tw = ts_cfg.tile_width if ts_cfg else 32
+        th = ts_cfg.tile_height if ts_cfg else 32
+        self.sheet_canvas.set_sheet(pm, tw, th, tileset_config=ts_cfg)
 
-        cols = asset.width // tw if tw > 0 else 0
-        rows = asset.height // th if th > 0 else 0
+        if ts_cfg is not None:
+            grid = ts_cfg.compute_grid(asset.width, asset.height)
+            cols, rows = grid["cols"], grid["rows"]
+        else:
+            cols = asset.width // tw if tw > 0 else 0
+            rows = asset.height // th if th > 0 else 0
         self.lbl_tileset_info.setText(
             f"Wymiary: {asset.width}×{asset.height} px | Kafel: {tw}×{th} px | Siatka: {cols}×{rows} ({cols * rows} kafli)"
         )
@@ -672,6 +734,15 @@ class PathGeneratorDialog(QDialog):
         prio = self.spin_variant_prio.value()
         weight = self.spin_variant_weight.value()
         label = self.cmb_variant_mask.currentText()
+        ts_cfg = self.selected_asset.tileset_config
+        src_rect = None
+        if ts_cfg is not None:
+            x0, y0, tw, th = ts_cfg.get_tile_rect(self.selected_col, self.selected_row)
+            x1, y1, tw2, th2 = ts_cfg.get_tile_rect(
+                self.selected_col + self.selected_w_tiles - 1,
+                self.selected_row + self.selected_h_tiles - 1,
+            )
+            src_rect = (x0, y0, (x1 + tw2) - x0, (y1 + th2) - y0)
         variant = CustomPathVariant(
             mask=mask,
             source_asset_id=self.selected_asset.id,
@@ -679,6 +750,8 @@ class PathGeneratorDialog(QDialog):
             source_row=self.selected_row,
             width_tiles=self.selected_w_tiles,
             height_tiles=self.selected_h_tiles,
+            source_rect=src_rect,
+            role="composition" if (self.selected_w_tiles > 1 or self.selected_h_tiles > 1) else "single_tile",
             priority=prio,
             weight=weight,
             name=f"{label} [{self.selected_w_tiles}×{self.selected_h_tiles} @ {self.selected_col},{self.selected_row}]",
@@ -714,8 +787,9 @@ class PathGeneratorDialog(QDialog):
         if not pm or pm.isNull():
             return
 
-        sheet = pm.toImage()
-        ts = self.selected_asset.tileset_config.tile_width if self.selected_asset.tileset_config else 32
+        raw_sheet = pm.toImage()
+        ts_cfg = self.selected_asset.tileset_config
+        sheet, ts, _th = extract_packed_tileset_image(raw_sheet, ts_cfg)
         mode = self.cmb_mode.currentData() or "auto"
         edge_style = self.cmb_style.currentData() or "organic"
 
@@ -747,6 +821,8 @@ class PathGeneratorDialog(QDialog):
         )
 
         # Synthesize Autotile
+        rim_balance = float(self.cmb_rim_balance.currentData() or 0.40)
+        path_width = int(self.spin_path_width.value())
         src_img, fmt, desc = synthesize_from_tileset_context(
             sheet,
             self.selected_col,
@@ -756,6 +832,7 @@ class PathGeneratorDialog(QDialog):
             edge_style=edge_style,
             w_tiles=self.selected_w_tiles,
             h_tiles=self.selected_h_tiles,
+            rim_balance=rim_balance,
         )
         self.lbl_status.setText(f"Status analizy: {desc}")
 
@@ -777,6 +854,10 @@ class PathGeneratorDialog(QDialog):
             source_h_tiles=self.selected_h_tiles,
             generation_mode=mode,
             edge_style=edge_style,
+            composition_width=self.selected_w_tiles if mode == "composition_wxh" else 1,
+            composition_height=self.selected_h_tiles if mode == "composition_wxh" else 1,
+            path_width=path_width,
+            rim_balance=rim_balance,
         )
         autotile.custom_variants = list(self._custom_variants)
         autotile.set_source_qimage(src_img)
