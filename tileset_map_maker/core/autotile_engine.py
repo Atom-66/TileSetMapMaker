@@ -14,6 +14,7 @@ from ..models.autotile import (
     CARDINAL_MASK,
 )
 from .rpg_autotile import RPGAutotile, SelectedAutotile
+from .paths import TileAnalyzer, ConnectionRuleEngine, PathSolver, PathMapRenderer
 
 logger = logging.getLogger("AutoTileEngine")
 
@@ -40,6 +41,32 @@ class AutoTileEngine:
         self.rpg_autotiles: Dict[str, RPGAutotile] = {}
         self.active_rpg_autotile_id: Optional[str] = None
         self.asset_manager: Optional[Any] = asset_manager
+        self.analyzer: TileAnalyzer = TileAnalyzer()
+
+    def update_rpg_autotile_definition(
+        self,
+        old_autotile_id: str,
+        updated_autotile: RPGAutotile,
+        asset_manager: Optional[Any] = None,
+    ) -> RPGAutotile:
+        """
+        Safely updates a saved Path definition WITHOUT modifying already-painted
+        tiles on any map: archives the old definition snapshot so existing map
+        tiles keep rendering their original textures, and registers the edited
+        definition under a fresh ID as the new active Path.
+        """
+        am = asset_manager or self.asset_manager
+        old = self.rpg_autotiles.get(old_autotile_id)
+        if old is not None:
+            old.archived = True
+            if am is not None and hasattr(am, "register_rpg_autotile"):
+                am.register_rpg_autotile(old)
+        if updated_autotile.id == old_autotile_id:
+            updated_autotile = updated_autotile.clone_as_new_definition()
+        updated_autotile.archived = False
+        self.register_rpg_autotile(updated_autotile, am)
+        self.active_rpg_autotile_id = updated_autotile.id
+        return updated_autotile
 
     def register_rpg_autotile(
         self, autotile: RPGAutotile, asset_manager: Optional[Any] = None
@@ -305,84 +332,27 @@ class AutoTileEngine:
         changes: Dict[Tuple[int, int], Tuple[Optional[MapItem], Optional[MapItem]]],
         asset_manager: Optional[Any],
     ) -> None:
-        dest_ts = project.tile_size if project else autotile.tile_size
-        claimed: Set[Tuple[int, int]] = set()
-        if getattr(autotile, "custom_variants", None):
-            ts = autotile.tile_size
-            for c, r in sorted(affected, key=lambda pt: (pt[1], pt[0])):
-                if (c, r) in claimed:
-                    continue
-                tile = layer.get_tile(c, r)
-                if not self._tile_belongs_to_autotile(tile, autotile):
-                    continue
-                mask = self.compute_rpg_mask(layer, c, r, autotile, project)
-                variant = autotile.get_matching_custom_variant(mask, c, r)
-                if variant is None:
-                    continue
-                vw, vh = variant.width_tiles, variant.height_tiles
+        am = asset_manager or self.asset_manager
+        bounds = (project.map_width, project.map_height) if project else None
 
-                # Prefer top-left placement (backward-compatible), fallback to centered for >=3x3 variants
-                anchor_candidates = [(c, r)]
-                if vw >= 3 or vh >= 3:
-                    anchor_candidates.append((c - vw // 2, r - vh // 2))
+        def _is_path(c: int, r: int) -> bool:
+            if project and not (0 <= c < project.map_width and 0 <= r < project.map_height):
+                return False
+            return self._tile_belongs_to_autotile(layer.get_tile(c, r), autotile)
 
-                chosen_origin: Optional[Tuple[int, int]] = None
-                for oc, orow in anchor_candidates:
-                    can_place = True
-                    for dr in range(vh):
-                        for dc in range(vw):
-                            fc, fr = oc + dc, orow + dr
-                            if (fc, fr) in claimed:
-                                can_place = False
-                                break
-                            if project and not (0 <= fc < project.map_width and 0 <= fr < project.map_height):
-                                can_place = False
-                                break
-                            ft = layer.get_tile(fc, fr)
-                            if not self._tile_belongs_to_autotile(ft, autotile):
-                                can_place = False
-                                break
-                        if not can_place:
-                            break
-                    if can_place:
-                        chosen_origin = (oc, orow)
-                        break
+        def _src_rect(aid: Optional[str], col: int, row: int, ts: int) -> Tuple[int, int, int, int]:
+            return self._source_tile_rect(aid, col, row, ts, am)
 
-                if chosen_origin is not None:
-                    oc, orow = chosen_origin
-                    for dr in range(vh):
-                        for dc in range(vw):
-                            fc, fr = oc + dc, orow + dr
-                            ft = layer.get_tile(fc, fr)
-                            if (fc, fr) not in initial_states:
-                                initial_states[(fc, fr)] = ft.clone()
-                            sx, sy, sw, sh = self._variant_source_rect(
-                                variant, dc, dr, ts, asset_manager
-                            )
-                            ft.asset_id = variant.source_asset_id or autotile.id
-                            ft.source_x = sx
-                            ft.source_y = sy
-                            ft.source_w = sw
-                            ft.source_h = sh
-                            ft.dest_w = dest_ts
-                            ft.dest_h = dest_ts
-                            ft.is_auto_tiled = True
-                            ft.terrain_type = autotile.terrain_type
-                            if isinstance(ft.properties, dict):
-                                ft.properties["autotile_id"] = autotile.id
-                                ft.properties["variant_origin"] = [oc, orow]
-                                ft.properties["variant_size"] = [vw, vh]
-                            claimed.add((fc, fr))
-                            changes[(fc, fr)] = (initial_states.get((fc, fr)), ft.clone())
-
-        # Pass 2: Standard Wang-47 atlas update for all remaining unclaimed affected cells
-        for c, r in affected:
-            if (c, r) in claimed:
-                continue
-            tile = layer.get_tile(c, r)
-            if self._tile_belongs_to_autotile(tile, autotile):
-                self.update_rpg_tile_at(layer, c, r, autotile, project)
-                changes[(c, r)] = (initial_states.get((c, r)), tile.clone())
+        placements = PathSolver.solve_region(
+            target_cells=affected,
+            is_path_cell=_is_path,
+            autotile=autotile,
+            source_rect_fn=_src_rect,
+            bounds=bounds,
+        )
+        PathMapRenderer.commit_placements(
+            layer, placements, autotile, project, initial_states, changes
+        )
 
     def _apply_composition_stroke(
         self,
@@ -394,66 +364,26 @@ class AutoTileEngine:
     ) -> Dict[Tuple[int, int], Tuple[Optional[MapItem], Optional[MapItem]]]:
         """
         Places indivisible WxH multi-cell logical compositions (e.g. 2x2, 2x3, 3x3)
-        snapped to a non-overlapping macro-grid so all W*H source tiles preserve
-        their exact relative positions without splitting, shifting, or overlapping.
+        via PathSolver + PathMapRenderer without splitting, shifting, or overlapping.
         """
-        cw = max(1, int(getattr(autotile, "composition_width", autotile.source_w_tiles)))
-        ch = max(1, int(getattr(autotile, "composition_height", autotile.source_h_tiles)))
-        ts = autotile.tile_size
-        dest_ts = project.tile_size if project else ts
         am = asset_manager or self.asset_manager
-        src_asset_id = autotile.source_asset_id or autotile.id
+        bounds = (project.map_width, project.map_height) if project else None
 
+        def _src_rect(aid: Optional[str], col: int, row: int, ts: int) -> Tuple[int, int, int, int]:
+            return self._source_tile_rect(aid, col, row, ts, am)
+
+        placements = PathSolver.solve_region(
+            target_cells=set(coords),
+            is_path_cell=lambda _c, _r: True,
+            autotile=autotile,
+            source_rect_fn=_src_rect,
+            bounds=bounds,
+        )
+        initial_states: Dict[Tuple[int, int], Optional[MapItem]] = {}
         changes: Dict[Tuple[int, int], Tuple[Optional[MapItem], Optional[MapItem]]] = {}
-        placed_origins: Set[Tuple[int, int]] = set()
-
-        for c, r in coords:
-            oc = (c // cw) * cw
-            orow = (r // ch) * ch
-            if (oc, orow) in placed_origins:
-                continue
-            # Verify entire WxH composition fits inside map bounds (never splits or clips!)
-            if project and (
-                oc < 0
-                or orow < 0
-                or oc + cw > project.map_width
-                or orow + ch > project.map_height
-            ):
-                continue
-            placed_origins.add((oc, orow))
-            for dr in range(ch):
-                for dc in range(cw):
-                    fc, fr = oc + dc, orow + dr
-                    prev = layer.get_tile(fc, fr)
-                    prev_clone = prev.clone() if prev else None
-                    sx, sy, sw, sh = self._source_tile_rect(
-                        src_asset_id,
-                        autotile.source_col + dc,
-                        autotile.source_row + dr,
-                        ts,
-                        am,
-                    )
-                    item = MapItem(
-                        asset_id=src_asset_id,
-                        col=fc,
-                        row=fr,
-                        item_type=ItemType.TILE,
-                        source_x=sx,
-                        source_y=sy,
-                        source_w=sw,
-                        source_h=sh,
-                        dest_w=dest_ts,
-                        dest_h=dest_ts,
-                        is_auto_tiled=True,
-                        terrain_type=autotile.terrain_type,
-                        properties={
-                            "autotile_id": autotile.id,
-                            "composition_origin": [oc, orow],
-                            "composition_size": [cw, ch],
-                        },
-                    )
-                    layer.set_tile(fc, fr, item)
-                    changes[(fc, fr)] = (prev_clone, item.clone())
+        PathMapRenderer.commit_placements(
+            layer, placements, autotile, project, initial_states, changes
+        )
         return changes
 
     def apply_rpg_autotile_stroke(
@@ -634,114 +564,37 @@ class AutoTileEngine:
         height: int = 16,
         asset_manager: Optional[Any] = None,
     ) -> Dict[Tuple[int, int], Tuple[str, int, int, int, int]]:
-        result: Dict[Tuple[int, int], Tuple[str, int, int, int, int]] = {}
         am = asset_manager or self.asset_manager
 
-        # Multi-cell logical composition preview in sandbox (non-overlapping WxH units!)
-        if getattr(autotile, "is_multi_cell_composition", False):
-            cw = max(1, int(getattr(autotile, "composition_width", autotile.source_w_tiles)))
-            ch = max(1, int(getattr(autotile, "composition_height", autotile.source_h_tiles)))
-            ts = autotile.tile_size
-            src_aid = autotile.source_asset_id or autotile.id
-            seen_origins: Set[Tuple[int, int]] = set()
-            for c, r in sorted(active_cells, key=lambda pt: (pt[1], pt[0])):
-                oc = (c // cw) * cw
-                orow = (r // ch) * ch
-                if (oc, orow) in seen_origins:
-                    continue
-                if oc < 0 or orow < 0 or oc + cw > width or orow + ch > height:
-                    continue
-                seen_origins.add((oc, orow))
-                for dr in range(ch):
-                    for dc in range(cw):
-                        sx, sy, sw, sh = self._source_tile_rect(
-                            src_aid,
-                            autotile.source_col + dc,
-                            autotile.source_row + dr,
-                            ts,
-                            am,
-                        )
-                        result[(oc + dc, orow + dr)] = (src_aid, sx, sy, sw, sh)
-            return result
-
-        # Expand active_cells if path_width > 1 for live sandbox preview
+        # Expand active_cells if path_width > 1 (when not in macro-composition mode)
         pw_tiles = max(1, int(getattr(autotile, "path_width", 1)))
-        effective_cells: Set[Tuple[int, int]]
-        if pw_tiles > 1:
-            effective_cells = set()
+        if pw_tiles > 1 and not getattr(autotile, "is_multi_cell_composition", False):
+            effective_cells: Set[Tuple[int, int]] = set()
             for c, r in active_cells:
                 for dr in range(pw_tiles):
                     for dc in range(pw_tiles):
                         if 0 <= c + dc < width and 0 <= r + dr < height:
                             effective_cells.add((c + dc, r + dr))
         else:
-            effective_cells = active_cells
+            effective_cells = set(active_cells)
 
         def _is_active(c: int, r: int) -> bool:
             return (0 <= c < width and 0 <= r < height) and (c, r) in effective_cells
 
-        def _mask_at(c: int, r: int) -> int:
-            mask = 0
-            n = _is_active(c, r - 1)
-            s = _is_active(c, r + 1)
-            w = _is_active(c - 1, r)
-            e = _is_active(c + 1, r)
-            if n: mask |= MASK_N
-            if s: mask |= MASK_S
-            if w: mask |= MASK_W
-            if e: mask |= MASK_E
-            if n and e and _is_active(c + 1, r - 1): mask |= MASK_NE
-            if s and e and _is_active(c + 1, r + 1): mask |= MASK_SE
-            if s and w and _is_active(c - 1, r + 1): mask |= MASK_SW
-            if n and w and _is_active(c - 1, r - 1): mask |= MASK_NW
-            return mask
+        def _src_rect(aid: Optional[str], col: int, row: int, ts: int) -> Tuple[int, int, int, int]:
+            return self._source_tile_rect(aid, col, row, ts, am)
 
-        valid_cells = [
-            (c, r) for c, r in effective_cells if 0 <= c < width and 0 <= r < height
-        ]
-        claimed: Set[Tuple[int, int]] = set()
-
-        # Pass 1: Evaluate custom variants (1x1, 2x2, 3x3, WxH) live in the sandbox
-        if getattr(autotile, "custom_variants", None):
-            ts = autotile.tile_size
-            for c, r in sorted(valid_cells, key=lambda pt: (pt[1], pt[0])):
-                if (c, r) in claimed:
-                    continue
-                mask = _mask_at(c, r)
-                variant = autotile.get_matching_custom_variant(mask, c, r)
-                if variant is None:
-                    continue
-                vw, vh = variant.width_tiles, variant.height_tiles
-                anchor_candidates = [(c, r)]
-                if vw >= 3 or vh >= 3:
-                    anchor_candidates.append((c - vw // 2, r - vh // 2))
-                chosen_origin: Optional[Tuple[int, int]] = None
-                for oc, orow in anchor_candidates:
-                    if all(
-                        _is_active(oc + dc, orow + dr) and (oc + dc, orow + dr) not in claimed
-                        for dr in range(vh)
-                        for dc in range(vw)
-                    ):
-                        chosen_origin = (oc, orow)
-                        break
-                if chosen_origin is not None:
-                    oc, orow = chosen_origin
-                    aid = variant.source_asset_id or autotile.id
-                    for dr in range(vh):
-                        for dc in range(vw):
-                            fc, fr = oc + dc, orow + dr
-                            sx, sy, sw, sh = self._variant_source_rect(variant, dc, dr, ts, am)
-                            result[(fc, fr)] = (aid, sx, sy, sw, sh)
-                            claimed.add((fc, fr))
-
-        # Pass 2: Standard Wang-47 atlas slices for remaining cells
-        for c, r in valid_cells:
-            if (c, r) in claimed:
-                continue
-            mask = _mask_at(c, r)
-            sx, sy, sw, sh = autotile.get_tile_slice_for_mask(mask, c, r)
-            result[(c, r)] = (autotile.id, sx, sy, sw, sh)
-
+        placements = PathSolver.solve_region(
+            target_cells=effective_cells,
+            is_path_cell=_is_active,
+            autotile=autotile,
+            source_rect_fn=_src_rect,
+            bounds=(width, height),
+        )
+        result: Dict[Tuple[int, int], Tuple[str, int, int, int, int]] = {}
+        for pl in placements:
+            for coord, (sx, sy, sw, sh) in pl.cell_slices.items():
+                result[coord] = (pl.source_asset_id, sx, sy, sw, sh)
         return result
 
     def recalculate_layer(

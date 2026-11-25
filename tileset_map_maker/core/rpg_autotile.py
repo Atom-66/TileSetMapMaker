@@ -12,6 +12,14 @@ from ..models.autotile import (
     canonicalize_blob_mask,
     deterministic_cell_hash,
 )
+from .paths.models import (
+    EDGE_DIRECTIONS,
+    OPPOSITE_EDGE,
+    VARIANT_ROLES,
+    EdgeSignature,
+    CustomPathVariant,
+    PathVariant,
+)
 
 
 class AutotileFormat(str, Enum):
@@ -20,84 +28,6 @@ class AutotileFormat(str, Enum):
     WANG_47     = "wang_47"      # Pre-assembled 47-blob Wang tilesheet
     SIMPLE_3X3  = "simple_3x3"   # 3x3 tilesheet (9 full tiles)
     BLOCK_2X2   = "block_2x2"    # 2x2 tilesheet (4 full tiles: corners/edges/center)
-
-
-class CustomPathVariant:
-    """
-    Logical multi-tile or single-tile Path variant describing an indivisible
-    source composition in a tileset (1x1, 2x1, 1x2, 2x2, 2x3, 3x3, or arbitrary WxH),
-    explicitly separating tileset source coordinates/rect from map placement rules,
-    semantic role, connection bitmask, compatible neighbors, priority, and weight.
-    """
-
-    def __init__(
-        self,
-        mask: int,
-        source_asset_id: str,
-        source_col: int,
-        source_row: int,
-        width_tiles: int = 1,
-        height_tiles: int = 1,
-        priority: int = 10,
-        weight: float = 1.0,
-        name: str = "",
-        variant_id: Optional[str] = None,
-        source_rect: Optional[Tuple[int, int, int, int]] = None,
-        role: str = "auto",
-        compatible_neighbors: Optional[List[int]] = None,
-    ):
-        self.id = variant_id or str(uuid.uuid4())
-        self.mask = -1 if int(mask) < 0 else canonicalize_blob_mask(int(mask))
-        self.source_asset_id = str(source_asset_id)
-        self.source_col = max(0, int(source_col))
-        self.source_row = max(0, int(source_row))
-        self.width_tiles = max(1, int(width_tiles))
-        self.height_tiles = max(1, int(height_tiles))
-        self.source_rect = tuple(int(v) for v in source_rect) if source_rect and len(source_rect) == 4 else None
-        self.role = str(role or "auto")
-        self.compatible_neighbors = [int(n) for n in (compatible_neighbors or [])]
-        self.priority = int(priority)
-        self.weight = max(0.01, float(weight))
-        self.name = name or f"Wariant {self.width_tiles}x{self.height_tiles} (maska {self.mask})"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "mask": self.mask,
-            "source_asset_id": self.source_asset_id,
-            "source_col": self.source_col,
-            "source_row": self.source_row,
-            "width_tiles": self.width_tiles,
-            "height_tiles": self.height_tiles,
-            "source_rect": list(self.source_rect) if self.source_rect else None,
-            "role": self.role,
-            "compatible_neighbors": list(self.compatible_neighbors),
-            "priority": self.priority,
-            "weight": self.weight,
-            "name": self.name,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CustomPathVariant":
-        sr = data.get("source_rect")
-        return cls(
-            mask=int(data.get("mask", 0)),
-            source_asset_id=str(data.get("source_asset_id", "")),
-            source_col=int(data.get("source_col", 0)),
-            source_row=int(data.get("source_row", 0)),
-            width_tiles=int(data.get("width_tiles", 1)),
-            height_tiles=int(data.get("height_tiles", 1)),
-            priority=int(data.get("priority", 10)),
-            weight=float(data.get("weight", 1.0)),
-            name=str(data.get("name", "")),
-            variant_id=data.get("id"),
-            source_rect=tuple(sr) if sr and len(sr) == 4 else None,
-            role=str(data.get("role", "auto")),
-            compatible_neighbors=data.get("compatible_neighbors"),
-        )
-
-
-PathVariant = CustomPathVariant
 
 
 # ==============================================================================
@@ -1154,6 +1084,248 @@ def _measure_rim_thickness(
     )
 
 
+def _rgba_dist(p1: int, p2: int) -> float:
+    """Alpha-aware normalized pixel distance (0.0 for transparent==transparent)."""
+    a1 = (p1 >> 24) & 0xFF
+    a2 = (p2 >> 24) & 0xFF
+    if a1 <= 20 and a2 <= 20:
+        return 0.0
+    if (a1 <= 20) != (a2 <= 20):
+        return 1.0
+    r1, g1, b1 = (p1 >> 16) & 0xFF, (p1 >> 8) & 0xFF, p1 & 0xFF
+    r2, g2, b2 = (p2 >> 16) & 0xFF, (p2 >> 8) & 0xFF, p2 & 0xFF
+    return (abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)) / (3.0 * 255.0)
+
+
+def _choose_balanced_strip_phase(
+    tile_a: QImage,
+    tile_b: QImage,
+    is_inner: Any,
+    axis: str,
+    shift_a: int,
+    shift_b: int,
+    ts: int,
+) -> int:
+    """
+    For a periodic, symmetric 3x3 edge strip pair (top+bottom for axis='h',
+    left+right for axis='v'), selects a cyclic pixel phase offset in [0..ts-1]
+    so that BOTH tile boundaries (pixel 0 meeting the center's right/bottom edge
+    and pixel ts-1 meeting the center's left/top edge) preserve the strip's true
+    median navigable surface width without landing on an asymmetric deep notch.
+
+    Strictly preserves phase 0 when:
+    - the strip is non-periodic (wrap seam error > 0.16), OR
+    - the source strip is intentionally asymmetric (|half0_avg - half1_avg| > 3px), OR
+    - phase 0 is already balanced and unpinched.
+    Uses ONLY original unmodified pixels (zero scaling, stretching, or blurring).
+    """
+    ht = ts // 2
+    if axis == "h":
+        err_a = sum(
+            _rgba_dist(tile_a.pixel(0, shift_a + y), tile_a.pixel(ts - 1, shift_a + y))
+            for y in range(ht)
+        ) / float(max(1, ht))
+        err_b = sum(
+            _rgba_dist(
+                tile_b.pixel(0, ts - ht - shift_b + y),
+                tile_b.pixel(ts - 1, ts - ht - shift_b + y),
+            )
+            for y in range(ht)
+        ) / float(max(1, ht))
+        wrap_err = 0.5 * (err_a + err_b)
+
+        prof: List[Tuple[int, int, int]] = []
+        for x in range(ts):
+            da = next((y for y in range(ht) if is_inner(tile_a.pixel(x, shift_a + y))), ht)
+            db = next(
+                (y for y in range(ht) if is_inner(tile_b.pixel(x, ts - 1 - shift_b - y))),
+                ht,
+            )
+            prof.append((da, db, ts - da - db))
+    else:
+        err_a = sum(
+            _rgba_dist(tile_a.pixel(shift_a + x, 0), tile_a.pixel(shift_a + x, ts - 1))
+            for x in range(ht)
+        ) / float(max(1, ht))
+        err_b = sum(
+            _rgba_dist(
+                tile_b.pixel(ts - ht - shift_b + x, 0),
+                tile_b.pixel(ts - ht - shift_b + x, ts - 1),
+            )
+            for x in range(ht)
+        ) / float(max(1, ht))
+        wrap_err = 0.5 * (err_a + err_b)
+
+        prof = []
+        for y in range(ts):
+            da = next((x for x in range(ht) if is_inner(tile_a.pixel(shift_a + x, y))), ht)
+            db = next(
+                (x for x in range(ht) if is_inner(tile_b.pixel(ts - 1 - shift_b - x, y))),
+                ht,
+            )
+            prof.append((da, db, ts - da - db))
+
+    med_w = sorted(w for _, _, w in prof)[ts // 2]
+    half0_avg = sum(w for _, _, w in prof[:ht]) / float(max(1, ht))
+    half1_avg = sum(w for _, _, w in prof[ht:]) / float(max(1, ts - ht))
+
+    # Never alter non-periodic or intentionally asymmetric/tapered tilesets
+    if wrap_err > 0.16 or abs(half0_avg - half1_avg) > 3.0 or med_w <= 4 or med_w >= ts - 1:
+        return 0
+
+    def _eval_phase(ph: int) -> Tuple[float, int, float, float]:
+        w_r0 = prof[ph % ts][2]
+        w_r1 = prof[(ph + 1) % ts][2]
+        w_r2 = prof[(ph + 2) % ts][2]
+        w_l0 = prof[(ph - 1) % ts][2]
+        w_l1 = prof[(ph - 2) % ts][2]
+        w_l2 = prof[(ph - 3) % ts][2]
+        band_r = (w_r0 + w_r1 + w_r2) / 3.0
+        band_l = (w_l0 + w_l1 + w_l2) / 3.0
+        min_edge = min(w_r0, w_r1, w_l0, w_l1)
+        pinch = (
+            max(0.0, med_w - min_edge) * 2.5
+            + max(0.0, med_w - min(band_r, band_l)) * 3.0
+        )
+        overshoot = (
+            max(0.0, max(w_r0, w_l0) - (med_w + 3)) * 1.2
+            + max(0.0, max(band_r, band_l) - (med_w + 2.5)) * 1.5
+        )
+        asym = (
+            abs(band_r - band_l) * 1.5
+            + abs(w_r0 - w_l0) * 0.8
+            + abs(w_r1 - w_l1) * 0.4
+        )
+        da_r, db_r, _ = prof[ph % ts]
+        da_l, db_l, _ = prof[(ph - 1) % ts]
+        bank_skew = abs(da_r - da_l) * 0.4 + abs(db_r - db_l) * 0.4
+        return pinch + overshoot + asym + bank_skew, min_edge, band_l, band_r
+
+    sc0, mn0, bl0, br0 = _eval_phase(0)
+    if mn0 >= med_w - 1 and abs(bl0 - br0) <= 1.5:
+        return 0
+
+    best_sc, best_ph = sc0, 0
+    for ph in range(1, ts):
+        sc, _, _, _ = _eval_phase(ph)
+        if sc + 0.05 < best_sc:
+            best_sc, best_ph = sc, ph
+    return best_ph
+
+
+def _copy_cyclic_strip(
+    tile: QImage, x_start: int, y_start: int, w: int, h: int, axis: str, ts: int
+) -> QImage:
+    """Copies a (w x h) half-tile wrapping cyclically along 'h' (x) or 'v' (y)."""
+    if (axis == "h" and x_start % ts == 0 and x_start + w <= ts) or (
+        axis == "v" and y_start % ts == 0 and y_start + h <= ts
+    ):
+        return tile.copy(x_start % ts, y_start % ts, w, h)
+    out = QImage(w, h, QImage.Format.Format_ARGB32)
+    if axis == "h":
+        for y in range(h):
+            for x in range(w):
+                out.setPixel(x, y, tile.pixel((x_start + x) % ts, y_start + y))
+    else:
+        for y in range(h):
+            for x in range(w):
+                out.setPixel(x, y, tile.pixel(x_start + x, (y_start + y) % ts))
+    return out
+
+
+def _evaluate_crossroad_coherence(
+    inner_quads: List[QImage],
+    q_top_l: QImage,
+    q_top_r: QImage,
+    q_bot_l: QImage,
+    q_bot_r: QImage,
+    q_left_t: QImage,
+    q_left_b: QImage,
+    q_right_t: QImage,
+    q_right_b: QImage,
+    is_inner: Any,
+    ts: int,
+) -> Dict[str, Any]:
+    """
+    Evaluates the ENTIRE 4-way crossroad (Left, Right, Top, Bottom arms + Center)
+    simultaneously as ONE logical composition. Measures actual visible navigable
+    surface width on both sides of all 4 junctions, contour step alignment across
+    each seam, total pinch deficit, and opposite-arm symmetry (only enforced when
+    the source arms themselves are symmetric).
+    """
+    ht = ts // 2
+    itl, itr, ibl, ibr = inner_quads
+
+    def _col_span(top_q: QImage, bot_q: QImage, x: int) -> Tuple[int, int, int]:
+        dt = next((y for y in range(ht) if is_inner(top_q.pixel(x, y))), ht)
+        db = next((y for y in range(ht) if is_inner(bot_q.pixel(x, ht - 1 - y))), ht)
+        return max(0, ts - dt - db), dt, db
+
+    def _row_span(left_q: QImage, right_q: QImage, y: int) -> Tuple[int, int, int]:
+        dl = next((x for x in range(ht) if is_inner(left_q.pixel(x, y))), ht)
+        dr = next((x for x in range(ht) if is_inner(right_q.pixel(ht - 1 - x, y))), ht)
+        return max(0, ts - dl - dr), dl, dr
+
+    # Physical seams:
+    # Left arm (q_top_r/q_bot_r @ x=ht-1) <-> Center left (itl/ibl @ x=0)
+    # Center right (itr/ibr @ x=ht-1)     <-> Right arm (q_top_l/q_bot_l @ x=0)
+    # Top arm (q_left_b/q_right_b @ y=ht-1) <-> Center top (itl/itr @ y=0)
+    # Center bottom (ibl/ibr @ y=ht-1)    <-> Bottom arm (q_left_t/q_right_t @ y=0)
+    c_l = _col_span(itl, ibl, 0)
+    a_l = _col_span(q_top_r, q_bot_r, ht - 1)
+    c_r = _col_span(itr, ibr, ht - 1)
+    a_r = _col_span(q_top_l, q_bot_l, 0)
+    c_t = _row_span(itl, itr, 0)
+    a_t = _row_span(q_left_b, q_right_b, ht - 1)
+    c_b = _row_span(ibl, ibr, ht - 1)
+    a_b = _row_span(q_left_t, q_right_t, 0)
+
+    # Also inspect 1px inside center on all 4 sides to catch immediate sub-seam narrowing
+    c_l1 = _col_span(itl, ibl, min(1, ht - 1))
+    c_r1 = _col_span(itr, ibr, max(0, ht - 2))
+    c_t1 = _row_span(itl, itr, min(1, ht - 1))
+    c_b1 = _row_span(ibl, ibr, max(0, ht - 2))
+
+    steps = (
+        abs(c_l[1] - a_l[1]) + abs(c_l[2] - a_l[2])
+        + abs(c_r[1] - a_r[1]) + abs(c_r[2] - a_r[2])
+        + abs(c_t[1] - a_t[1]) + abs(c_t[2] - a_t[2])
+        + abs(c_b[1] - a_b[1]) + abs(c_b[2] - a_b[2])
+    )
+    pinch_l = max(0, a_l[0] - min(c_l[0], c_l1[0]))
+    pinch_r = max(0, a_r[0] - min(c_r[0], c_r1[0]))
+    pinch_t = max(0, a_t[0] - min(c_t[0], c_t1[0]))
+    pinch_b = max(0, a_b[0] - min(c_b[0], c_b1[0]))
+    max_single_pinch = max(pinch_l, pinch_r, pinch_t, pinch_b)
+    total_pinch = pinch_l + pinch_r + pinch_t + pinch_b
+
+    lr_asym = abs(c_l[0] - c_r[0])
+    tb_asym = abs(c_t[0] - c_b[0])
+    arm_lr_sym = abs(a_l[0] - a_r[0]) <= 2
+    arm_tb_sym = abs(a_t[0] - a_b[0]) <= 2
+
+    coherent = (
+        max_single_pinch <= 2
+        and total_pinch <= 3
+        and steps <= 8
+        and (not arm_lr_sym or lr_asym <= 2)
+        and (not arm_tb_sym or tb_asym <= 2)
+    )
+    return {
+        "c_l": c_l[0], "a_l": a_l[0],
+        "c_r": c_r[0], "a_r": a_r[0],
+        "c_t": c_t[0], "a_t": a_t[0],
+        "c_b": c_b[0], "a_b": a_b[0],
+        "steps": steps,
+        "pinch_l": pinch_l, "pinch_r": pinch_r, "pinch_t": pinch_t, "pinch_b": pinch_b,
+        "max_single_pinch": max_single_pinch,
+        "total_pinch": total_pinch,
+        "lr_asym": lr_asym, "tb_asym": tb_asym,
+        "arm_lr_sym": arm_lr_sym, "arm_tb_sym": arm_tb_sym,
+        "coherent": coherent,
+    }
+
+
 def synthesize_vx_ace_from_3x3(
     patch_3x3: QImage,
     tile_size: int = 32,
@@ -1165,14 +1337,15 @@ def synthesize_vx_ace_from_3x3(
     source image with:
     - Three-zone material classification (outer background / intermediate bank, cliff or outline /
       navigable inner surface) — handles grass+dirt, grass+transparent, AND multi-layer water+cliff+grass!
-    - Equalized full bank depth across all 4 cardinal directions so horizontal and vertical arms
-      keep consistent, matching surface widths without sudden steps or narrowing
+    - Equalized full bank depth AND balanced periodic seam phase across all 4 cardinal directions so
+      horizontal and vertical arms keep consistent, symmetric surface widths without pinching on any arm
+      (while preserving intentionally asymmetric or non-periodic tilesets untouched!)
     - Texture-continuity check on the center tile: synthesizes a crisp pixel-art interior from the
       arms both when the 3x3 center is transparent AND when an opaque center tile is flat/featureless
-      compared to richly textured incoming arms (eliminating disconnected flat center patches!)
-    - Seam-verified inner-corner composition: uses companion 2x2 inner corners ONLY when they pass
-      strict multi-layer bank-depth AND RGB seam alignment against the incoming arms; otherwise
-      uses seam-locked multi-layer radial contour synthesis (0px contour step across all layers!)
+      compared to richly textured incoming arms
+    - Whole-intersection inner-corner composition: matches every inner corner against its TRUE
+      physically adjacent arm half-tile seam and validates ALL 4 arms (L, R, T, B) + center
+      simultaneously via _evaluate_crossroad_coherence so 3 good sides + 1 pinched side is never accepted!
     """
     import math
 
@@ -1209,21 +1382,25 @@ def synthesize_vx_ace_from_3x3(
     sl = _calc_shift(bank_l)
     sr = _calc_shift(bank_r)
 
-    # Extract shifted outer corner and edge half-tiles (all 4 directions balanced!)
+    # Extract shifted outer corner half-tiles
     q_tl = src.copy(sl, st, ht, ht)
     q_tr = src.copy(3 * ts - ht - sr, st, ht, ht)
     q_bl = src.copy(sl, 3 * ts - ht - sb, ht, ht)
     q_br = src.copy(3 * ts - ht - sr, 3 * ts - ht - sb, ht, ht)
 
-    q_top_l = src.copy(ts, st, ht, ht)
-    q_top_r = src.copy(ts + ht, st, ht, ht)
-    q_bot_l = src.copy(ts, 3 * ts - ht - sb, ht, ht)
-    q_bot_r = src.copy(ts + ht, 3 * ts - ht - sb, ht, ht)
+    # Align periodic symmetric edge strips so neither seam boundary lands on a deep tuft pinch
+    dx_h = _choose_balanced_strip_phase(top_tile, bot_tile, is_inner, "h", st, sb, ts)
+    dy_v = _choose_balanced_strip_phase(left_tile, right_tile, is_inner, "v", sl, sr, ts)
 
-    q_left_t = src.copy(sl, ts, ht, ht)
-    q_left_b = src.copy(sl, ts + ht, ht, ht)
-    q_right_t = src.copy(3 * ts - ht - sr, ts, ht, ht)
-    q_right_b = src.copy(3 * ts - ht - sr, ts + ht, ht, ht)
+    q_top_l = _copy_cyclic_strip(top_tile, dx_h, st, ht, ht, "h", ts)
+    q_top_r = _copy_cyclic_strip(top_tile, dx_h + ht, st, ht, ht, "h", ts)
+    q_bot_l = _copy_cyclic_strip(bot_tile, dx_h, ts - ht - sb, ht, ht, "h", ts)
+    q_bot_r = _copy_cyclic_strip(bot_tile, dx_h + ht, ts - ht - sb, ht, ht, "h", ts)
+
+    q_left_t = _copy_cyclic_strip(left_tile, sl, dy_v, ht, ht, "v", ts)
+    q_left_b = _copy_cyclic_strip(left_tile, sl, dy_v + ht, ht, ht, "v", ts)
+    q_right_t = _copy_cyclic_strip(right_tile, ts - ht - sr, dy_v, ht, ht, "v", ts)
+    q_right_b = _copy_cyclic_strip(right_tile, ts - ht - sr, dy_v + ht, ht, ht, "v", ts)
 
     # Check center tile: synthesize if transparent OR if flat/featureless while arm interiors are richly textured!
     center_tile = src.copy(ts, ts, ts, ts)
@@ -1281,32 +1458,107 @@ def synthesize_vx_ace_from_3x3(
     p.drawImage(3 * ht, 5 * ht, q_br)
     p.end()
 
-    # Row 0-1 (cols 2..3): Build the 4 Inner Corners with strict multi-layer seam alignment
-    inner_defs = (
-        (2 * ht, 0, q_left_t, q_top_l, center_tile.copy(0, 0, ht, ht), True, True),
-        (3 * ht, 0, q_right_t, q_top_r, center_tile.copy(ht, 0, ht, ht), False, True),
-        (2 * ht, ht, q_left_b, q_bot_l, center_tile.copy(0, ht, ht, ht), True, False),
-        (3 * ht, ht, q_right_b, q_bot_r, center_tile.copy(ht, ht, ht, ht), False, False),
+    # Row 0-1 (cols 2..3): Build ALL 4 Inner Corners anchored to their TRUE physically adjacent arm seams!
+    # Tuple: (dest_x, dest_y, v_adj_quad, v_adj_row, h_adj_quad, h_adj_col, c_quad, cut_left, cut_top)
+    inner_specs = (
+        (2 * ht, 0,  q_left_b,  ht - 1, q_top_r, ht - 1, center_tile.copy(0, 0, ht, ht),  True,  True),
+        (3 * ht, 0,  q_right_b, ht - 1, q_top_l, 0,      center_tile.copy(ht, 0, ht, ht), False, True),
+        (2 * ht, ht, q_left_t,  0,      q_bot_r, ht - 1, center_tile.copy(0, ht, ht, ht), True,  False),
+        (3 * ht, ht, q_right_t, 0,      q_bot_l, 0,      center_tile.copy(ht, ht, ht, ht), False, False),
     )
 
-    has_valid_comp = (
-        companion_2x2 is not None
-        and companion_2x2.width() >= 2 * ts
-        and companion_2x2.height() >= 2 * ts
-    )
+    def _seam_depth_x(quad: QImage, row_y: int, from_left: bool) -> int:
+        d = 0
+        for step in range(ht):
+            x = step if from_left else (ht - 1 - step)
+            if not is_inner(quad.pixel(x, row_y)):
+                d = step + 1
+            else:
+                break
+        return d
 
-    for dest_x, dest_y, v_quad, h_quad, c_quad, cut_left, cut_top in inner_defs:
-        rx = _measure_bank_depth(v_quad, is_inner, "x", cut_left)
-        ry = _measure_bank_depth(h_quad, is_inner, "y", cut_top)
+    def _seam_depth_y(quad: QImage, col_x: int, from_top: bool) -> int:
+        d = 0
+        for step in range(ht):
+            y = step if from_top else (ht - 1 - step)
+            if not is_inner(quad.pixel(col_x, y)):
+                d = step + 1
+            else:
+                break
+        return d
 
-        # 1. Try companion_2x2 ONLY when BOTH bank depth AND multi-layer RGB seam match tightly!
-        used_comp = False
-        if has_valid_comp:
+    def _target_seam_radii(
+        v_quad: QImage, v_row: int, h_quad: QImage, h_col: int, cut_left: bool, cut_top: bool
+    ) -> Tuple[int, int]:
+        rx_med = _measure_bank_depth(v_quad, is_inner, "x", cut_left)
+        ry_med = _measure_bank_depth(h_quad, is_inner, "y", cut_top)
+        rx_seam = _seam_depth_x(v_quad, v_row, cut_left)
+        ry_seam = _seam_depth_y(h_quad, h_col, cut_top)
+        rx = max(0, min(ht - 2, rx_seam if abs(rx_seam - rx_med) <= 2 else rx_med))
+        ry = max(0, min(ht - 2, ry_seam if abs(ry_seam - ry_med) <= 2 else ry_med))
+        return rx, ry
+
+    def _build_radial_inner_quads() -> List[QImage]:
+        quads: List[QImage] = []
+        seam_band = max(2, min(4, ht // 4))
+        for _, _, v_quad, v_row, h_quad, h_col, c_quad, cut_left, cut_top in inner_specs:
+            rx, ry = _target_seam_radii(v_quad, v_row, h_quad, h_col, cut_left, cut_top)
+            if rx == 0 and ry == 0:
+                quads.append(c_quad.copy())
+                continue
+            q = QImage(ht, ht, QImage.Format.Format_ARGB32)
+            rx_f = float(max(1, rx))
+            ry_f = float(max(1, ry))
+            for y in range(ht):
+                for x in range(ht):
+                    dx = x if cut_left else (ht - 1 - x)
+                    dy = y if cut_top else (ht - 1 - y)
+                    v_sy = (ht - 1 - dy) if v_row == ht - 1 else dy
+                    h_sx = (ht - 1 - dx) if h_col == ht - 1 else dx
+                    nx = dx / rx_f
+                    ny = dy / ry_f
+                    r_norm = math.sqrt(nx * nx + ny * ny)
+                    if r_norm <= 1.25:
+                        if nx >= ny:
+                            sample_d = min(ht - 1, int(round(r_norm * rx_f)))
+                            sx = sample_d if cut_left else (ht - 1 - sample_d)
+                            cand = v_quad.pixel(sx, v_sy)
+                        else:
+                            sample_d = min(ht - 1, int(round(r_norm * ry_f)))
+                            sy = sample_d if cut_top else (ht - 1 - sample_d)
+                            cand = h_quad.pixel(h_sx, sy)
+                        if r_norm <= 1.0 or not is_inner(cand):
+                            q.setPixel(x, y, cand)
+                        else:
+                            if nx >= ny and is_inner(v_quad.pixel(x, v_sy)):
+                                q.setPixel(x, y, v_quad.pixel(x, v_sy))
+                            elif is_inner(h_quad.pixel(h_sx, y)):
+                                q.setPixel(x, y, h_quad.pixel(h_sx, y))
+                            else:
+                                q.setPixel(x, y, c_quad.pixel(x, y))
+                    else:
+                        if dy < seam_band and is_inner(v_quad.pixel(x, v_sy)):
+                            q.setPixel(x, y, v_quad.pixel(x, v_sy))
+                        elif dx < seam_band and is_inner(h_quad.pixel(h_sx, y)):
+                            q.setPixel(x, y, h_quad.pixel(h_sx, y))
+                        else:
+                            q.setPixel(x, y, c_quad.pixel(x, y))
+            quads.append(q)
+        return quads
+
+    def _build_companion_inner_quads() -> Optional[List[QImage]]:
+        if (
+            companion_2x2 is None
+            or companion_2x2.width() < 2 * ts
+            or companion_2x2.height() < 2 * ts
+        ):
+            return None
+        quads: List[QImage] = []
+        max_ic_shift = max(0, ts - ht)
+        for _, _, v_quad, v_row, h_quad, h_col, _, cut_left, cut_top in inner_specs:
+            rx, ry = _target_seam_radii(v_quad, v_row, h_quad, h_col, cut_left, cut_top)
             best_off: Optional[Tuple[int, int, float]] = None
             best_score = 1e9
-            v_seam_y = 0 if cut_top else (ht - 1)
-            h_seam_x = 0 if cut_left else (ht - 1)
-            max_ic_shift = max(0, ts - ht)
             for sy_off in range(max_ic_shift + 1):
                 for sx_off in range(max_ic_shift + 1):
                     d_x = 0
@@ -1325,86 +1577,57 @@ def synthesize_vx_ace_from_3x3(
                             d_y = step + 1
                         else:
                             break
-                    if abs(d_x - rx) > 1 or abs(d_y - ry) > 1:
+                    # Reject any offset that cuts significantly deeper than the arm's seam (prevents pinching!)
+                    if d_x > rx + 1 or d_x < rx - 2 or d_y > ry + 1 or d_y < ry - 2:
                         continue
                     rgb_err = 0.0
                     for u in range(ht):
                         cx_v = (ts + sx_off + u) if cut_left else (ts - sx_off - ht + u)
                         cy_v = (ts + sy_off) if cut_top else (ts - 1 - sy_off)
-                        pv1 = companion_2x2.pixel(cx_v, cy_v)
-                        pv2 = v_quad.pixel(u, v_seam_y)
-                        rgb_err += _pixel_dist_from_rgb(
-                            pv1, (pv2 >> 16) & 0xFF, (pv2 >> 8) & 0xFF, pv2 & 0xFF
+                        rgb_err += _rgba_dist(
+                            companion_2x2.pixel(cx_v, cy_v), v_quad.pixel(u, v_row)
                         )
                         cx_h = (ts + sx_off) if cut_left else (ts - 1 - sx_off)
                         cy_h = (ts + sy_off + u) if cut_top else (ts - sy_off - ht + u)
-                        ph1 = companion_2x2.pixel(cx_h, cy_h)
-                        ph2 = h_quad.pixel(h_seam_x, u)
-                        rgb_err += _pixel_dist_from_rgb(
-                            ph1, (ph2 >> 16) & 0xFF, (ph2 >> 8) & 0xFF, ph2 & 0xFF
+                        rgb_err += _rgba_dist(
+                            companion_2x2.pixel(cx_h, cy_h), h_quad.pixel(h_col, u)
                         )
                     mean_err = rgb_err / float(2 * ht)
-                    score = mean_err + (abs(d_x - rx) + abs(d_y - ry)) * 0.04
+                    pinch_pen = max(0, d_x - rx) * 0.06 + max(0, d_y - ry) * 0.06
+                    score = mean_err + (abs(d_x - rx) + abs(d_y - ry)) * 0.03 + pinch_pen
                     if score < best_score:
                         best_score = score
                         best_off = (sx_off, sy_off, mean_err)
-            if best_off is not None and best_off[2] <= 0.11:
-                sx_off, sy_off, _ = best_off
-                for y in range(ht):
-                    for x in range(ht):
-                        src_x = (ts + sx_off + x) if cut_left else (ts - sx_off - ht + x)
-                        src_y = (ts + sy_off + y) if cut_top else (ts - sy_off - ht + y)
-                        res.setPixel(dest_x + x, dest_y + y, companion_2x2.pixel(src_x, src_y))
-                used_comp = True
-
-        if used_comp:
-            continue
-
-        # 2. Universal seam-locked multi-layer radial contour synthesis (0px step on ALL layers!)
-        if rx == 0 and ry == 0:
+            if best_off is None or best_off[2] > 0.12:
+                return None
+            sx_off, sy_off, _ = best_off
+            q = QImage(ht, ht, QImage.Format.Format_ARGB32)
             for y in range(ht):
                 for x in range(ht):
-                    res.setPixel(dest_x + x, dest_y + y, c_quad.pixel(x, y))
-            continue
+                    src_x = (ts + sx_off + x) if cut_left else (ts - sx_off - ht + x)
+                    src_y = (ts + sy_off + y) if cut_top else (ts - sy_off - ht + y)
+                    q.setPixel(x, y, companion_2x2.pixel(src_x, src_y))
+            quads.append(q)
+        return quads
 
-        rx_f = float(max(1, rx))
-        ry_f = float(max(1, ry))
-        seam_band = max(2, min(4, ht // 4))
+    # Validate ALL 4 inner corners jointly as ONE coherent crossroad (never 3 good + 1 pinched!)
+    rad_quads = _build_radial_inner_quads()
+    comp_quads = _build_companion_inner_quads()
+    chosen_quads = rad_quads
+    if comp_quads is not None:
+        comp_eval = _evaluate_crossroad_coherence(
+            comp_quads,
+            q_top_l, q_top_r, q_bot_l, q_bot_r,
+            q_left_t, q_left_b, q_right_t, q_right_b,
+            is_inner, ts,
+        )
+        if comp_eval["coherent"]:
+            chosen_quads = comp_quads
 
-        for y in range(ht):
-            for x in range(ht):
-                dx = x if cut_left else (ht - 1 - x)
-                dy = y if cut_top else (ht - 1 - y)
-                nx = dx / rx_f
-                ny = dy / ry_f
-                r_norm = math.sqrt(nx * nx + ny * ny)
-
-                if r_norm <= 1.25:
-                    if nx >= ny:
-                        sample_d = min(ht - 1, int(round(r_norm * rx_f)))
-                        sx = sample_d if cut_left else (ht - 1 - sample_d)
-                        cand = v_quad.pixel(sx, y)
-                    else:
-                        sample_d = min(ht - 1, int(round(r_norm * ry_f)))
-                        sy = sample_d if cut_top else (ht - 1 - sample_d)
-                        cand = h_quad.pixel(x, sy)
-
-                    if r_norm <= 1.0 or not is_inner(cand):
-                        res.setPixel(dest_x + x, dest_y + y, cand)
-                    else:
-                        if nx >= ny and is_inner(v_quad.pixel(x, y)):
-                            res.setPixel(dest_x + x, dest_y + y, v_quad.pixel(x, y))
-                        elif is_inner(h_quad.pixel(x, y)):
-                            res.setPixel(dest_x + x, dest_y + y, h_quad.pixel(x, y))
-                        else:
-                            res.setPixel(dest_x + x, dest_y + y, c_quad.pixel(x, y))
-                else:
-                    if dy < seam_band and is_inner(v_quad.pixel(x, y)):
-                        res.setPixel(dest_x + x, dest_y + y, v_quad.pixel(x, y))
-                    elif dx < seam_band and is_inner(h_quad.pixel(x, y)):
-                        res.setPixel(dest_x + x, dest_y + y, h_quad.pixel(x, y))
-                    else:
-                        res.setPixel(dest_x + x, dest_y + y, c_quad.pixel(x, y))
+    p_inner = QPainter(res)
+    for (dest_x, dest_y, *_), quad in zip(inner_specs, chosen_quads):
+        p_inner.drawImage(dest_x, dest_y, quad)
+    p_inner.end()
 
     return res
 
@@ -2111,6 +2334,19 @@ class RPGAutotile:
 
     def remove_custom_variant(self, variant_id: str) -> None:
         self.custom_variants = [v for v in self.custom_variants if v.id != variant_id]
+
+    def clone_as_new_definition(self) -> "RPGAutotile":
+        """
+        Forks a fresh independent RPGAutotile definition with a new ID so editing
+        a definition never retroactively mutates already-painted tiles on maps.
+        """
+        data = self.to_dict()
+        data["id"] = str(uuid.uuid4())
+        data["archived"] = False
+        cloned = RPGAutotile.from_dict(data)
+        if self._source_qimage and not self._source_qimage.isNull():
+            cloned.set_source_qimage(self._source_qimage.copy())
+        return cloned
 
     def get_matching_custom_variant(
         self, mask: int, col: int = 0, row: int = 0

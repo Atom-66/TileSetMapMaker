@@ -36,11 +36,13 @@ from ...core.rpg_autotile import (
     AutotileFormat,
     CustomPathVariant,
     SelectedAutotile,
+    VARIANT_ROLES,
     extract_packed_tileset_image,
     synthesize_from_single_tile,
     synthesize_from_tileset_context,
     create_rpg_autotile_from_tile,
 )
+from ...core.paths import ConnectionRuleEngine
 from ..icons import IconFactory
 from ...core.localization import tr
 from .autotile_sandbox_widget import AutoTileSandboxWidget
@@ -66,6 +68,7 @@ class TilesetSheetCanvas(QWidget):
         self.tile_w: int = 32
         self.tile_h: int = 32
         self.tileset_config: Optional[Any] = None
+        self.zoom: float = 1.0
         self.sel_col: int = 0
         self.sel_row: int = 0
         self.sel_w_tiles: int = 1
@@ -76,6 +79,24 @@ class TilesetSheetCanvas(QWidget):
         self._drag_anchor: Tuple[int, int] = (0, 0)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def set_zoom(self, zoom: float) -> None:
+        self.zoom = max(0.5, min(4.0, float(zoom)))
+        if self.pixmap and not self.pixmap.isNull():
+            self.setFixedSize(
+                max(1, int(round(self.pixmap.width() * self.zoom))),
+                max(1, int(round(self.pixmap.height() * self.zoom))),
+            )
+        self.update()
+
+    def wheelEvent(self, event) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            step = 0.25 if delta > 0 else -0.25
+            self.set_zoom(self.zoom + step)
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     def set_sheet(
         self,
@@ -89,7 +110,10 @@ class TilesetSheetCanvas(QWidget):
         self.tile_w = max(8, int(tile_w))
         self.tile_h = max(8, int(tile_h))
         if pixmap and not pixmap.isNull():
-            self.setFixedSize(pixmap.size())
+            self.setFixedSize(
+                max(1, int(round(pixmap.width() * self.zoom))),
+                max(1, int(round(pixmap.height() * self.zoom))),
+            )
         else:
             self.setFixedSize(320, 240)
         self.update()
@@ -112,13 +136,15 @@ class TilesetSheetCanvas(QWidget):
         return QRect(col * self.tile_w, row * self.tile_h, w_tiles * self.tile_w, h_tiles * self.tile_h)
 
     def _pos_to_cell(self, px: float, py: float) -> Tuple[int, int]:
+        unscaled_x = px / max(0.25, self.zoom)
+        unscaled_y = py / max(0.25, self.zoom)
         if self.tileset_config is not None:
             ox = self.tileset_config.start_x + self.tileset_config.margin_x
             oy = self.tileset_config.start_y + self.tileset_config.margin_y
             step_w = max(1, self.tileset_config.tile_width + self.tileset_config.spacing_x)
             step_h = max(1, self.tileset_config.tile_height + self.tileset_config.spacing_y)
-            return int((px - ox) // step_w), int((py - oy) // step_h)
-        return int(px // self.tile_w), int(py // self.tile_h)
+            return int((unscaled_x - ox) // step_w), int((unscaled_y - oy) // step_h)
+        return int(unscaled_x // self.tile_w), int(unscaled_y // self.tile_h)
 
     def set_selected_tile(self, col: int, row: int, w_tiles: int = 1, h_tiles: int = 1) -> None:
         self.sel_col = max(0, col)
@@ -180,13 +206,19 @@ class TilesetSheetCanvas(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         if self.pixmap and not self.pixmap.isNull():
+            painter.save()
+            if abs(self.zoom - 1.0) > 0.001:
+                painter.scale(self.zoom, self.zoom)
             painter.drawPixmap(0, 0, self.pixmap)
 
             max_c, max_r = self._grid_dims()
 
             # Regular grid (respecting margin, spacing, and grid start offset)
             grid_pen = QPen(QColor(255, 255, 255, 35), 1)
+            grid_pen.setCosmetic(True)
             painter.setPen(grid_pen)
             if self.tileset_config is not None and (
                 self.tileset_config.margin_x
@@ -218,6 +250,7 @@ class TilesetSheetCanvas(QWidget):
             )
             painter.fillRect(sr, QColor(56, 189, 248, 70))
             sel_pen = QPen(QColor("#38bdf8"), 2)
+            sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)
             painter.drawRect(sr.adjusted(1, 1, -1, -1))
             if self.sel_w_tiles > 1 or self.sel_h_tiles > 1:
@@ -226,6 +259,7 @@ class TilesetSheetCanvas(QWidget):
                 painter.setPen(QColor("#38bdf8"))
                 painter.setFont(QFont("Sans-Serif", 8, QFont.Weight.Bold))
                 painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, f"{self.sel_w_tiles}×{self.sel_h_tiles}")
+            painter.restore()
         else:
             painter.fillRect(self.rect(), QColor("#18181b"))
             painter.setPen(QColor("#71717a"))
@@ -298,6 +332,7 @@ class PathGeneratorDialog(QDialog):
         self.selected_h_tiles: int = 1
         self._name_manually_edited: bool = False
         self._custom_variants: List[CustomPathVariant] = []
+        self._editing_autotile_id: Optional[str] = None
 
         self.setWindowTitle(tr("dialog.path.title"))
         self.table = None  # Compatibility table for unit tests
@@ -431,6 +466,25 @@ class PathGeneratorDialog(QDialog):
         self.lbl_tile_coords.setStyleSheet("font-weight: 600; color: #38bdf8; font-size: 11px;")
         tile_bar.addWidget(self.lbl_tile_coords, 1)
 
+        # Zoom controls for tileset sheet preview (A. Źródło)
+        btn_zoom_out = QPushButton("−", grp_sheet)
+        btn_zoom_out.setFixedWidth(26)
+        btn_zoom_out.setToolTip("Pomniejsz arkusz (Ctrl+Kółko)")
+        btn_zoom_out.clicked.connect(lambda: self.sheet_canvas.set_zoom(self.sheet_canvas.zoom - 0.5))
+        tile_bar.addWidget(btn_zoom_out)
+
+        btn_zoom_reset = QPushButton("1:1", grp_sheet)
+        btn_zoom_reset.setFixedWidth(34)
+        btn_zoom_reset.setToolTip("Przywróć powiększenie 100%")
+        btn_zoom_reset.clicked.connect(lambda: self.sheet_canvas.set_zoom(1.0))
+        tile_bar.addWidget(btn_zoom_reset)
+
+        btn_zoom_in = QPushButton("+", grp_sheet)
+        btn_zoom_in.setFixedWidth(26)
+        btn_zoom_in.setToolTip("Powiększ arkusz (Ctrl+Kółko)")
+        btn_zoom_in.clicked.connect(lambda: self.sheet_canvas.set_zoom(self.sheet_canvas.zoom + 0.5))
+        tile_bar.addWidget(btn_zoom_in)
+
         sheet_layout.addLayout(tile_bar)
         left_layout.addWidget(grp_sheet, 1)
 
@@ -528,7 +582,13 @@ class PathGeneratorDialog(QDialog):
         var_layout.addLayout(var_row1)
 
         var_row2 = QHBoxLayout()
-        self.btn_add_variant = QPushButton("➕ Przypisz zaznaczony obszar", grp_variants)
+        self.cmb_variant_role = QComboBox(grp_variants)
+        for role_name in VARIANT_ROLES:
+            self.cmb_variant_role.addItem(role_name, role_name)
+        self.cmb_variant_role.setToolTip("Rola wariantu (np. cross, center, composition, decoration)")
+        var_row2.addWidget(self.cmb_variant_role)
+
+        self.btn_add_variant = QPushButton("➕ Przypisz obszar", grp_variants)
         self.btn_add_variant.clicked.connect(self._add_custom_variant)
         var_row2.addWidget(self.btn_add_variant)
 
@@ -540,6 +600,22 @@ class PathGeneratorDialog(QDialog):
         self.btn_del_variant.clicked.connect(self._remove_selected_custom_variant)
         var_row2.addWidget(self.btn_del_variant)
         var_layout.addLayout(var_row2)
+
+        var_row3 = QHBoxLayout()
+        self.btn_analyze_sheet = QPushButton("🔍 Auto-analizuj arkusz", grp_variants)
+        self.btn_analyze_sheet.setToolTip("Analizuje cały arkusz i proponuje rozpoznane bloki oraz warianty")
+        self.btn_analyze_sheet.clicked.connect(self._auto_analyze_sheet)
+        var_row3.addWidget(self.btn_analyze_sheet)
+
+        self.btn_suggest_compat = QPushButton("🔗 Analizuj kompatybilność", grp_variants)
+        self.btn_suggest_compat.setToolTip("Oblicza kierunkowe reguły kompatybilności krawędzi (N/E/S/W) dla wariantów")
+        self.btn_suggest_compat.clicked.connect(self._auto_suggest_compatibility)
+        var_row3.addWidget(self.btn_suggest_compat)
+        var_layout.addLayout(var_row3)
+
+        self.lbl_compat_info = QLabel("Kompatybilność: automatyczna analiza krawędzi i szerokości", grp_variants)
+        self.lbl_compat_info.setStyleSheet("color: #71717a; font-size: 10px;")
+        var_layout.addWidget(self.lbl_compat_info)
 
         left_layout.addWidget(grp_variants)
         splitter.addWidget(left_widget)
@@ -734,15 +810,34 @@ class PathGeneratorDialog(QDialog):
         prio = self.spin_variant_prio.value()
         weight = self.spin_variant_weight.value()
         label = self.cmb_variant_mask.currentText()
+        selected_role = str(self.cmb_variant_role.currentData() or "auto")
         ts_cfg = self.selected_asset.tileset_config
-        src_rect = None
-        if ts_cfg is not None:
+        pm = self.asset_manager.get_pixmap(self.selected_asset.id)
+        analyzed = None
+        if pm and not pm.isNull() and hasattr(self.engine, "analyzer"):
+            analyzed = self.engine.analyzer.analyze_variant(
+                pm.toImage(),
+                self.selected_asset.id,
+                self.selected_col,
+                self.selected_row,
+                self.selected_w_tiles,
+                self.selected_h_tiles,
+                tile_size=ts_cfg.tile_width if ts_cfg else 32,
+                tileset_config=ts_cfg,
+            )
+        src_rect = analyzed.source_rect if analyzed else None
+        if src_rect is None and ts_cfg is not None:
             x0, y0, tw, th = ts_cfg.get_tile_rect(self.selected_col, self.selected_row)
             x1, y1, tw2, th2 = ts_cfg.get_tile_rect(
                 self.selected_col + self.selected_w_tiles - 1,
                 self.selected_row + self.selected_h_tiles - 1,
             )
             src_rect = (x0, y0, (x1 + tw2) - x0, (y1 + th2) - y0)
+        final_role = (
+            selected_role
+            if selected_role != "auto"
+            else (analyzed.role if analyzed else ("composition" if (self.selected_w_tiles > 1 or self.selected_h_tiles > 1) else "single_tile"))
+        )
         variant = CustomPathVariant(
             mask=mask,
             source_asset_id=self.selected_asset.id,
@@ -751,13 +846,52 @@ class PathGeneratorDialog(QDialog):
             width_tiles=self.selected_w_tiles,
             height_tiles=self.selected_h_tiles,
             source_rect=src_rect,
-            role="composition" if (self.selected_w_tiles > 1 or self.selected_h_tiles > 1) else "single_tile",
+            role=final_role,
+            surface_width_px=analyzed.surface_width_px if analyzed else 0,
+            surface_width_tiles=max(1, min(self.selected_w_tiles, self.selected_h_tiles)),
+            edge_type=analyzed.edge_type if analyzed else "auto",
+            edges=analyzed.edges if analyzed else None,
+            allow_connections=(final_role != "decoration"),
             priority=prio,
             weight=weight,
             name=f"{label} [{self.selected_w_tiles}×{self.selected_h_tiles} @ {self.selected_col},{self.selected_row}]",
         )
         self._custom_variants.append(variant)
         self._refresh_custom_variants_combo()
+        self._regenerate_autotile()
+
+    def _auto_analyze_sheet(self) -> None:
+        if not self.selected_asset or not hasattr(self.engine, "analyzer"):
+            return
+        pm = self.asset_manager.get_pixmap(self.selected_asset.id)
+        if not pm or pm.isNull():
+            return
+        ts_cfg = self.selected_asset.tileset_config
+        ts = ts_cfg.tile_width if ts_cfg else 32
+        analysis = self.engine.analyzer.analyze_sheet(
+            pm.toImage(),
+            self.selected_asset.id,
+            tile_size=ts,
+            tileset_config=ts_cfg,
+        )
+        self.lbl_status.setText(f"Status analizy: {analysis.summary}")
+        self.lbl_compat_info.setText(
+            f"Rozpoznano {len(analysis.proposed_variants)} kompozycji/bloków w arkuszu (cache aktywny)."
+        )
+
+    def _auto_suggest_compatibility(self) -> None:
+        if not self._custom_variants:
+            self.lbl_compat_info.setText("Dodaj warianty, aby wyznaczyć macierz kompatybilności N/E/S/W.")
+            return
+        matrix = ConnectionRuleEngine.suggest_compatibility_matrix(self._custom_variants)
+        links = 0
+        for v in self._custom_variants:
+            v_rules = matrix.get(v.id, {})
+            v.compatible_neighbors = {d: list(ids) for d, ids in v_rules.items()}
+            links += sum(len(ids) for ids in v_rules.values())
+        self.lbl_compat_info.setText(
+            f"Wyznaczono {links} kompatybilnych połączeń krawędzi dla {len(self._custom_variants)} wariantów."
+        )
         self._regenerate_autotile()
 
     def _remove_selected_custom_variant(self) -> None:
@@ -940,8 +1074,11 @@ class PathGeneratorDialog(QDialog):
         at_id = self.cmb_saved.itemData(index)
         at = self.engine.get_rpg_autotile(at_id)
         if at:
-            self.current_autotile = at
-            self.sandbox.set_active_rpg_autotile(at)
+            self._editing_autotile_id = at.id
+            self.current_autotile = at.clone_as_new_definition()
+            self._custom_variants = [v.clone() for v in at.custom_variants]
+            self._refresh_custom_variants_combo()
+            self.sandbox.set_active_rpg_autotile(self.current_autotile)
             self.sandbox.update()
 
     def _delete_saved_autotile(self) -> None:
@@ -979,10 +1116,15 @@ class PathGeneratorDialog(QDialog):
                 )
                 return
 
-        self.engine.register_rpg_autotile(self.current_autotile, self.asset_manager)
-        self.engine.active_rpg_autotile_id = self.current_autotile.id
-        if self.asset_manager and hasattr(self.asset_manager, "register_rpg_autotile"):
-            self.asset_manager.register_rpg_autotile(self.current_autotile)
+        if self._editing_autotile_id and self._editing_autotile_id in self.engine.rpg_autotiles:
+            self.current_autotile = self.engine.update_rpg_autotile_definition(
+                self._editing_autotile_id, self.current_autotile, self.asset_manager
+            )
+        else:
+            self.engine.register_rpg_autotile(self.current_autotile, self.asset_manager)
+            self.engine.active_rpg_autotile_id = self.current_autotile.id
+            if self.asset_manager and hasattr(self.asset_manager, "register_rpg_autotile"):
+                self.asset_manager.register_rpg_autotile(self.current_autotile)
         self.autotile_created.emit(self.current_autotile)
         self.path_rulesets_changed.emit()
 
