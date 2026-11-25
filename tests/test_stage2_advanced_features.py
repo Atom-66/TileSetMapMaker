@@ -11,12 +11,8 @@ app = QApplication.instance() or QApplication(sys.argv)
 from tileset_map_maker.models.project import Project
 from tileset_map_maker.models.layer import Layer, MapItem, ItemType
 from tileset_map_maker.models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
-from tileset_map_maker.models.autotile import (
-    AutoTileRuleSet,
-    MASK_CENTER,
-    MASK_EDGE_TOP,
-    MASK_CORNER_TL,
-    MASK_ISOLATED,
+from tileset_map_maker.core.rpg_autotile import (
+    RPGAutotile,
 )
 from tileset_map_maker.models.stamp import StampPreset
 from tileset_map_maker.models.asset_set import AssetSet
@@ -64,11 +60,8 @@ class TestStage2AdvancedFeatures(unittest.TestCase):
 
     # 1. AUTO-TILING
     def test_autotiling_system(self):
-        rule = AutoTileRuleSet(name="Test Grass", terrain_type="Grass")
-        rule.set_mapping(MASK_CENTER, ("grass_center", 0, 0, 32, 32))
-        rule.set_mapping(MASK_EDGE_TOP, ("grass_edge_top", 32, 0, 32, 32))
-        rule.set_mapping(MASK_CORNER_TL, ("grass_corner_tl", 0, 32, 32, 32))
-        self.autotile_engine.register_ruleset(rule)
+        autotile = RPGAutotile(id="test_grass", name="Test Grass", terrain_type="Test Grass", tileset_id="grass_center", tile_size=32)
+        self.autotile_engine.register_rpg_autotile(autotile)
 
         layer = self.project.get_active_layer()
 
@@ -76,22 +69,16 @@ class TestStage2AdvancedFeatures(unittest.TestCase):
         coords = []
         for r in range(1, 4):
             for c in range(1, 4):
-                item = MapItem(
-                    asset_id="dummy",
-                    col=c,
-                    row=r,
-                    terrain_type="Grass",
-                    is_auto_tiled=True,
-                )
-                layer.set_tile(c, r, item)
                 coords.append((c, r))
 
         # Apply autotile stroke
-        self.autotile_engine.apply_autotile_stroke(layer, coords, rule, self.project)
+        self.autotile_engine.apply_rpg_autotile_stroke(layer, coords, autotile, self.project)
 
         # Center tile (2, 2) should receive center mapping
         center_tile = layer.get_tile(2, 2)
-        self.assertEqual(center_tile.asset_id, "grass_center")
+        self.assertIsNotNone(center_tile)
+        self.assertEqual(center_tile.asset_id, "test_grass")
+        self.assertEqual(center_tile.terrain_type, "Test Grass")
 
         # Top-left tile (1, 1) has no North or West, should match outer corner
         corner_tile = layer.get_tile(1, 1)
@@ -99,7 +86,7 @@ class TestStage2AdvancedFeatures(unittest.TestCase):
 
         # Disable autotiling on layer -> changes should not be applied
         layer.auto_tiling_enabled = False
-        empty_changes = self.autotile_engine.apply_autotile_stroke(layer, coords, rule, self.project)
+        empty_changes = self.autotile_engine.apply_rpg_autotile_stroke(layer, coords, autotile, self.project)
         self.assertEqual(len(empty_changes), 0)
 
     # 2. ADVANCED BRUSHES AND SAVED STAMPS

@@ -53,7 +53,7 @@ TOOLBAR_LAYOUT_VERSION: int = 3
 
 
 _LOCALIZED_CATEGORY_IDS = {
-    "project", "history", "view", "brush", "autotile",
+    "project", "history", "view", "brush",
     "paths", "randomizer", "transforms", "system",
 }
 
@@ -74,9 +74,6 @@ def _category_tooltip(category: "ToolbarCategoryDef", edit_mode: bool = False) -
 
 _LOCALIZED_TOOLBAR_ITEM_IDS = {
     "brush_size",
-    "autotile_toggle",
-    "autotile_rules",
-    "autotile_dialog",
     "path_gen_dialog",
     "variants_toggle",
     "variants_count",
@@ -2827,7 +2824,6 @@ class ToolbarManager(QObject):
         ("history", "Historia", "undo", "main", ["undo", "redo"]),
         ("view", "Widok", "grid", "main", ["grid", "fit", "palette"]),
         ("brush", "Pędzel", "brush", "main", ["brush_size", "save_stamp"]),
-        ("autotile", "Auto-Tiling", "autotile", "secondary", ["autotile_toggle", "autotile_rules", "autotile_dialog"]),
         ("paths", "Ścieżki", "path", "secondary", ["path_gen_dialog"]),
         ("randomizer", "Randomizer", "randomizer", "secondary", ["variants_toggle", "variants_count", "variants_add", "variants_avoid", "variants_dialog"]),
         ("transforms", "Transformacje", "rotate", "secondary", ["rot_toggle", "flip_toggle", "seed_group"]),

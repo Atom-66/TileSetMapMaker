@@ -64,8 +64,9 @@ class RenderEngine:
     Supports layer groups, opacity hierarchies, freeform objects with rotation and scaling.
     """
 
-    def __init__(self, asset_manager: AssetManager):
+    def __init__(self, asset_manager: AssetManager, autotile_engine: Optional[object] = None):
         self.asset_manager = asset_manager
+        self.autotile_engine = autotile_engine
         self.metrics = PerformanceMetrics()
         self._tile_pixmap_cache: OrderedDict[
             Tuple[str, int, int, int, int], QPixmap
@@ -110,7 +111,9 @@ class RenderEngine:
             if layer.is_group or not project.get_effective_visible(layer):
                 continue
             for item in list(layer.tiles.values()) + layer.objects:
-                rect = self.calculate_item_bounding_rect(item, ts)
+                rect = self.calculate_item_bounding_rect(item, ts).translated(
+                    layer.offset_x, layer.offset_y
+                )
                 min_x = min(min_x, rect.left())
                 min_y = min(min_y, rect.top())
                 max_x = max(max_x, rect.right())
@@ -140,7 +143,15 @@ class RenderEngine:
 
     def draw_item(self, painter: QPainter, item: MapItem, tile_size: int) -> None:
         self.metrics.count_drawn_item()
+        if item.source_w <= 0 or item.source_h <= 0:
+            return
         pixmap = self.asset_manager.get_pixmap(item.asset_id)
+        if (not pixmap or pixmap.isNull()) and self.autotile_engine is not None:
+            autotile = self.autotile_engine.get_rpg_autotile(item.asset_id)
+            if autotile is not None:
+                pixmap = autotile.get_atlas_pixmap(self.asset_manager)
+                if pixmap and not pixmap.isNull():
+                    self.asset_manager.register_rpg_autotile(autotile)
         if not pixmap or pixmap.isNull():
             return
 
@@ -224,6 +235,12 @@ class RenderEngine:
             return
 
         painter.save()
+        painter.translate(layer.offset_x, layer.offset_y)
+        local_clip = (
+            clip_rect.translated(-layer.offset_x, -layer.offset_y)
+            if clip_rect is not None
+            else None
+        )
         if effective_opacity < 1.0:
             painter.setOpacity(painter.opacity() * effective_opacity)
 
@@ -240,11 +257,11 @@ class RenderEngine:
 
         # 1. Grid tiles with Viewport Culling (TASK-1403)
         ts = project.tile_size
-        if clip_rect is not None and len(layer.tiles) > 32:
-            min_col = int(math.floor(clip_rect.left() / ts)) - 1
-            max_col = int(math.ceil(clip_rect.right() / ts)) + 1
-            min_row = int(math.floor(clip_rect.top() / ts)) - 1
-            max_row = int(math.ceil(clip_rect.bottom() / ts)) + 1
+        if local_clip is not None and len(layer.tiles) > 32:
+            min_col = int(math.floor(local_clip.left() / ts)) - 1
+            max_col = int(math.ceil(local_clip.right() / ts)) + 1
+            min_row = int(math.floor(local_clip.top() / ts)) - 1
+            max_row = int(math.ceil(local_clip.bottom() / ts)) + 1
             visible_cell_count = max(0, max_col - min_col + 1) * max(
                 0, max_row - min_row + 1
             )
@@ -257,7 +274,7 @@ class RenderEngine:
             else:
                 for item in layer.tiles.values():
                     rect = self.calculate_item_bounding_rect(item, ts)
-                    if rect.intersects(clip_rect):
+                    if rect.intersects(local_clip):
                         self.draw_item(painter, item, ts)
         else:
             sorted_tiles = sorted(layer.tiles.values(), key=lambda t: (t.row, t.col))
@@ -267,10 +284,10 @@ class RenderEngine:
         # 2. Objects with culling
         sorted_objs = sorted(layer.objects, key=lambda o: (o.z_index, o.row, o.col))
         for obj in sorted_objs:
-            if clip_rect is not None:
+            if local_clip is not None:
                 ox, oy = obj.get_pixel_pos(ts)
                 obj_rect = QRectF(ox, oy, obj.dest_w * obj.scale_x, obj.dest_h * obj.scale_y)
-                if not obj_rect.intersects(clip_rect):
+                if not obj_rect.intersects(local_clip):
                     continue
             self.draw_item(painter, obj, ts)
 
@@ -283,7 +300,7 @@ class RenderEngine:
                     collision.width,
                     collision.height,
                 )
-                if clip_rect is not None and not collision_rect.intersects(clip_rect):
+                if local_clip is not None and not collision_rect.intersects(local_clip):
                     continue
                 color = QColor(
                     239, 68, 68, 90

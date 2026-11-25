@@ -53,8 +53,8 @@ class TestAuditToolbarAndControls(unittest.TestCase):
         manager.move_item("save", "history", 1)
         # Move category to secondary toolbar
         manager.move_category("system", 0, target_toolbar_id="secondary")
-        # Move autotile category to main toolbar
-        manager.move_category("autotile", 1, target_toolbar_id="main")
+        # Move paths category to main toolbar
+        manager.move_category("paths", 1, target_toolbar_id="main")
 
         manager.save_layout()
 
@@ -68,9 +68,9 @@ class TestAuditToolbarAndControls(unittest.TestCase):
         self.assertEqual(manager2.categories["project"].item_ids[0], "export")
         self.assertIn("save", manager2.categories["history"].item_ids)
         self.assertEqual(manager2.categories["system"].toolbar_id, "secondary")
-        self.assertEqual(manager2.categories["autotile"].toolbar_id, "main")
+        self.assertEqual(manager2.categories["paths"].toolbar_id, "main")
         self.assertEqual(manager2.category_order[0], "system")
-        self.assertEqual(manager2.category_order[1], "autotile")
+        self.assertEqual(manager2.category_order[1], "paths")
 
     def test_02_migration_and_deduplication(self):
         """2. Odporność na uszkodzone dane, duplikaty przycisków w JSON i brak wersji (migracja v1 -> v2)."""
@@ -174,24 +174,24 @@ class TestAuditToolbarAndControls(unittest.TestCase):
             win.show()
             bar = win.brush_options
 
-            # Activate Auto-Tile and Randomizer
-            bar.chk_autotile.setChecked(True)
+            # Activate Variants and Rotation
             bar.chk_variants.setChecked(True)
-            self.assertTrue(bar.chk_autotile.isChecked())
+            bar.chk_rot.setChecked(True)
             self.assertTrue(bar.chk_variants.isChecked())
+            self.assertTrue(bar.chk_rot.isChecked())
 
-            # Move Auto-Tile to project category
-            win.toolbar_manager.move_item("autotile_toggle", "project", 0)
+            # Move Variants to project category
+            win.toolbar_manager.move_item("variants_toggle", "project", 0)
 
             # Verify it is still active and checked
-            self.assertTrue(bar.chk_autotile.isChecked())
-            self.assertTrue(bar.settings.auto_tile_enabled)
+            self.assertTrue(bar.chk_variants.isChecked())
+            self.assertTrue(bar.settings.random_variant)
 
             # Grab widget to verify visual blue color
-            pix = bar.chk_autotile.grab()
+            pix = bar.chk_variants.grab()
             img = pix.toImage()
             # Check center pixel color: should be royal blue (#2563eb or #1d4ed8)
-            col = img.pixelColor(bar.chk_autotile.width() // 2, bar.chk_autotile.height() // 2)
+            col = img.pixelColor(bar.chk_variants.width() // 2, bar.chk_variants.height() // 2)
             self.assertGreater(col.blue(), 200)
             self.assertLess(col.red(), 60)
             win.close()

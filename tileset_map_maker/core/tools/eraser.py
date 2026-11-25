@@ -158,17 +158,19 @@ class EraserTool(BaseTool):
         self.is_active = False
 
         if context.autotile_engine and context.active_layer and self.erased_coords:
-            ruleset = context.autotile_engine.resolve_layer_ruleset(context.active_layer)
-            if ruleset:
-                neighbor_changes = context.autotile_engine.update_neighbors_after_erase(
+            # Update RPG Autotile (Paths) neighbors
+            if getattr(context.autotile_engine, "rpg_autotiles", None):
+                rpg_changes = context.autotile_engine.update_rpg_neighbors_after_erase(
                     context.active_layer,
                     self.erased_coords,
-                    ruleset,
                     context.project,
                 )
-                for ncoord, (nbefore, nafter) in neighbor_changes.items():
+                for ncoord, (nbefore, nafter) in rpg_changes.items():
                     if ncoord not in self.session_changes:
                         self.session_changes[ncoord] = (nbefore, nafter)
+                    else:
+                        initial_before, _ = self.session_changes[ncoord]
+                        self.session_changes[ncoord] = (initial_before, nafter)
 
         if self.session_changes and context.active_layer and context.history_manager:
             cmd = TileBatchCommand(

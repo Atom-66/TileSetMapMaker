@@ -40,9 +40,6 @@ class TestToolbarUnification(unittest.TestCase):
 
         # Verify editing controls exist on brush_options
         self.assertIsNotNone(bo.spin_size)
-        self.assertIsInstance(bo.chk_autotile, SwitchToggle)
-        self.assertIsNotNone(bo.combo_rules)
-        self.assertIsNotNone(bo.btn_autotile)
         self.assertIsNotNone(bo.btn_path_gen)
         self.assertIsInstance(bo.chk_variants, SwitchToggle)
         self.assertIsNotNone(bo.lbl_variant_count)
@@ -94,13 +91,7 @@ class TestToolbarUnification(unittest.TestCase):
         bo.spin_size.setValue(4)
         self.assertEqual(bs.size, 4)
 
-        # 2. Auto-Tile
-        bo.chk_autotile.setChecked(True)
-        self.assertTrue(bs.auto_tile_enabled)
-        bo.chk_autotile.setChecked(False)
-        self.assertFalse(bs.auto_tile_enabled)
-
-        # 3. Variants
+        # 2. Variants
         bo.chk_variants.setChecked(True)
         self.assertTrue(bs.random_variant)
         bo.chk_variants.setChecked(False)
@@ -131,11 +122,8 @@ class TestToolbarUnification(unittest.TestCase):
         self.assertIsNone(bs.seed)
 
     def test_05_refresh_rulesets_and_variants_summary_functionality(self):
-        """5. Refreshing rulesets and variants summary maintains UI sync."""
+        """5. Refreshing variants summary maintains UI sync."""
         bo = self.win.brush_options
-        bo.refresh_rulesets()
-        self.assertGreaterEqual(bo.combo_rules.count(), 1)
-
         bo.update_variants_summary()
         self.assertEqual(bo.lbl_variant_count.text(), "(0)")
 

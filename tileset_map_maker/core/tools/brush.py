@@ -58,7 +58,10 @@ class BrushTool(BaseTool):
                         layer.get_tile(tc, tr - 1),
                         layer.get_tile(tc, tr + 1),
                     ]
-                variant = bs.pick_variant(context.selected_asset, avoid_adjacent_items=adj)
+                if getattr(bs, "selected_autotile", None):
+                    variant = bs.selected_autotile
+                else:
+                    variant = bs.pick_variant(context.selected_asset, avoid_adjacent_items=adj)
                 items = self.create_items_from_selection(tc, tr, context, override_asset=variant)
 
                 for item in items:
@@ -76,25 +79,42 @@ class BrushTool(BaseTool):
                             prev = layer.get_tile(item.col, item.row)
                             prev_clone = prev.clone() if prev else None
 
-                            if bs.auto_tile_enabled and context.autotile_engine:
-                                item.is_auto_tiled = True
-                                ruleset = (
-                                    context.autotile_engine.resolve_layer_ruleset(layer)
+                            rpg_at = None
+                            if context.autotile_engine:
+                                rpg_at = (
+                                    context.autotile_engine.get_rpg_autotile(item.asset_id)
+                                    or context.autotile_engine.get_rpg_autotile(item.terrain_type)
                                 )
-                                if ruleset:
-                                    item.terrain_type = ruleset.terrain_type
-                                    init_tile = ruleset.default_tile or ruleset.get_tile_for_mask(0)
-                                    if init_tile:
-                                        aid, sx, sy, sw, sh = init_tile
-                                        item.asset_id = aid
-                                        item.source_x = sx
-                                        item.source_y = sy
-                                        item.source_w = sw
-                                        item.source_h = sh
+                                if rpg_at:
+                                    # Transactional safety: never overwrite existing tiles if autotile cannot render
+                                    if hasattr(context.autotile_engine, "can_render_autotile") and not context.autotile_engine.can_render_autotile(
+                                        rpg_at, context.asset_manager
+                                    ):
+                                        continue
+                                    if context.asset_manager and hasattr(context.asset_manager, "register_rpg_autotile"):
+                                        context.asset_manager.register_rpg_autotile(rpg_at)
+                                    item.is_auto_tiled = True
+                                    item.asset_id = rpg_at.id
+                                    item.terrain_type = rpg_at.terrain_type
 
                             layer.set_tile(item.col, item.row, item)
                             self.session_changes[coord] = (prev_clone, item.clone())
                             self.painted_coords.add(coord)
+
+                            if rpg_at and context.autotile_engine:
+                                stroke_changes = context.autotile_engine.apply_rpg_autotile_stroke(
+                                    layer,
+                                    [coord],
+                                    rpg_at,
+                                    context.project,
+                                    asset_manager=context.asset_manager,
+                                )
+                                for ch_coord, (ch_before, ch_after) in stroke_changes.items():
+                                    if ch_coord in self.session_changes:
+                                        init_before, _ = self.session_changes[ch_coord]
+                                        self.session_changes[ch_coord] = (init_before, ch_after)
+                                    else:
+                                        self.session_changes[ch_coord] = (ch_before, ch_after)
 
     def on_release(self, col: int, row: int, context: ToolContext) -> None:
         if not self.is_active:
@@ -103,16 +123,22 @@ class BrushTool(BaseTool):
 
         # Apply auto-tiling ripple if enabled
         bs = context.brush_settings
-        if bs.auto_tile_enabled and context.autotile_engine and context.active_layer:
-            ruleset = context.autotile_engine.resolve_layer_ruleset(
-                context.active_layer
-            )
-            if ruleset:
-                autotile_changes = context.autotile_engine.apply_autotile_stroke(
+        if context.autotile_engine and context.active_layer and self.painted_coords:
+            sample_coord = next(iter(self.painted_coords))
+            sample_tile = context.active_layer.get_tile(*sample_coord)
+            rpg_at = None
+            if sample_tile:
+                rpg_at = (
+                    context.autotile_engine.get_rpg_autotile(sample_tile.asset_id)
+                    or context.autotile_engine.get_rpg_autotile(sample_tile.terrain_type)
+                )
+            if rpg_at:
+                autotile_changes = context.autotile_engine.apply_rpg_autotile_stroke(
                     context.active_layer,
-                    self.painted_coords,
-                    ruleset,
+                    list(self.painted_coords),
+                    rpg_at,
                     context.project,
+                    asset_manager=context.asset_manager,
                 )
                 for coord, (before, after) in autotile_changes.items():
                     if coord in self.session_changes:

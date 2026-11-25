@@ -65,7 +65,7 @@ class TestToolbarItemVisibility(unittest.TestCase):
 
         # Visible items remain in correct relative order
         vis_items = self.tm.get_visible_items()
-        self.assertEqual(len(vis_items), 21)
+        self.assertEqual(len(vis_items), 18)
         vis_ids = [item.id for item in vis_items]
         self.assertEqual(vis_ids[:2], ["new", "open"])
         self.assertIn("grid", vis_ids)
@@ -107,7 +107,7 @@ class TestToolbarItemVisibility(unittest.TestCase):
         self.tm.show_all_items()
 
         self.assertEqual(len(self.tm.get_hidden_items()), 0)
-        self.assertEqual(len(self.tm.get_visible_items()), 26)
+        self.assertEqual(len(self.tm.get_visible_items()), 23)
         self.assertGreaterEqual(len(self.win.toolbar.item_widgets_map), 14)
 
     def test_05_drag_and_drop_preserves_hidden_items_order(self):
@@ -135,8 +135,8 @@ class TestToolbarItemVisibility(unittest.TestCase):
         # When we unhide 'grid' and 'fit', no duplicates occur
         self.tm.show_item("grid")
         self.tm.show_item("fit")
-        self.assertEqual(len(self.tm.item_order), 26)
-        self.assertEqual(len(set(self.tm.item_order)), 26)
+        self.assertEqual(len(self.tm.item_order), 23)
+        self.assertEqual(len(set(self.tm.item_order)), 23)
 
     def test_06_flow_layout_downward_expansion_respects_visibility(self):
         """6. FlowLayout i wysokość paska uwzględniają wyłącznie widoczne przyciski."""
@@ -157,16 +157,16 @@ class TestToolbarItemVisibility(unittest.TestCase):
 
     def test_07_persistence_after_restart(self):
         """7. Trwałość ukrycia i kolejności po zapisie i ponownym uruchomieniu aplikacji."""
-        # Hide 'export' and 'autotile_dialog', and move 'redo' to front
+        # Hide 'export' and 'path_gen_dialog', and move 'redo' to front
         self.tm.hide_item("export")
-        self.tm.hide_item("autotile_dialog")
+        self.tm.hide_item("path_gen_dialog")
         self.tm.move_item_flat("redo", 0)
 
         # Get serialized layout dict
         layout_data = self.tm.get_layout_dict()
         self.assertEqual(layout_data["version"], 3)
         self.assertFalse(layout_data["item_visibility"]["export"])
-        self.assertFalse(layout_data["item_visibility"]["autotile_dialog"])
+        self.assertFalse(layout_data["item_visibility"]["path_gen_dialog"])
         self.assertTrue(layout_data["item_visibility"]["save"])
         self.assertEqual(layout_data["item_order"][0], "redo")
 
@@ -179,9 +179,9 @@ class TestToolbarItemVisibility(unittest.TestCase):
             # Verification in restored window
             self.assertEqual(new_tm.item_order[0], "redo")
             self.assertFalse(new_tm.items["export"].visible)
-            self.assertFalse(new_tm.items["autotile_dialog"].visible)
+            self.assertFalse(new_tm.items["path_gen_dialog"].visible)
             self.assertNotIn("export", new_win.toolbar.item_widgets_map)
-            self.assertNotIn("autotile_dialog", new_win.toolbar.item_widgets_map)
+            self.assertNotIn("path_gen_dialog", new_win.toolbar.item_widgets_map)
             self.assertIn("save", new_win.toolbar.item_widgets_map)
             self.assertIn("redo", new_win.toolbar.item_widgets_map)
         finally:
@@ -191,18 +191,8 @@ class TestToolbarItemVisibility(unittest.TestCase):
         """8. Dedykowane okno dialogowe ToolbarVisibilityDialog – filtrowanie, zmiana i aplikacja."""
         dlg = ToolbarVisibilityDialog(self.tm, self.win)
 
-        # Check all 26 items populated in list
-        self.assertEqual(dlg.list_widget.count(), 26)
-
-        # Test search filter for "Auto-Tile" (matches autotile_toggle, autotile_rules, autotile_dialog)
-        dlg._filter_list("Auto-Tile")
-        visible_rows = [
-            i for i in range(dlg.list_widget.count())
-            if not dlg.list_widget.item(i).isHidden()
-        ]
-        self.assertEqual(len(visible_rows), 3)
-        for row_idx in visible_rows:
-            self.assertIn("Auto-Tile", dlg.list_widget.item(row_idx).text())
+        # Check all 23 items populated in list
+        self.assertEqual(dlg.list_widget.count(), 23)
 
         # Test search filter for unique name "Ścieżek"
         dlg._filter_list("Ścieżek")

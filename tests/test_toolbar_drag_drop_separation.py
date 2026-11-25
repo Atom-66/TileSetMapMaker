@@ -295,10 +295,10 @@ class TestToolbarDragDropSeparation(unittest.TestCase):
 
     def test_top_toolbars_reject_button_payload_without_preview_or_mutation(self):
         undo_action = QAction("Undo", self.main_toolbar)
-        autotile_action = QAction("Auto Tile", self.secondary_toolbar)
+        path_action = QAction("Paths", self.secondary_toolbar)
         self.manager.register_item("undo", "Undo", "history", action=undo_action)
         self.manager.register_item(
-            "autotile_toggle", "Auto Tile", "autotile", action=autotile_action
+            "path_gen_dialog", "Paths", "paths", action=path_action
         )
         self.manager.build_toolbar()
         self.manager.set_edit_mode(True)
@@ -371,10 +371,10 @@ class TestToolbarDragDropSeparation(unittest.TestCase):
 
     def test_category_drag_still_works_after_rejected_button_drop(self):
         undo_action = QAction("Undo", self.main_toolbar)
-        autotile_action = QAction("Auto Tile", self.secondary_toolbar)
+        path_action = QAction("Paths", self.secondary_toolbar)
         self.manager.register_item("undo", "Undo", "history", action=undo_action)
         self.manager.register_item(
-            "autotile_toggle", "Auto Tile", "autotile", action=autotile_action
+            "path_gen_dialog", "Paths", "paths", action=path_action
         )
         self.manager.build_toolbar()
         self.main_toolbar.resize(900, 100)
@@ -528,7 +528,7 @@ class TestToolbarDragDropSeparation(unittest.TestCase):
         self.assertFalse(drop_event.accepted)
         self.assertEqual(dialog.working_items["new"].category_id, "project")
         self.assertIn("new", dialog.working_categories["project"].item_ids)
-        self.assertNotIn("new", dialog.working_categories["autotile"].item_ids)
+        self.assertNotIn("new", dialog.working_categories["paths"].item_ids)
         dialog._item_drag_active = False
         dialog._populate_all(select_cat_id="project")
         dialog._accept_and_save()
@@ -643,14 +643,14 @@ class TestToolbarDragDropSeparation(unittest.TestCase):
         )
         cases = (
             (project, ToolbarDragOperation.CATEGORY_REORDER, "view", "main", True),
-            (project, ToolbarDragOperation.CATEGORY_MOVE, "autotile", "secondary", True),
+            (project, ToolbarDragOperation.CATEGORY_MOVE, "paths", "secondary", True),
             (button_toolbar, ToolbarDragOperation.BUTTON_REASSIGN, "project", "main", False),
-            (button_toolbar, ToolbarDragOperation.BUTTON_REASSIGN, "autotile", "secondary", False),
+            (button_toolbar, ToolbarDragOperation.BUTTON_REASSIGN, "paths", "secondary", False),
             (project_customizer, ToolbarDragOperation.CATEGORY_REORDER, "view", "main", True),
-            (project_customizer, ToolbarDragOperation.CATEGORY_MOVE, "autotile", "secondary", True),
+            (project_customizer, ToolbarDragOperation.CATEGORY_MOVE, "paths", "secondary", True),
             (button_customizer, ToolbarDragOperation.BUTTON_REORDER, "history", "main", True),
             (button_customizer, ToolbarDragOperation.BUTTON_REASSIGN, "project", "main", True),
-            (button_customizer, ToolbarDragOperation.BUTTON_REASSIGN, "autotile", "secondary", True),
+            (button_customizer, ToolbarDragOperation.BUTTON_REASSIGN, "paths", "secondary", True),
         )
 
         for request, operation, target_id, target_toolbar_id, expected in cases:

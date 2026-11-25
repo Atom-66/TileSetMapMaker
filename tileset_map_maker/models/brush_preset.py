@@ -82,6 +82,7 @@ class BrushSettings:
         self.seed = seed
         self.auto_tile_enabled = auto_tile_enabled
         self.avoid_adjacent = avoid_adjacent
+        self.selected_autotile: Optional[Any] = None
 
         # List of TileVariant objects (also accepts raw SelectedSubTile or Asset for backward compatibility)
         self.variants: List[Any] = []

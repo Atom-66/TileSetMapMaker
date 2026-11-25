@@ -305,11 +305,13 @@ class ConfigManager:
         self.config_data["autotile_library"] = autotile_engine.to_dict()
         return self.save()
 
-    def restore_autotile_rules(self, autotile_engine: Any) -> None:
+    def restore_autotile_rules(
+        self, autotile_engine: Any, asset_manager: Optional[Any] = None
+    ) -> None:
         """Restores configured AutoTile rulesets from configuration."""
         data = self.config_data.get("autotile_library")
         if data:
-            autotile_engine.load_from_dict(data)
+            autotile_engine.load_from_dict(data, asset_manager=asset_manager)
 
     # -------------------------------------------------------------
     # Brush Variants & Randomizer Persistence

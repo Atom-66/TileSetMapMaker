@@ -29,6 +29,7 @@ class TerrainConfig:
             Dict[str, Tuple[str, int, int, int, int]]
         ] = None,
         ruleset_ids: Optional[Dict[str, str]] = None,
+        autotile_ids: Optional[Dict[str, str]] = None,
     ):
         self.seed = int(seed)
         self.scale = max(2.0, float(scale))
@@ -40,7 +41,8 @@ class TerrainConfig:
         self.road_count = max(0, int(road_count))
         self.road_width = max(1, int(road_width))
         self.tile_mappings = dict(tile_mappings or {})
-        self.ruleset_ids = dict(ruleset_ids or {})
+        self.autotile_ids = dict(autotile_ids or ruleset_ids or {})
+        self.ruleset_ids = self.autotile_ids
 
     def to_dict(self) -> Dict[str, Any]:
         return {

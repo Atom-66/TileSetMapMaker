@@ -99,12 +99,55 @@ class ProjectIO:
         try:
             asset_data = copy.deepcopy(asset_manager.to_dict())
             base_dir = os.path.dirname(os.path.abspath(file_path))
-            for asset in asset_data.get("assets", []):
+            referenced_asset_ids = {
+                item.asset_id
+                for map_model in project.maps.values()
+                for layer in map_model.layers
+                for item in list(layer.tiles.values()) + layer.objects
+            }
+            if autotile_engine:
+                for autotile in autotile_engine.rpg_autotiles.values():
+                    if autotile.source_asset_id:
+                        referenced_asset_ids.add(autotile.source_asset_id)
+                    referenced_asset_ids.update(
+                        variant.source_asset_id
+                        for variant in autotile.custom_variants
+                        if variant.source_asset_id
+                    )
+
+            for index, asset in enumerate(asset_data.get("assets", [])):
                 stored_path = asset.get("file_path")
                 if stored_path:
-                    asset["file_path"] = safe_relative_asset_path(
-                        base_dir, stored_path
-                    )
+                    relative_path = safe_relative_asset_path(base_dir, stored_path)
+                    if (
+                        os.path.isabs(relative_path)
+                        and asset.get("id") in referenced_asset_ids
+                        and os.path.isfile(stored_path)
+                    ):
+                        extension = os.path.splitext(stored_path)[1]
+                        asset_id = "".join(
+                            char if char.isalnum() or char in ("-", "_") else "_"
+                            for char in str(asset.get("id", ""))
+                        )
+                        relative_path = os.path.join(
+                            "assets", f"asset_{index}_{asset_id}{extension}"
+                        )
+                        destination = os.path.join(base_dir, relative_path)
+                        os.makedirs(os.path.dirname(destination), exist_ok=True)
+                        if os.path.abspath(stored_path) != os.path.abspath(destination):
+                            fd, temporary_path = tempfile.mkstemp(
+                                dir=os.path.dirname(destination),
+                                prefix=f".{os.path.basename(destination)}.",
+                                suffix=".tmp",
+                            )
+                            os.close(fd)
+                            try:
+                                shutil.copy2(stored_path, temporary_path)
+                                os.replace(temporary_path, destination)
+                            finally:
+                                if os.path.exists(temporary_path):
+                                    os.remove(temporary_path)
+                    asset["file_path"] = relative_path
             data = {
                 "format": "tileset-map-maker",
                 "version": ProjectIO.FILE_VERSION,
@@ -156,7 +199,7 @@ class ProjectIO:
                     asset_manager.load_from_dict({"assets": assets})
 
             if autotile_engine and "autotile" in data:
-                autotile_engine.load_from_dict(data["autotile"])
+                autotile_engine.load_from_dict(data["autotile"], asset_manager=asset_manager)
 
             project_data = data.get("project", {})
             project = Project.from_dict(project_data)
@@ -480,6 +523,101 @@ class ProjectIO:
             return project
         except (ET.ParseError, ExternalFormatError, OSError, ValueError) as exc:
             cls._set_error(f"Błąd importu TMX '{file_path}': {exc}")
+            return None
+
+    @classmethod
+    def get_last_warnings(cls) -> List[str]:
+        return list(TiledTMX.last_warnings)
+
+    @classmethod
+    def import_png_as_map(
+        cls,
+        file_path: str,
+        asset_manager: AssetManager,
+        mode: str = "reference",
+        tile_size: int = 32,
+        opacity: float = 0.55,
+        target_project: Optional[Project] = None,
+    ) -> Optional[Project]:
+        """
+        Imports a PNG image directly as a 1:1 raster map or reference underlay.
+        Preserves original resolution and alpha transparency without modifying the source PNG.
+        """
+        import math
+        from ..models.asset import AssetType
+        from ..models.layer import MapItem, ItemType
+
+        try:
+            if not os.path.isfile(file_path):
+                cls._set_error(f"Plik PNG nie istnieje: '{file_path}'")
+                return None
+
+            asset, _, err = asset_manager.import_single_file(
+                file_path,
+                target_category_path="Mapy PNG",
+                force_asset_type=AssetType.SINGLE_IMAGE,
+            )
+            if not asset:
+                cls._set_error(err or f"Nie udało się wczytać pliku PNG: '{file_path}'")
+                return None
+
+            pm = asset_manager.get_pixmap(asset.id)
+            if not pm or pm.isNull():
+                cls._set_error(f"Uszkodzony lub nieprawidłowy obraz PNG: '{file_path}'")
+                return None
+
+            img_w = pm.width()
+            img_h = pm.height()
+            ts = max(8, int(tile_size))
+            cols = max(1, math.ceil(img_w / ts))
+            rows = max(1, math.ceil(img_h / ts))
+            map_name = os.path.splitext(os.path.basename(file_path))[0]
+
+            if target_project is not None:
+                project = target_project
+                new_map = project.add_map(
+                    name=map_name, width=cols, height=rows, tile_size=ts
+                )
+                project.set_active_map(new_map.id)
+            else:
+                project = Project(
+                    name=map_name,
+                    map_width=cols,
+                    map_height=rows,
+                    tile_size=ts,
+                )
+                project.is_bg_transparent = True
+
+            project.layers.clear()
+            is_ref = (mode == "reference")
+            img_layer_name = "Podkład referencyjny (PNG)" if is_ref else "Mapa rastrowa (PNG)"
+            img_layer = project.add_layer(img_layer_name, layer_type="object")
+            img_layer.opacity = max(0.05, min(1.0, float(opacity if is_ref else 1.0)))
+            img_layer.locked = True
+
+            raster_item = MapItem(
+                asset_id=asset.id,
+                col=0,
+                row=0,
+                item_type=ItemType.OBJECT,
+                source_x=0,
+                source_y=0,
+                source_w=img_w,
+                source_h=img_h,
+                dest_w=img_w,
+                dest_h=img_h,
+                object_type="png_map_reference" if is_ref else "png_map_raster",
+            )
+            img_layer.add_object(raster_item)
+
+            # Add an editable tile layer on top so the user can paint tiles immediately
+            tile_layer = project.add_layer("Warstwa kafelków 1", layer_type="tile")
+            project.active_layer_id = tile_layer.id
+            project.is_modified = True
+            cls._last_error = None
+            return project
+        except Exception as exc:
+            cls._set_error(f"Błąd importu mapy PNG '{file_path}': {exc}")
             return None
 
     @staticmethod

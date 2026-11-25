@@ -299,6 +299,9 @@ class Layer:
         autotile_ruleset_id: Optional[str] = None,
         blend_mode: str = "normal",
         layer_type: str = "tile",
+        offset_x: float = 0.0,
+        offset_y: float = 0.0,
+        properties: Optional[Dict[str, Any]] = None,
     ):
         self.id = layer_id or str(uuid.uuid4())
         self.name = name
@@ -311,6 +314,9 @@ class Layer:
         self.autotile_ruleset_id = autotile_ruleset_id
         self.blend_mode = blend_mode.lower() if blend_mode else "normal"
         self.layer_type = layer_type if layer_type in ("tile", "object", "collision") else "tile"
+        self.offset_x = float(offset_x)
+        self.offset_y = float(offset_y)
+        self.properties = copy.deepcopy(properties or {})
 
         # Tiles indexed by (col, row)
         self.tiles: Dict[Tuple[int, int], MapItem] = {}
@@ -389,6 +395,9 @@ class Layer:
             autotile_ruleset_id=self.autotile_ruleset_id,
             blend_mode=self.blend_mode,
             layer_type=self.layer_type,
+            offset_x=self.offset_x,
+            offset_y=self.offset_y,
+            properties=self.properties,
         )
         for coord, item in self.tiles.items():
             cloned.tiles[coord] = item.clone()
@@ -411,6 +420,9 @@ class Layer:
             "autotile_ruleset_id": self.autotile_ruleset_id,
             "blend_mode": self.blend_mode,
             "layer_type": self.layer_type,
+            "offset_x": self.offset_x,
+            "offset_y": self.offset_y,
+            "properties": self.properties,
             "tiles": [
                 {"col": c, "row": r, "item": item.to_dict()}
                 for (c, r), item in self.tiles.items()
@@ -433,6 +445,9 @@ class Layer:
             autotile_ruleset_id=data.get("autotile_ruleset_id"),
             blend_mode=data.get("blend_mode", "normal"),
             layer_type=data.get("layer_type", "tile"),
+            offset_x=data.get("offset_x", 0.0),
+            offset_y=data.get("offset_y", 0.0),
+            properties=data.get("properties", {}),
         )
         for tile_data in data.get("tiles", []):
             item = MapItem.from_dict(tile_data["item"])

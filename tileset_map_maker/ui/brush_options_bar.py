@@ -42,20 +42,12 @@ class BrushOptionsBar(QWidget):
         self.active_tool_name = "brush"
 
         self._init_ui()
-        self.refresh_rulesets()
         self.update_variants_summary()
         get_localization().languageChanged.connect(self._apply_language)
 
     def _apply_language(self, _language: str) -> None:
         if hasattr(self, "lbl_size"):
             self.set_active_tool(self.active_tool_name)
-        if hasattr(self, "chk_autotile"):
-            self.chk_autotile.setText(tr("tile.autotile"))
-            self.chk_autotile.setToolTip(tr("brush.autotile_tooltip"))
-            self.combo_rules.setToolTip(tr("brush.rules_combo_tooltip"))
-        if hasattr(self, "btn_autotile"):
-            self.btn_autotile.setText(" " + tr("brush.rules"))
-            self.btn_autotile.setToolTip(tr("brush.rules_tooltip"))
         if hasattr(self, "btn_path_gen"):
             self.btn_path_gen.setText(" " + tr("brush.paths"))
             self.btn_path_gen.setToolTip(tr("brush.path_tooltip"))
@@ -132,31 +124,7 @@ class BrushOptionsBar(QWidget):
 
         layout.addWidget(self._create_separator())
 
-        # 2. Auto-Tiling & Ścieżki
-        self.chk_autotile = ToolbarToggleButton(tr("tile.autotile"), checked=self.settings.auto_tile_enabled, icon_name="autotile")
-        self.chk_autotile.setToolTip(tr("brush.autotile_tooltip"))
-        self.chk_autotile.toggled.connect(self._on_autotile_toggled)
-        layout.addWidget(self.chk_autotile)
-
-        self.combo_rules = QComboBox()
-        self.combo_rules.setToolTip(tr("brush.rules_combo_tooltip"))
-        self.combo_rules.setEnabled(self.settings.auto_tile_enabled)
-        self.combo_rules.setFixedHeight(26)
-        self.combo_rules.setMaximumWidth(125)
-        self.combo_rules.setStyleSheet(self._combo_style())
-        self.combo_rules.currentIndexChanged.connect(self._on_rule_changed)
-        layout.addWidget(self.combo_rules)
-
-        self.btn_autotile = QToolButton()
-        self.btn_autotile.setIcon(IconFactory.get_icon("autotile", 14))
-        self.btn_autotile.setText(" " + tr("brush.rules"))
-        self.btn_autotile.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_autotile.setToolTip(tr("brush.rules_tooltip"))
-        self.btn_autotile.setFixedHeight(26)
-        self.btn_autotile.setStyleSheet(self._button_style())
-        self.btn_autotile.clicked.connect(self.open_autotile_dialog)
-        layout.addWidget(self.btn_autotile)
-
+        # 2. Generator Ścieżek (Paths)
         self.btn_path_gen = QToolButton()
         self.btn_path_gen.setIcon(IconFactory.get_icon("path", 14))
         self.btn_path_gen.setText(" " + tr("brush.paths"))
@@ -250,27 +218,6 @@ class BrushOptionsBar(QWidget):
                 "widget": self.widget_brush_size,
                 "icon": "brush",
                 "tooltip": "Rozmiar pędzla (1-10 kafelków)",
-            },
-            "autotile_toggle": {
-                "label": "Auto-Tile",
-                "category": "autotile",
-                "widget": self.chk_autotile,
-                "icon": "autotile",
-                "tooltip": "Automatycznie dopasowuj brzegi i narożniki terenu podczas malowania",
-            },
-            "autotile_rules": {
-                "label": "Zestaw reguł Auto-Tile",
-                "category": "autotile",
-                "widget": self.combo_rules,
-                "icon": "autotile",
-                "tooltip": "Wybierz aktywny zestaw reguł Auto-Tiling / Ścieżek dla pędzla",
-            },
-            "autotile_dialog": {
-                "label": "Konfigurator reguł Auto-Tile",
-                "category": "autotile",
-                "widget": self.btn_autotile,
-                "icon": "autotile",
-                "tooltip": "Otwórz konfigurator reguł Auto-Tiling",
             },
             "path_gen_dialog": {
                 "label": "Generator Ścieżek",
@@ -429,39 +376,6 @@ class BrushOptionsBar(QWidget):
             self.settings.size = val
         self.options_changed.emit()
 
-    def _on_autotile_toggled(self, checked: bool) -> None:
-        self.settings.auto_tile_enabled = checked
-        if hasattr(self, "combo_rules"):
-            self.combo_rules.setEnabled(checked)
-        self.options_changed.emit()
-
-    def _on_rule_changed(self, idx: int) -> None:
-        if not self.autotile_engine or idx < 0:
-            return
-        rid = self.combo_rules.currentData()
-        if rid:
-            self.autotile_engine.active_ruleset_id = rid
-        self.options_changed.emit()
-
-    def refresh_rulesets(self) -> None:
-        if not hasattr(self, "combo_rules") or not self.autotile_engine:
-            return
-        self.combo_rules.blockSignals(True)
-        self.combo_rules.clear()
-        active_idx = 0
-        for i, (rid, r) in enumerate(self.autotile_engine.rulesets.items()):
-            icon = "🛣️" if getattr(r, "is_path_ruleset", False) else "⚡"
-            self.combo_rules.addItem(f"{icon} {r.name} ({r.terrain_type})", rid)
-            if rid == self.autotile_engine.active_ruleset_id:
-                active_idx = i
-
-        if self.combo_rules.count() > 0:
-            self.combo_rules.setCurrentIndex(active_idx)
-        else:
-            self.combo_rules.addItem("(Brak reguł)", "")
-
-        self.combo_rules.blockSignals(False)
-
     def _on_variants_toggled(self, checked: bool) -> None:
         self.settings.random_variant = checked
         self.options_changed.emit()
@@ -532,23 +446,12 @@ class BrushOptionsBar(QWidget):
                 self.txt_seed.clear()
             self.txt_seed.blockSignals(False)
 
-    def open_autotile_dialog(self) -> None:
-        if not self.autotile_engine or not self.asset_manager:
-            return
-        from .dialogs.autotile_dialog import AutoTileDialog
-        dlg = AutoTileDialog(
-            autotile_engine=self.autotile_engine,
-            asset_manager=self.asset_manager,
-            parent=self,
-        )
-        if dlg.exec():
-            self.refresh_rulesets()
-            if self.combo_rules.count() > 0:
-                self.settings.auto_tile_enabled = True
-                self.chk_autotile.setChecked(True)
-            self.options_changed.emit()
-
     def open_path_generator_dialog(self) -> None:
+        win = self.window()
+        if hasattr(win, "open_path_generator_dialog") and win is not self:
+            win.open_path_generator_dialog()
+            return
+
         if not self.autotile_engine or not self.asset_manager:
             return
         dlg = PathGeneratorDialog(
@@ -557,10 +460,6 @@ class BrushOptionsBar(QWidget):
             parent=self,
         )
         if dlg.exec():
-            self.refresh_rulesets()
-            if self.combo_rules.count() > 0:
-                self.settings.auto_tile_enabled = True
-                self.chk_autotile.setChecked(True)
             self.options_changed.emit()
 
     def open_randomizer_dialog(self) -> None:

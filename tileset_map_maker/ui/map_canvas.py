@@ -142,6 +142,10 @@ class MapCanvas(QWidget):
 
     def _on_asset_selected(self, item: Any) -> None:
         self.tool_context.selected_asset = item
+        if getattr(item, "is_autotile", False) or hasattr(item, "autotile"):
+            self.tool_context.brush_settings.selected_autotile = item
+        else:
+            self.tool_context.brush_settings.selected_autotile = None
         self.update()
 
     def set_active_layer(self, layer: Optional[Layer]) -> None:
@@ -234,6 +238,15 @@ class MapCanvas(QWidget):
         col = int(world.x() // ts)
         row = int(world.y() // ts)
         return col, row
+
+    def _screen_to_layer_tile(
+        self, screen_pos: QPointF, layer: Optional[Layer]
+    ) -> Tuple[int, int]:
+        world = self.screen_to_world(screen_pos)
+        if layer is not None:
+            world = world - QPointF(layer.offset_x, layer.offset_y)
+        ts = self.project.tile_size
+        return int(world.x() // ts), int(world.y() // ts)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -365,14 +378,15 @@ class MapCanvas(QWidget):
 
         world = self.screen_to_world(pos)
         col, row = self.screen_to_tile(pos)
+        tool_col, tool_row = self._screen_to_layer_tile(pos, layer)
         self.cursor_tile_col = col
         self.cursor_tile_row = row
         self.cursor_px_x = world.x()
         self.cursor_px_y = world.y()
-        self.tool_context.cursor_col = col
-        self.tool_context.cursor_row = row
-        self.tool_context.cursor_pixel_x = world.x()
-        self.tool_context.cursor_pixel_y = world.y()
+        self.tool_context.cursor_col = tool_col
+        self.tool_context.cursor_row = tool_row
+        self.tool_context.cursor_pixel_x = world.x() - (layer.offset_x if layer else 0)
+        self.tool_context.cursor_pixel_y = world.y() - (layer.offset_y if layer else 0)
 
         # Right Click: Temporarily activate Eraser!
         if event.button() == Qt.MouseButton.RightButton:
@@ -386,7 +400,7 @@ class MapCanvas(QWidget):
                 event.accept()
                 return
             self.is_right_erasing = True
-            self.eraser_tool.on_press(col, row, self.tool_context)
+            self.eraser_tool.on_press(tool_col, tool_row, self.tool_context)
             self.update()
             event.accept()
             return
@@ -395,7 +409,7 @@ class MapCanvas(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.active_tool:
                 self.tool_context.selection_modifiers = event.modifiers()
-                self.active_tool.on_press(col, row, self.tool_context)
+                self.active_tool.on_press(tool_col, tool_row, self.tool_context)
                 if isinstance(self.active_tool, SelectTool) and self.active_tool.last_error:
                     self.operation_error.emit(tr(self.active_tool.last_error))
                     self.active_tool.last_error = ""
@@ -413,15 +427,18 @@ class MapCanvas(QWidget):
         pos = event.position()
         world = self.screen_to_world(pos)
         col, row = self.screen_to_tile(pos)
+        layer = self.project.get_active_layer()
+        tool_col, tool_row = self._screen_to_layer_tile(pos, layer)
+        self.tool_context.active_layer = layer
+        self.tool_context.cursor_col = tool_col
+        self.tool_context.cursor_row = tool_row
+        self.tool_context.cursor_pixel_x = world.x() - (layer.offset_x if layer else 0)
+        self.tool_context.cursor_pixel_y = world.y() - (layer.offset_y if layer else 0)
 
         self.cursor_tile_col = col
         self.cursor_tile_row = row
         self.cursor_px_x = world.x()
         self.cursor_px_y = world.y()
-        self.tool_context.cursor_col = col
-        self.tool_context.cursor_row = row
-        self.tool_context.cursor_pixel_x = world.x()
-        self.tool_context.cursor_pixel_y = world.y()
         self.cursor_moved.emit(col, row)
 
         if self.is_panning:
@@ -435,7 +452,7 @@ class MapCanvas(QWidget):
 
         # Right Mouse Drag Erasing
         if self.is_right_erasing and (event.buttons() & Qt.MouseButton.RightButton):
-            self.eraser_tool.on_drag(col, row, self.tool_context)
+            self.eraser_tool.on_drag(tool_col, tool_row, self.tool_context)
             self.update()
             event.accept()
             return
@@ -443,7 +460,7 @@ class MapCanvas(QWidget):
         # Left Mouse Drag Tool
         if event.buttons() & Qt.MouseButton.LeftButton:
             if self.active_tool and self.active_tool.is_active:
-                self.active_tool.on_drag(col, row, self.tool_context)
+                self.active_tool.on_drag(tool_col, tool_row, self.tool_context)
                 self.update()
             event.accept()
         else:
@@ -453,10 +470,13 @@ class MapCanvas(QWidget):
         pos = event.position()
         world = self.screen_to_world(pos)
         col, row = self.screen_to_tile(pos)
-        self.tool_context.cursor_col = col
-        self.tool_context.cursor_row = row
-        self.tool_context.cursor_pixel_x = world.x()
-        self.tool_context.cursor_pixel_y = world.y()
+        layer = self.project.get_active_layer()
+        tool_col, tool_row = self._screen_to_layer_tile(pos, layer)
+        self.tool_context.active_layer = layer
+        self.tool_context.cursor_col = tool_col
+        self.tool_context.cursor_row = tool_row
+        self.tool_context.cursor_pixel_x = world.x() - (layer.offset_x if layer else 0)
+        self.tool_context.cursor_pixel_y = world.y() - (layer.offset_y if layer else 0)
 
         if event.button() in [Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton] and self.is_panning:
             self.is_panning = False
@@ -467,7 +487,7 @@ class MapCanvas(QWidget):
         # Right Click Release: End Eraser and restore previous tool automatically!
         if event.button() == Qt.MouseButton.RightButton and self.is_right_erasing:
             self.is_right_erasing = False
-            self.eraser_tool.on_release(col, row, self.tool_context)
+            self.eraser_tool.on_release(tool_col, tool_row, self.tool_context)
             self.update()
             event.accept()
             return
@@ -475,7 +495,7 @@ class MapCanvas(QWidget):
         # Left Click Release: Tool commit
         if event.button() == Qt.MouseButton.LeftButton:
             if self.active_tool and self.active_tool.is_active:
-                self.active_tool.on_release(col, row, self.tool_context)
+                self.active_tool.on_release(tool_col, tool_row, self.tool_context)
                 if isinstance(self.active_tool, SelectTool) and self.active_tool.last_error:
                     self.operation_error.emit(tr(self.active_tool.last_error))
                     self.active_tool.last_error = ""

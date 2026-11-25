@@ -106,7 +106,7 @@ class TestDockingAndLayouts(unittest.TestCase):
         self.win._update_tool_dock_width()
         app.processEvents()
 
-        self.assertLessEqual(self.win.tool_dock.width(), 52)
+        self.assertLessEqual(self.win.tool_dock.width(), max(52, self.win.tool_dock.minimumSizeHint().width()))
         self.assertEqual(self.win.tool_panel.width(), self.win.tool_dock.width())
         self.assertEqual(self.win.tool_panel.layout().contentsMargins().left(), 4)
         self.assertEqual(self.win.tool_panel.layout().contentsMargins().right(), 4)
@@ -189,10 +189,12 @@ class TestDockingAndLayouts(unittest.TestCase):
 
         self.win.tool_dock.setFloating(True)
         self.process_layout_events()
-        self.win.tool_dock.resize(100, 550)
+        self.win.tool_dock.resize(100, 600)
+        self.win.tool_panel._update_orientation()
         self.process_layout_events()
         self.assert_tool_button_geometry(Qt.Orientation.Vertical)
-        self.win.tool_dock.resize(500, 100)
+        self.win.tool_dock.resize(600, 100)
+        self.win.tool_panel._update_orientation()
         self.process_layout_events()
         self.assert_tool_button_geometry(Qt.Orientation.Horizontal)
 

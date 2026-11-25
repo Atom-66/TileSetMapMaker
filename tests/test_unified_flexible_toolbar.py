@@ -39,7 +39,6 @@ class TestUnifiedFlexibleToolbar(unittest.TestCase):
             "undo", "redo",
             "grid", "fit", "palette",
             "brush_size", "save_stamp",
-            "autotile_toggle", "autotile_rules", "autotile_dialog",
             "path_gen_dialog",
             "variants_toggle", "variants_count", "variants_add", "variants_avoid", "variants_dialog",
             "rot_toggle", "flip_toggle", "seed_group",
@@ -84,17 +83,17 @@ class TestUnifiedFlexibleToolbar(unittest.TestCase):
             )
             self.assertGreater(bright_count, 15, "Grid button icon must be visible white on blue!")
 
-        # 2. Toggle button: Auto-Tile
-        chk_autotile = self.win.brush_options.chk_autotile
-        chk_autotile.setChecked(True)
-        self.assertTrue(chk_autotile.isChecked())
-        pix_auto = chk_autotile.grab()
+        # 2. Toggle button: Randomizer Variants
+        chk_variants = self.win.brush_options.chk_variants
+        chk_variants.setChecked(True)
+        self.assertTrue(chk_variants.isChecked())
+        pix_auto = chk_variants.grab()
         img_auto = pix_auto.toImage()
         blue_present = any(
             img_auto.pixelColor(x, y).blue() > 200 and img_auto.pixelColor(x, y).red() < 50
             for y in range(img_auto.height()) for x in range(img_auto.width())
         )
-        self.assertTrue(blue_present, "Auto-Tile must be highlighted with active blue background")
+        self.assertTrue(blue_present, "Variants must be highlighted with active blue background")
         # Text/icon must have high contrast white
         white_present = any(
             img_auto.pixelColor(x, y).red() > 220 and img_auto.pixelColor(x, y).green() > 220 and img_auto.pixelColor(x, y).blue() > 220

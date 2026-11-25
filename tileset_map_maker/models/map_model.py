@@ -31,6 +31,7 @@ class MapModel:
         self.layers: List[Layer] = []
         self.active_layer_id: Optional[str] = None
         self.isolated_layer_id: Optional[str] = None
+        self.properties: Dict[str, Any] = {}
 
         self.ensure_default_layers()
 
@@ -270,6 +271,7 @@ class MapModel:
             if layer.group_id in id_map:
                 layer.group_id = id_map[layer.group_id]
         c.active_layer_id = id_map.get(self.active_layer_id)
+        c.properties = dict(self.properties)
         return c
 
     def to_dict(self) -> Dict[str, Any]:
@@ -283,6 +285,7 @@ class MapModel:
             "is_bg_transparent": self.is_bg_transparent,
             "active_layer_id": self.active_layer_id,
             "isolated_layer_id": self.isolated_layer_id,
+            "properties": self.properties,
             "layers": [layer.to_dict() for layer in self.layers],
         }
 
@@ -300,6 +303,7 @@ class MapModel:
         m.layers = [Layer.from_dict(l_data) for l_data in data.get("layers", [])]
         m.active_layer_id = data.get("active_layer_id")
         m.isolated_layer_id = data.get("isolated_layer_id")
+        m.properties = dict(data.get("properties", {}))
         if not m.get_layer(m.isolated_layer_id):
             m.isolated_layer_id = None
         if not m.layers:

@@ -88,11 +88,11 @@ class TestToolbarDragDrop(unittest.TestCase):
         """5. Przenoszenie przycisku pomiędzy kategoriami i pomiędzy paskami."""
         proj_cat = self.manager.categories["project"]
         hist_cat = self.manager.categories["history"]
-        auto_cat = self.manager.categories["autotile"]
+        paths_cat = self.manager.categories["paths"]
 
         self.assertIn("undo", hist_cat.item_ids)
         self.assertEqual(hist_cat.toolbar_id, "main")
-        self.assertEqual(auto_cat.toolbar_id, "secondary")
+        self.assertEqual(paths_cat.toolbar_id, "secondary")
 
         # 5a. Przenieś 'undo' z kategorii 'history' do kategorii 'project' pod indeks 1
         self.manager.move_item("undo", "project", 1)
@@ -100,12 +100,12 @@ class TestToolbarDragDrop(unittest.TestCase):
         self.assertEqual(proj_cat.item_ids, ["new", "undo", "open", "save", "export"])
         self.assertEqual(self.manager.items["undo"].category_id, "project")
 
-        # 5b. Przenieś 'undo' z 'project' (pasek główny) do 'autotile' (pasek dodatkowy)
-        self.manager.move_item("undo", "autotile", 0)
+        # 5b. Przenieś 'undo' z 'project' (pasek główny) do 'paths' (pasek dodatkowy)
+        self.manager.move_item("undo", "paths", 0)
         self.assertNotIn("undo", proj_cat.item_ids)
-        self.assertIn("undo", auto_cat.item_ids)
-        self.assertEqual(auto_cat.item_ids[0], "undo")
-        self.assertEqual(self.manager.items["undo"].category_id, "autotile")
+        self.assertIn("undo", paths_cat.item_ids)
+        self.assertEqual(paths_cat.item_ids[0], "undo")
+        self.assertEqual(self.manager.items["undo"].category_id, "paths")
 
     def test_06_move_category_order_and_toolbar(self):
         """6. Zmiana kolejności kategorii oraz przenoszenie kategorii na inny pasek."""

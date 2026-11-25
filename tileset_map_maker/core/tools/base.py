@@ -83,39 +83,48 @@ class BaseTool(ABC):
         in the block relative to (col, row).
         """
         bs = context.brush_settings
-        sel = override_asset if override_asset is not None else context.selected_asset
-        if not sel and context.asset_manager:
-            sel = context.asset_manager.selected_item
-        if not sel:
-            if bs.random_variant and bs.variants:
-                sel = bs.pick_variant(None)
+        if getattr(bs, "selected_autotile", None):
+            sel = bs.selected_autotile
+        else:
+            sel = override_asset if override_asset is not None else context.selected_asset
+            if not sel and context.asset_manager:
+                sel = context.asset_manager.selected_item
+            if not sel:
+                if bs.random_variant and bs.variants:
+                    sel = bs.pick_variant(None)
 
         if not sel:
-            if bs.auto_tile_enabled and context.autotile_engine:
-                ruleset = context.autotile_engine.get_active_ruleset()
-                if ruleset:
-                    init_tile = ruleset.default_tile or ruleset.get_tile_for_mask(0)
-                    aid = ruleset.asset_id or (init_tile[0] if init_tile else "")
-                    ts = getattr(context.project, "tile_size", 32)
-                    sx, sy, sw, sh = (init_tile[1], init_tile[2], init_tile[3], init_tile[4]) if init_tile else (0, 0, ts, ts)
-                    item = MapItem(
-                        asset_id=aid,
-                        col=col,
-                        row=row,
-                        item_type=ItemType.TILE,
-                        terrain_type=ruleset.terrain_type,
-                        is_auto_tiled=True,
-                        source_x=sx,
-                        source_y=sy,
-                        source_w=sw,
-                        source_h=sh,
-                        dest_w=sw or ts,
-                        dest_h=sh or ts,
-                    )
-                    return [item]
             return []
 
         rot, fx, fy, jx, jy = bs.get_random_transform()
+
+        if getattr(sel, "is_autotile", False) or hasattr(sel, "autotile"):
+            autotile = getattr(sel, "autotile", sel)
+            ts = getattr(autotile, "tile_size", None) or getattr(context.project, "tile_size", 32)
+            dest_ts = getattr(context.project, "tile_size", ts)
+            if context.autotile_engine and hasattr(context.autotile_engine, "can_render_autotile"):
+                if not context.autotile_engine.can_render_autotile(autotile, context.asset_manager):
+                    return []
+            sx, sy, sw, sh = autotile.get_tile_slice_for_mask(0, col, row)
+            if sw <= 0 or sh <= 0 or sx < 0 or sy < 0:
+                return []
+            if context.asset_manager and hasattr(context.asset_manager, "register_rpg_autotile"):
+                context.asset_manager.register_rpg_autotile(autotile)
+            item = MapItem(
+                asset_id=autotile.id,
+                col=col,
+                row=row,
+                item_type=ItemType.TILE,
+                terrain_type=autotile.terrain_type,
+                is_auto_tiled=True,
+                source_x=sx,
+                source_y=sy,
+                source_w=sw,
+                source_h=sh,
+                dest_w=dest_ts,
+                dest_h=dest_ts,
+            )
+            return [item]
 
         if isinstance(sel, SelectedSubTile):
             items = []

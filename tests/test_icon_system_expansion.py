@@ -115,7 +115,6 @@ class TestIconSystemExpansion(unittest.TestCase):
             ("act_undo", win.act_undo),
             ("act_redo", win.act_redo),
             ("act_shortcuts", win.act_shortcuts),
-            ("act_autotile", win.act_autotile),
             ("act_path_gen", win.act_path_gen),
             ("act_randomizer", win.act_randomizer),
             ("act_save_stamp", win.act_save_stamp),

@@ -50,7 +50,6 @@ from .toolbar_manager import ToolbarManager, CustomizableToolBar, ToolbarEditMod
 from .minimap_widget import MinimapWidget
 from .dialogs import MapSettingsDialog, ExportDialog, ShortcutsDialog, PreferencesDialog
 from .drag_safety import DragSafetyManager
-from .dialogs.autotile_dialog import AutoTileDialog
 from .dialogs.path_generator_dialog import PathGeneratorDialog
 from .dialogs.tileset_import_dialog import TilesetImportDialog
 from .dialogs.terrain_generator_dialog import TerrainGeneratorDialog
@@ -58,7 +57,7 @@ from .notification_center import NotificationBanner
 from ..core.localization import init_localization, tr, retranslate_application
 
 
-LAYOUT_VERSION = 3
+LAYOUT_VERSION = 4
 
 
 class MainWindow(QMainWindow):
@@ -81,7 +80,7 @@ class MainWindow(QMainWindow):
         self.history_manager = self.get_map_history(self.project.active_map_id)
         self.set_manager = SetManager()
         self.stamp_manager = StampManager()
-        self.autotile_engine = AutoTileEngine()
+        self.autotile_engine = AutoTileEngine(asset_manager=self.asset_manager)
         self.terrain_generator = TerrainGenerator()
         shortcut_settings = QSettings("TileSetMapMaker", "TileSetMapMaker")
         self.shortcut_manager = ShortcutManager(shortcut_settings)
@@ -89,7 +88,7 @@ class MainWindow(QMainWindow):
         self.autosave_manager = AutosaveManager(self.project, self.asset_manager, parent=self)
         self.autosave_manager.autosaved.connect(self._on_autosaved)
 
-        self.render_engine = RenderEngine(self.asset_manager)
+        self.render_engine = RenderEngine(self.asset_manager, autotile_engine=self.autotile_engine)
 
         self._init_ui()
         self._init_shortcuts()
@@ -188,6 +187,8 @@ class MainWindow(QMainWindow):
         self.tileset_palette = TilesetPaletteWidget(
             self.asset_manager, config_manager=self.config_manager, parent=self, standalone=False
         )
+        self.tileset_palette.autotile_engine = self.autotile_engine
+        self.tileset_palette.refresh_autotiles()
 
         # 3. Tileset Preview Dock (top section: interactive canvas & tile selector)
         self.tileset_preview_dock = QDockWidget("Podgląd tilesetu", self)
@@ -382,10 +383,6 @@ class MainWindow(QMainWindow):
         self.addAction(self.act_save_stamp)
 
         # Menu bar references
-        self.act_autotile = QAction(IconFactory.get_icon("autotile", 20), "Auto-Tile", self)
-        self.act_autotile.setToolTip(tr("tooltip.autotile"))
-        self.act_autotile.triggered.connect(self.open_autotile_dialog)
-
         self.act_path_gen = QAction(IconFactory.get_icon("path", 20), "Ścieżki", self)
         self.act_path_gen.setToolTip(tr("tooltip.path"))
         self.act_path_gen.triggered.connect(self.open_path_generator_dialog)
@@ -477,6 +474,11 @@ class MainWindow(QMainWindow):
         menu_file = mb.addMenu("&Plik")
         menu_file.addAction(self.act_new)
         menu_file.addAction(self.act_open)
+        self.act_import_map = QAction(
+            IconFactory.get_icon("import", 16), "Importuj mapę (PNG / TMX)...", self
+        )
+        self.act_import_map.triggered.connect(lambda: self.import_map_dialog())
+        menu_file.addAction(self.act_import_map)
         act_open_last = QAction(IconFactory.get_icon("open", 16), "Otwórz ostatnią sesję", self)
         act_open_last.triggered.connect(self.open_last_session)
         menu_file.addAction(act_open_last)
@@ -666,7 +668,6 @@ class MainWindow(QMainWindow):
                 act.triggered.connect(lambda ch, n=tool_name: self.tool_panel.select_tool_by_key(n))
                 menu_tools.addAction(act)
         menu_tools.addSeparator()
-        menu_tools.addAction(self.act_autotile)
         menu_tools.addAction(self.act_path_gen)
         menu_tools.addAction(self.act_randomizer)
         menu_tools.addAction(self.act_terrain_generator)
@@ -894,7 +895,7 @@ class MainWindow(QMainWindow):
             ("act_undo", "action.undo"), ("act_redo", "action.redo"),
             ("act_grid", "action.grid"), ("act_fit", "action.fit"),
             ("act_palette", "action.palette"), ("act_save_stamp", "action.save_stamp"),
-            ("act_autotile", "action.autotile"), ("act_path_gen", "action.path_generator"),
+            ("act_path_gen", "action.path_generator"),
             ("act_randomizer", "action.randomizer"), ("act_settings", "action.settings"),
             ("act_shortcuts", "action.shortcuts"), ("act_reset_ui", "action.reset_ui"),
         ]
@@ -1015,7 +1016,7 @@ class MainWindow(QMainWindow):
             elif os.path.isfile(p):
                 ext = os.path.splitext(p)[1].lower()
                 if ext == ".tmmap":
-                    proj = ProjectIO.load_project(p, self.asset_manager)
+                    proj = ProjectIO.load_project(p, self.asset_manager, autotile_engine=self.autotile_engine)
                     if proj:
                         self.project = proj
                         self.map_histories.clear()
@@ -1025,6 +1026,7 @@ class MainWindow(QMainWindow):
                         self.map_tab_bar.set_project(self.project)
                         self.properties_panel.set_project(self.project)
                         self.tileset_palette.refresh_tilesets()
+                        self.tileset_palette.refresh_autotiles()
                         self._update_title()
                         self._update_status_bar()
                 elif ext in [".png", ".jpg", ".jpeg", ".bmp", ".webp"]:
@@ -1122,36 +1124,34 @@ class MainWindow(QMainWindow):
                 tr("dialog.stamp.no_selection"),
             )
 
-    def open_autotile_dialog(self) -> None:
-        dlg = AutoTileDialog(self.autotile_engine, self.asset_manager, self)
-        if dlg.exec():
-            changes = self.autotile_engine.recalculate_project(self.project)
-            if changes:
-                from ..core.history import MapTileBatchesCommand
-                by_map = {}
-                for key, layer_changes in changes.items():
-                    map_id, layer_id = key.split(":", 1)
-                    by_map.setdefault(map_id, {})[layer_id] = layer_changes
-                for map_id, layer_changes in by_map.items():
-                    self.get_map_history(map_id).push(
-                        MapTileBatchesCommand(self.project, map_id, layer_changes)
-                    )
-                self.project.is_modified = True
-                self.canvas.update()
-                self.statusBar().showMessage(
-                    f"Przeliczono Auto-Tiling: {sum(len(v) for v in changes.values())} kafelków",
-                    3000,
-                )
-            if hasattr(self, "brush_options") and hasattr(self.brush_options, "refresh_rulesets"):
-                self.brush_options.refresh_rulesets()
-
     def open_path_generator_dialog(self) -> None:
-        dlg = PathGeneratorDialog(self.autotile_engine, self.asset_manager, self)
+        initial_asset_id = None
+        initial_col = 0
+        initial_row = 0
+        if hasattr(self, "tileset_palette") and self.tileset_palette:
+            if hasattr(self.tileset_palette, "canvas") and self.tileset_palette.canvas.current_asset:
+                initial_asset_id = self.tileset_palette.canvas.current_asset.id
+                initial_col = getattr(self.tileset_palette.canvas, "sel_start_col", 0)
+                initial_row = getattr(self.tileset_palette.canvas, "sel_start_row", 0)
+
+        dlg = PathGeneratorDialog(
+            self.autotile_engine,
+            self.asset_manager,
+            self,
+            initial_asset_id=initial_asset_id,
+            initial_col=initial_col,
+            initial_row=initial_row,
+        )
         if dlg.exec():
+            if hasattr(self, "tileset_palette") and self.tileset_palette:
+                self.tileset_palette.refresh_autotiles()
+                active_at = self.autotile_engine.get_active_rpg_autotile()
+                if active_at:
+                    self.tileset_palette._select_autotile(active_at)
+            if hasattr(self, "tool_panel") and self.tool_panel:
+                self.tool_panel.select_tool_by_key("brush")
             if hasattr(self, "brush_options") and hasattr(self.brush_options, "refresh_rulesets"):
                 self.brush_options.refresh_rulesets()
-                self.brush_options.settings.auto_tile_enabled = True
-                self.brush_options.chk_autotile.setChecked(True)
             if hasattr(self, "config_manager"):
                 self.config_manager.save_autotile_rules(self.autotile_engine)
 
@@ -1215,6 +1215,16 @@ class MainWindow(QMainWindow):
 
         if os.path.splitext(path)[1].casefold() == ".tmx":
             proj = ProjectIO.import_tmx(path, self.asset_manager)
+            warnings = ProjectIO.get_last_warnings()
+            if warnings:
+                QMessageBox.warning(
+                    self,
+                    "Ostrzeżenia importu TMX",
+                    "Mapa została zaimportowana z uwagami:\n\n• " + "\n• ".join(warnings),
+                )
+        elif os.path.splitext(path)[1].casefold() == ".png":
+            self.import_map_dialog(path)
+            return
         else:
             proj = ProjectIO.load_project(
                 path, self.asset_manager, autotile_engine=self.autotile_engine
@@ -1233,12 +1243,72 @@ class MainWindow(QMainWindow):
             if hasattr(self, "minimap_widget") and self.minimap_widget:
                 self.minimap_widget.set_project(self.project)
             self.tileset_palette.refresh_tilesets()
+            self.tileset_palette.refresh_autotiles()
             self.config_manager.set_last_project_path(path)
             self._update_title()
             self._update_status_bar()
             self.notification_banner.show_message(
                 f"Otwarto projekt '{proj.name}'.", "success"
             )
+
+    def import_map_dialog(self, file_path: Optional[str] = None) -> None:
+        """Imports a PNG image (as raster map or reference underlay) or a Tiled TMX map."""
+        path = file_path
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Importuj mapę (PNG / TMX)",
+                "",
+                "Mapy (*.png *.tmx);;Obrazy PNG (*.png);;Tiled TMX (*.tmx);;Wszystkie pliki (*.*)",
+            )
+        if not path:
+            return
+        ext = os.path.splitext(path)[1].casefold()
+        if ext == ".tmx":
+            self.open_project(path)
+            return
+        if ext == ".png":
+            from .dialogs.import_png_map_dialog import ImportPngMapDialog
+            dlg = ImportPngMapDialog(path, default_tile_size=self.project.tile_size, parent=self)
+            if not dlg.exec():
+                return
+            opts = dlg.get_options()
+            target_proj = self.project if opts["add_to_current"] else None
+            proj = ProjectIO.import_png_as_map(
+                path,
+                self.asset_manager,
+                mode=opts["mode"],
+                tile_size=opts["tile_size"],
+                opacity=opts["opacity"],
+                target_project=target_proj,
+            )
+            if proj:
+                self.project = proj
+                if not opts["add_to_current"]:
+                    self.map_histories.clear()
+                self._set_active_history_manager(
+                    self.get_map_history(self.project.active_map_id)
+                )
+                self.autosave_manager.set_project(self.project)
+                self.canvas.set_project(self.project)
+                self.layer_panel.set_project(self.project)
+                self.map_tab_bar.set_project(self.project)
+                self.properties_panel.set_project(self.project)
+                if hasattr(self, "minimap_widget") and self.minimap_widget:
+                    self.minimap_widget.set_project(self.project)
+                self.tileset_palette.refresh_tilesets()
+                self._update_title()
+                self._update_status_bar()
+                self.canvas.fit_to_view()
+                self.notification_banner.show_message(
+                    f"Zaimportowano mapę PNG '{os.path.basename(path)}'.", "success"
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Błąd importu PNG",
+                    ProjectIO.get_last_error() or "Nie udało się zaimportować mapy PNG.",
+                )
         else:
             self.diagnostics.logger.error(
                 ProjectIO.get_last_error() or "Nie udało się otworzyć projektu"
@@ -1805,7 +1875,9 @@ class MainWindow(QMainWindow):
                     self.tileset_palette.set_active_asset(active_asset)
 
         # Restore persistent autotile rules
-        self.config_manager.restore_autotile_rules(self.autotile_engine)
+        self.config_manager.restore_autotile_rules(self.autotile_engine, self.asset_manager)
+        if hasattr(self, "tileset_palette") and self.tileset_palette:
+            self.tileset_palette.refresh_autotiles()
         self.config_manager.restore_terrain_generator(self.terrain_generator)
         if hasattr(self, "brush_options") and hasattr(self.brush_options, "refresh_rulesets"):
             self.brush_options.refresh_rulesets()

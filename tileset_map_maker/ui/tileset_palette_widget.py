@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QMenu,
     QSplitter,
+    QScrollArea,
     QTreeWidget,
     QTreeWidgetItem,
     QAbstractItemView,
@@ -51,6 +52,7 @@ from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
 from ..models.category import CategoryTree, CategoryNode
 from ..core.asset_manager import AssetManager
 from ..core.config_manager import ConfigManager
+from ..core.rpg_autotile import RPGAutotile, SelectedAutotile
 from .styles import get_canvas_theme_colors
 from .tileset_slicer_dialog import TilesetSlicerDialog
 from .dialogs.tileset_import_dialog import TilesetImportDialog
@@ -108,6 +110,7 @@ class TilesetCanvas(QWidget):
 
         # Selection state: rectangular bounding block (start_c, start_r) to (end_c, end_r)
         self.is_selecting = False
+        self.has_selection = True
         self.sel_start_col = 0
         self.sel_start_row = 0
         self.sel_end_col = 0
@@ -246,6 +249,7 @@ class TilesetCanvas(QWidget):
         cfg = self.current_asset.tileset_config or TilesetConfig(tile_width=32, tile_height=32)
         grid = cfg.compute_grid(self.current_asset.width, self.current_asset.height)
         if grid["cols"] > 0 and grid["rows"] > 0:
+            self.has_selection = True
             self.sel_start_col = 0
             self.sel_start_row = 0
             self.sel_end_col = grid["cols"] - 1
@@ -253,6 +257,12 @@ class TilesetCanvas(QWidget):
             self._emit_selection()
             self.save_current_view_state()
             self.update()
+
+    def deselect(self) -> None:
+        """Clears active selection box on the canvas."""
+        self.has_selection = False
+        self.is_selecting = False
+        self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -356,12 +366,12 @@ class TilesetCanvas(QWidget):
                 painter.drawRect(hs_rect)
 
         # Selection block
-        c1 = max(0, min(self.sel_start_col, self.sel_end_col))
-        c2 = min(grid["cols"] - 1, max(self.sel_start_col, self.sel_end_col))
-        r1 = max(0, min(self.sel_start_row, self.sel_end_row))
-        r2 = min(grid["rows"] - 1, max(self.sel_start_row, self.sel_end_row))
+        if getattr(self, "has_selection", True) and grid["cols"] > 0 and grid["rows"] > 0:
+            c1 = max(0, min(self.sel_start_col, self.sel_end_col))
+            c2 = min(grid["cols"] - 1, max(self.sel_start_col, self.sel_end_col))
+            r1 = max(0, min(self.sel_start_row, self.sel_end_row))
+            r2 = min(grid["rows"] - 1, max(self.sel_start_row, self.sel_end_row))
 
-        if grid["cols"] > 0 and grid["rows"] > 0:
             x1, y1, _, _ = cfg.get_tile_rect(c1, r1)
             x2, y2, tw2, th2 = cfg.get_tile_rect(c2, r2)
             sel_world_rect = QRectF(x1, y1, (x2 + tw2) - x1, (y2 + th2) - y1)
@@ -459,6 +469,7 @@ class TilesetCanvas(QWidget):
             world = self.screen_to_world(pos)
             cell = self.world_to_cell(world)
             if cell:
+                self.has_selection = True
                 col, row = cell
                 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                     self.sel_end_col = col
@@ -882,6 +893,9 @@ class TilesetPaletteWidget(QWidget):
         self.open_tileset_ids: List[str] = []  # For backward compatibility
         self.expanded_folders: List[str] = []
         self._hidden_selection: Set[Tuple[str, str]] = set()
+        self.autotile_buttons: Dict[str, QToolButton] = {}
+        self.selected_autotile_id: Optional[str] = None
+        self.autotile_engine: Optional[Any] = None
 
         self.setAcceptDrops(True)
         self._init_ui()
@@ -890,6 +904,7 @@ class TilesetPaletteWidget(QWidget):
         if self.standalone:
             self.restore_splitter_state()
         self.refresh_tilesets()
+        self.refresh_autotiles()
 
     def _apply_language(self, _language: str) -> None:
         self.btn_config.setToolTip(tr("palette.slicer_tooltip"))
@@ -979,6 +994,41 @@ class TilesetPaletteWidget(QWidget):
         top_header.addWidget(self.btn_fit)
 
         top_layout.addLayout(top_header)
+
+        # RPG Maker Autotiles Quick Selection Strip
+        self.autotile_strip = QWidget(self.top_widget)
+        autotile_strip_layout = QHBoxLayout(self.autotile_strip)
+        autotile_strip_layout.setContentsMargins(2, 0, 2, 2)
+        autotile_strip_layout.setSpacing(4)
+
+        self.lbl_autotiles_title = QLabel("Autotile:", self.autotile_strip)
+        self.lbl_autotiles_title.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: 600;")
+        autotile_strip_layout.addWidget(self.lbl_autotiles_title)
+
+        self.autotiles_scroll = QScrollArea(self.autotile_strip)
+        self.autotiles_scroll.setFixedHeight(34)
+        self.autotiles_scroll.setWidgetResizable(True)
+        self.autotiles_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.autotiles_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.autotiles_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self.autotiles_content = QWidget()
+        self.autotiles_layout = QHBoxLayout(self.autotiles_content)
+        self.autotiles_layout.setContentsMargins(0, 0, 0, 0)
+        self.autotiles_layout.setSpacing(4)
+        self.autotiles_layout.addStretch(1)
+        self.autotiles_scroll.setWidget(self.autotiles_content)
+        autotile_strip_layout.addWidget(self.autotiles_scroll, 1)
+
+        self.btn_add_autotile = QToolButton(self.autotile_strip)
+        self.btn_add_autotile.setIcon(IconFactory.get_icon("plus", 14))
+        self.btn_add_autotile.setFixedSize(26, 26)
+        self.btn_add_autotile.setToolTip("Zaimportuj lub stwórz nowy RPG Maker Autotile...")
+        self.btn_add_autotile.setStyleSheet(self._button_style())
+        self.btn_add_autotile.clicked.connect(self._open_autotile_import_dialog)
+        autotile_strip_layout.addWidget(self.btn_add_autotile)
+
+        top_layout.addWidget(self.autotile_strip)
 
         # Central 2D Interactive Canvas
         self.canvas = TilesetCanvas(self.asset_manager, self.top_widget)
@@ -2238,6 +2288,10 @@ class TilesetPaletteWidget(QWidget):
         self._render_thumb(asset, sub_tile)
 
     def _on_selection_changed(self, sub_tile: SelectedSubTile) -> None:
+        if self.selected_autotile_id:
+            self.selected_autotile_id = None
+            for btn in self.autotile_buttons.values():
+                btn.setChecked(False)
         if self.canvas.current_asset:
             self._update_info_label(self.canvas.current_asset, sub_tile)
 
@@ -2253,3 +2307,100 @@ class TilesetPaletteWidget(QWidget):
 
     def _fit_to_view(self) -> None:
         self.canvas.fit_to_view()
+
+    # --------------------------------------------------------------------------
+    # RPG MAKER AUTOTILES PALETTE INTEGRATION
+    # --------------------------------------------------------------------------
+    def refresh_autotiles(self) -> None:
+        """Repopulates the autotiles strip from AssetManager and AutoTileEngine."""
+        while self.autotiles_layout.count() > 1:
+            item = self.autotiles_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.autotile_buttons.clear()
+
+        autotiles = {}
+        if hasattr(self.asset_manager, "rpg_autotiles"):
+            autotiles.update(self.asset_manager.rpg_autotiles)
+        if hasattr(self, "autotile_engine") and self.autotile_engine:
+            autotiles.update(getattr(self.autotile_engine, "rpg_autotiles", {}))
+
+        for at_id, at in autotiles.items():
+            if at.archived:
+                continue
+            btn = QToolButton(self.autotiles_content)
+            btn.setCheckable(True)
+            btn.setFixedSize(28, 28)
+            preview = at.get_preview_pixmap(24)
+            btn.setIcon(QIcon(preview))
+            btn.setIconSize(QSize(24, 24))
+            btn.setToolTip(f"Autotile: {at.name}\nTyp: {at.terrain_type}\nFormat: {at.format.value}")
+            btn.setStyleSheet("""
+                QToolButton {
+                    background: #27272a;
+                    border: 1px solid #3f3f46;
+                    border-radius: 4px;
+                }
+                QToolButton:hover {
+                    background: #3f3f46;
+                    border-color: #60a5fa;
+                }
+                QToolButton:checked {
+                    background: #1e3a8a;
+                    border: 2px solid #3b82f6;
+                }
+            """)
+            btn.clicked.connect(lambda checked, autotile=at: self._select_autotile(autotile))
+            self.autotiles_layout.insertWidget(self.autotiles_layout.count() - 1, btn)
+            self.autotile_buttons[at_id] = btn
+
+        if self.selected_autotile_id in self.autotile_buttons:
+            self.autotile_buttons[self.selected_autotile_id].setChecked(True)
+
+    def _select_autotile(self, autotile: RPGAutotile) -> None:
+        self.selected_autotile_id = autotile.id
+        if self.asset_manager and hasattr(self.asset_manager, "register_rpg_autotile"):
+            self.asset_manager.register_rpg_autotile(autotile)
+        for at_id, btn in self.autotile_buttons.items():
+            btn.setChecked(at_id == autotile.id)
+
+        selected = SelectedAutotile(autotile)
+        self.asset_manager.selected_item = selected
+        self.asset_manager.asset_selected.emit(selected)
+
+        # Update preview thumbnail and info label
+        self.preview_thumb.setPixmap(autotile.get_preview_pixmap(24))
+        self.lbl_info.setText(f"Autotile: {autotile.name} [{autotile.terrain_type}]")
+        if hasattr(self.canvas, "deselect"):
+            self.canvas.deselect()
+
+    def _open_autotile_import_dialog(self) -> None:
+        win = self.window()
+        if hasattr(win, "open_path_generator_dialog") and win is not self:
+            win.open_path_generator_dialog()
+            return
+
+        engine = getattr(self, "autotile_engine", None)
+        if not engine:
+            if hasattr(self.parent(), "autotile_engine"):
+                engine = self.parent().autotile_engine
+            else:
+                from ..core.autotile_engine import AutoTileEngine
+                engine = AutoTileEngine()
+                self.autotile_engine = engine
+
+        initial_asset_id = self.canvas.current_asset.id if self.canvas.current_asset else None
+        from .dialogs.path_generator_dialog import PathGeneratorDialog
+        dlg = PathGeneratorDialog(
+            engine,
+            self.asset_manager,
+            self,
+            initial_asset_id=initial_asset_id,
+            initial_col=getattr(self.canvas, "sel_start_col", 0),
+            initial_row=getattr(self.canvas, "sel_start_row", 0),
+        )
+        if dlg.exec():
+            self.refresh_autotiles()
+            active_at = engine.get_active_rpg_autotile()
+            if active_at:
+                self._select_autotile(active_at)

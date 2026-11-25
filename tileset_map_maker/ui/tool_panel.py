@@ -177,6 +177,11 @@ class ToolPanel(QWidget):
         self._orientation_update_in_progress = False
         self.orientation_changed.emit(orientation)
 
+    def sizeHint(self) -> QSize:
+        if self.current_orientation == Qt.Orientation.Horizontal:
+            return QSize(404, 44)
+        return QSize(44, 404)
+
     def _update_orientation(self) -> None:
         self._orientation_update_pending = False
         button_height = next(iter(self.buttons.values())).height()
@@ -188,19 +193,39 @@ class ToolPanel(QWidget):
         )
         if self._dock_orientation == Qt.Orientation.Horizontal:
             target = Qt.Orientation.Horizontal
-        elif self._dock_orientation is None and self.width() > self.height():
-            target = Qt.Orientation.Horizontal
-        else:
+        elif self._dock_orientation is None:
+            if not self.isVisible() or self.height() <= 0 or self.width() <= 0:
+                return
             target = (
                 Qt.Orientation.Horizontal
-                if self.height() < vertical_height
+                if self.width() > self.height()
                 else Qt.Orientation.Vertical
             )
+        else:
+            # Docked vertically (Left/Right): never flip to Horizontal during pre-show
+            # initialization when height is not yet laid out (which would set minWidth=404
+            # and permanently expand the left dock on startup).
+            if not self.isVisible() or self.height() <= 0:
+                target = Qt.Orientation.Vertical
+            else:
+                target = (
+                    Qt.Orientation.Horizontal
+                    if self.height() < vertical_height
+                    else Qt.Orientation.Vertical
+                )
         if target != self.current_orientation:
             self._apply_orientation(target)
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._orientation_update_pending:
+            self._orientation_update_pending = True
+            QTimer.singleShot(0, self._update_orientation)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if not self.isVisible():
+            return
         if not self._orientation_update_pending:
             self._orientation_update_pending = True
             QTimer.singleShot(0, self._update_orientation)

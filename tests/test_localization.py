@@ -11,6 +11,10 @@ from tileset_map_maker.core.localization import LocalizationManager, tr
 
 
 class TestLocalization(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
     def setUp(self):
         fd, path = tempfile.mkstemp(suffix=".json")
         os.close(fd)
@@ -69,7 +73,6 @@ class TestLocalization(unittest.TestCase):
         from tileset_map_maker.models.asset import AssetType
         from tileset_map_maker.models.brush_preset import BrushSettings
         from tileset_map_maker.models.project import Project
-        from tileset_map_maker.ui.dialogs.autotile_dialog import AutoTileDialog
         from tileset_map_maker.ui.dialogs.export_dialog import ExportDialog
         from tileset_map_maker.ui.dialogs.path_generator_dialog import PathGeneratorDialog
         from tileset_map_maker.ui.dialogs.shortcuts_dialog import ShortcutsDialog
@@ -99,7 +102,6 @@ class TestLocalization(unittest.TestCase):
         expected = {
             "en": {
                 "path": ("Path Generator - Manual Tile Configuration", "Path role"),
-                "autotile": "Terrain Rule Set (Auto-Tiling)",
                 "randomizer": "General Randomization Options",
                 "shortcuts": "Keyboard Shortcuts",
                 "export": "Export to PNG",
@@ -110,7 +112,6 @@ class TestLocalization(unittest.TestCase):
             },
             "pl": {
                 "path": ("Generator ścieżek – ręczna konfiguracja kafelków", "Rola ścieżki"),
-                "autotile": "Zestaw reguł terenu (automatyczne kafelkowanie)",
                 "randomizer": "Opcje ogólne losowania",
                 "shortcuts": "Skróty klawiszowe",
                 "export": "Eksport do PNG",
@@ -124,7 +125,6 @@ class TestLocalization(unittest.TestCase):
             for language in ("en", "pl"):
                 localization.set_language(language, persist=False)
                 path_dialog = PathGeneratorDialog(AutoTileEngine(), asset_manager)
-                autotile_dialog = AutoTileDialog(AutoTileEngine(), asset_manager)
                 randomizer_dialog = TileRandomizerDialog(BrushSettings(), asset_manager)
                 shortcuts_dialog = ShortcutsDialog()
                 export_dialog = ExportDialog(project, RenderEngine(asset_manager))
@@ -132,7 +132,6 @@ class TestLocalization(unittest.TestCase):
                 dialogs.extend(
                     [
                         path_dialog,
-                        autotile_dialog,
                         randomizer_dialog,
                         shortcuts_dialog,
                         export_dialog,
@@ -146,10 +145,6 @@ class TestLocalization(unittest.TestCase):
                 self.assertEqual(path_dialog.windowTitle(), labels["path"][0])
                 self.assertEqual(
                     path_dialog.table.horizontalHeaderItem(1).text(), labels["path"][1]
-                )
-                self.assertEqual(
-                    autotile_dialog.findChildren(QGroupBox)[0].title(),
-                    labels["autotile"],
                 )
                 self.assertEqual(randomizer_dialog.windowTitle(), (
                     "Tile Variant Randomizer"
@@ -171,12 +166,6 @@ class TestLocalization(unittest.TestCase):
                 self.assertEqual(
                     path_dialog.table.horizontalHeaderItem(1).text(),
                     "Rola ścieżki" if alternate == "pl" else "Path role",
-                )
-                self.assertEqual(
-                    autotile_dialog.findChildren(QGroupBox)[0].title(),
-                    "Zestaw reguł terenu (automatyczne kafelkowanie)"
-                    if alternate == "pl"
-                    else "Terrain Rule Set (Auto-Tiling)",
                 )
                 self.assertEqual(
                     randomizer_dialog.findChildren(QGroupBox)[0].title(),
@@ -276,7 +265,6 @@ class TestLocalization(unittest.TestCase):
                     "history": "Historia",
                     "view": "Widok",
                     "brush": "Pędzel",
-                    "autotile": "Automatyczne kafelkowanie",
                     "paths": "Ścieżki",
                     "randomizer": "Losowe warianty",
                     "transforms": "Transformacje",
@@ -336,8 +324,7 @@ class TestLocalization(unittest.TestCase):
             self.assertTrue({"Zapisz jako...", "Eksport PNG", "Zamknij program"} <= set(file_items))
             edit_items = [action.text() for action in menus[1].menu().actions()]
             self.assertTrue(
-                {"Cofnij", "Ponów", "Kopiuj zaznaczenie", "Wklej zaznaczenie (stempel)",
-                 "Usuń zaznaczenie", "Preferencje..."} <= set(edit_items)
+                {"Cofnij", "Ponów", "Kopiuj", "Wklej", "Preferencje..."} <= set(edit_items)
             )
             view_items = [action.text() for action in menus[2].menu().actions()]
             self.assertTrue(
@@ -347,7 +334,7 @@ class TestLocalization(unittest.TestCase):
             )
             tool_items = [action.text() for action in menus[3].menu().actions()]
             self.assertTrue(
-                {"Pędzel (B)", "Gumka (E)", "Wypełnianie (G)", "Automatyczne kafelkowanie",
+                {"Pędzel (B)", "Gumka (E)", "Wypełnianie (G)", 
                  "Generator ścieżek", "Losowe warianty", "Zapisz stempel"} <= set(tool_items)
             )
             self.assertEqual(
@@ -373,7 +360,6 @@ class TestLocalization(unittest.TestCase):
                     "history": "History",
                     "view": "View",
                     "brush": "Brush",
-                    "autotile": "Auto-Tiling",
                     "paths": "Paths",
                     "randomizer": "Randomizer",
                     "transforms": "Transforms",
@@ -433,8 +419,7 @@ class TestLocalization(unittest.TestCase):
                 <= {action.text() for action in menus[0].menu().actions()}
             )
             self.assertTrue(
-                {"Undo", "Redo", "Copy Selection", "Paste Selection (Stamp)",
-                 "Delete Selection", "Preferences..."}
+                {"Undo", "Redo", "Copy", "Paste", "Preferences..."}
                 <= {action.text() for action in menus[1].menu().actions()}
             )
             en_view_items = {action.text() for action in menus[2].menu().actions()}
@@ -445,7 +430,7 @@ class TestLocalization(unittest.TestCase):
             )
             en_tool_items = {action.text() for action in menus[3].menu().actions()}
             self.assertTrue(
-                {"Brush (B)", "Eraser (E)", "Fill (G)", "Auto-Tiling",
+                {"Brush (B)", "Eraser (E)", "Fill (G)", 
                  "Path Generator", "Random Variants", "Save Stamp"} <= en_tool_items
             )
             self.assertEqual(

@@ -16,7 +16,7 @@ from tileset_map_maker.core.asset_manager import AssetManager
 from tileset_map_maker.core.history import HistoryManager
 from tileset_map_maker.core.project_io import ProjectIO
 from tileset_map_maker.core.autotile_engine import AutoTileEngine
-from tileset_map_maker.models.autotile import AutoTileRuleSet
+from tileset_map_maker.core.rpg_autotile import RPGAutotile, SelectedAutotile
 
 
 class TestTileRandomizer(unittest.TestCase):
@@ -305,12 +305,15 @@ class TestTileRandomizer(unittest.TestCase):
 
     def test_11_interaction_and_precedence_with_autotiling(self):
         """11. Współpraca z Auto Tiling – Auto Tiling ma jasny priorytet kształtowania terenu."""
-        rule = AutoTileRuleSet(name="GrassAuto", terrain_type="Grass")
-        rule.setup_standard_3x3_box(self.asset.id, 0, 0, 32, 32)
-        self.autotile_engine.register_ruleset(rule)
+        from PyQt6.QtGui import QImage, QColor
+        autotile = RPGAutotile(id="grass_auto", name="GrassAuto", terrain_type="GrassAuto", tileset_id=self.asset.id, tile_size=32)
+        src_img = QImage(64, 96, QImage.Format.Format_ARGB32)
+        src_img.fill(QColor(50, 180, 70, 255))
+        autotile.set_source_qimage(src_img)
+        self.autotile_engine.register_rpg_autotile(autotile, self.asset_mgr)
 
         bs = BrushSettings()
-        bs.auto_tile_enabled = True
+        bs.selected_autotile = SelectedAutotile(autotile)
         bs.random_variant = True
         subs = self._create_subtiles(6)
         for s in subs:
@@ -332,7 +335,7 @@ class TestTileRandomizer(unittest.TestCase):
         tile = self.layer.get_tile(3, 3)
         self.assertIsNotNone(tile)
         self.assertTrue(tile.is_auto_tiled)
-        self.assertEqual(tile.terrain_type, "Grass")
+        self.assertEqual(tile.terrain_type, "GrassAuto")
 
     def test_12_disable_randomization_returns_to_standard_painting(self):
         """12. Wyłączenie randomizacji i powrót do zwykłego malowania."""

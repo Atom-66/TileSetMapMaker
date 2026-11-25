@@ -165,6 +165,16 @@ class Project:
         selected = [layer for layer in layers if layer and not layer.is_group]
         if len(selected) < 2:
             return None
+        if any(
+            (layer.offset_x, layer.offset_y, layer.properties)
+            != (
+                selected[0].offset_x,
+                selected[0].offset_y,
+                selected[0].properties,
+            )
+            for layer in selected[1:]
+        ):
+            return None
 
         merged = Layer(
             name=name,
@@ -172,6 +182,9 @@ class Project:
             locked=False,
             opacity=1.0,
             layer_type=selected[0].layer_type,
+            offset_x=selected[0].offset_x,
+            offset_y=selected[0].offset_y,
+            properties=selected[0].properties,
         )
         indices = [map_model.get_layer_index(layer.id) for layer in selected]
         insert_at = min(index for index in indices if index is not None)

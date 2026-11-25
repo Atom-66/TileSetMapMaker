@@ -40,6 +40,7 @@ class LibraryMoveSelectionTests(unittest.TestCase):
             self.assets.append(asset)
         self.palette = TilesetPaletteWidget(self.manager, self.config)
         self.palette.resize(500, 700)
+        self.palette.splitter.setSizes([300, 400])
         self.palette.show()
         self.app.processEvents()
         self.addCleanup(self.palette.close)
@@ -187,6 +188,8 @@ app.processEvents()
         viewport = tree.viewport()
 
         def click(item, modifiers=Qt.KeyboardModifier.NoModifier):
+            tree.scrollToItem(item)
+            self.app.processEvents()
             QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, modifiers,
                              tree.visualItemRect(item).center())
             self.app.processEvents()

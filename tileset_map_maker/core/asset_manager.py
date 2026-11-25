@@ -40,6 +40,18 @@ class AssetManager(QObject):
         self._search_index: Dict[str, str] = {}
         self._search_index_dirty = True
         self._missing_asset_ids: Set[str] = set()
+        self.rpg_autotiles: Dict[str, Any] = {}
+
+    def register_rpg_autotile(self, autotile: Any) -> None:
+        if not autotile or not getattr(autotile, "id", None):
+            return
+        self.rpg_autotiles[autotile.id] = autotile
+        self._missing_asset_ids.discard(autotile.id)
+        self._pixmap_cache.pop(autotile.id, None)
+
+    def unregister_rpg_autotile(self, autotile_id: str) -> None:
+        self.rpg_autotiles.pop(autotile_id, None)
+        self._pixmap_cache.pop(autotile_id, None)
 
     def get_asset(self, asset_id: str) -> Optional[Asset]:
         return self.assets.get(asset_id)
@@ -106,6 +118,11 @@ class AssetManager(QObject):
             self.recent_asset_ids = self.recent_asset_ids[:50]
 
     def get_pixmap(self, asset_id: str) -> Optional[QPixmap]:
+        if not asset_id:
+            return None
+        if hasattr(self, "rpg_autotiles") and asset_id in self.rpg_autotiles:
+            pm = self.rpg_autotiles[asset_id].get_atlas_pixmap(self)
+            return pm if pm and not pm.isNull() else None
         if asset_id in self._pixmap_cache:
             pixmap = self._pixmap_cache.pop(asset_id)
             self._pixmap_cache[asset_id] = pixmap
@@ -200,6 +217,8 @@ class AssetManager(QObject):
         return None
 
     def get_thumbnail(self, asset_id: str, size: int = 64) -> Optional[QPixmap]:
+        if hasattr(self, "rpg_autotiles") and asset_id in self.rpg_autotiles:
+            return self.rpg_autotiles[asset_id].get_preview_pixmap(size)
         cache_key = (asset_id, size)
         if cache_key in self._thumbnail_cache:
             return self._thumbnail_cache[cache_key]

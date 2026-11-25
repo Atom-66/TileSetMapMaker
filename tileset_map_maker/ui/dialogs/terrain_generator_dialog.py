@@ -175,17 +175,17 @@ class TerrainGeneratorDialog(QDialog):
             form.addRow(label, widget)
         root.addLayout(form)
 
-        rules_label = QLabel("Reguły terenu")
+        rules_label = QLabel("Ścieżki i autotile terenu")
         rules_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
         root.addWidget(rules_label)
         self.rule_combos: Dict[str, QComboBox] = {}
         for terrain in TerrainType:
             combo = QComboBox()
             combo.addItem("Brak mapowania", "")
-            for ruleset in self.autotile_engine.rulesets.values():
+            for autotile in getattr(self.autotile_engine, "rpg_autotiles", {}).values():
                 combo.addItem(
-                    f"{ruleset.name} ({ruleset.terrain_type})",
-                    ruleset.id,
+                    f"{autotile.name} ({autotile.terrain_type})",
+                    autotile.id,
                 )
             self.rule_combos[terrain.name.casefold()] = combo
             form.addRow(f"{terrain.name.title()}:", combo)

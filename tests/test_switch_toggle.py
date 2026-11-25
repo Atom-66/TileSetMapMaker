@@ -110,18 +110,7 @@ class TestSwitchToggle(unittest.TestCase):
         mgr = AssetManager()
         bar = BrushOptionsBar(brush_settings=bs, autotile_engine=engine, asset_manager=mgr)
 
-        # 1. Auto-Tiling toggle
-        self.assertIsInstance(bar.chk_autotile, SwitchToggle)
-        self.assertFalse(bar.chk_autotile.isChecked())
-        self.assertFalse(bs.auto_tile_enabled)
-        bar.chk_autotile.setChecked(True)
-        self.assertTrue(bs.auto_tile_enabled)
-        self.assertTrue(bar.combo_rules.isEnabled())
-        bar.chk_autotile.setChecked(False)
-        self.assertFalse(bs.auto_tile_enabled)
-        self.assertFalse(bar.combo_rules.isEnabled())
-
-        # 2. Variants toggle
+        # 1. Variants toggle
         self.assertIsInstance(bar.chk_variants, SwitchToggle)
         self.assertFalse(bar.chk_variants.isChecked())
         self.assertFalse(bs.random_variant)

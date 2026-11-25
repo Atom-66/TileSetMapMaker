@@ -29,9 +29,9 @@ class TerrainApplyCommand(Command):
         if layer is None:
             return
 
-        rules_by_name = {
+        rpg_by_name = {
             terrain.name.casefold(): (
-                autotile_engine.get_ruleset(
+                autotile_engine.get_rpg_autotile(
                     config.ruleset_ids.get(terrain.name.casefold())
                 )
                 if autotile_engine
@@ -44,20 +44,14 @@ class TerrainApplyCommand(Command):
                 terrain = result.get(col, row)
                 key = terrain.name.casefold()
                 mapping = config.tile_mappings.get(key)
-                ruleset = rules_by_name.get(key)
-                if not mapping and not ruleset:
+                rpg_at = rpg_by_name.get(key)
+                if not mapping and not rpg_at:
                     continue
                 if mapping:
                     asset_id, source_x, source_y, source_w, source_h = mapping
-                elif ruleset:
-                    tile = (
-                        ruleset.get_pattern_tile(0, col, row)
-                        if getattr(ruleset, "pattern_enabled", False)
-                        else ruleset.get_tile_for_mask(0)
-                    )
-                    if not tile:
-                        continue
-                    asset_id, source_x, source_y, source_w, source_h = tile
+                elif rpg_at:
+                    asset_id = rpg_at.id
+                    source_x, source_y, source_w, source_h = rpg_at.get_tile_slice_for_mask(0, col, row)
                 after = MapItem(
                     asset_id,
                     col,
@@ -69,7 +63,7 @@ class TerrainApplyCommand(Command):
                     dest_w=project.tile_size,
                     dest_h=project.tile_size,
                     terrain_type=terrain.name.title(),
-                    is_auto_tiled=ruleset is not None,
+                    is_auto_tiled=rpg_at is not None,
                 )
                 before = layer.get_tile(col, row)
                 self.changes[(col, row)] = (

@@ -156,21 +156,24 @@ wyświetla bieżące metryki w pasku stanu.
 
 ---
 
-## Faza 4 — Zaawansowane tilesety i inteligentne kafelkowanie
+## Faza 4 — Zaawansowane tilesety i inteligentne kafelkowanie (Standard Margonem Editor)
 
 **Priorytet: P1**
 
 - `[x]` import pojedynczego pliku i folderów,
 - `[x]` regularna siatka i marginesy resztkowe,
 - `[x]` zaznaczanie pojedynczego i wielokafelkowego obszaru,
-- `[x]` Auto-Tiling i własne reguły,
-- `[x]` losowe warianty i seed,
-- `[x]` edytor wag prawdopodobieństwa,
-- `[x]` biblioteka gotowych konfiguracji,
-- `[x]` kilka zestawów reguł dla jednego projektu,
-- `[x]` przeliczanie całych obszarów po zmianie reguł,
-- `[x]` wygodny tryb testowania wariantów,
-- `[x]` optymalizacja odczytu wielkich arkuszy.
+- `[x]` zunifikowany silnik Auto-Tilingu i generatora ścieżek (`AutoTileEngine`),
+- `[x]` pełny model 16 połączeń kardynalnych dla ścieżek (linie, zakręty, rozgałęzienia T, skrzyżowania +, zakończenia),
+- `[x]` pełny model Wang 47-blob dla terenu z narożnikami wypukłymi i wklęsłymi,
+- `[x]` swobodny wybór kafelków z dowolnego miejsca tilesetu (nieciągłe przypisania),
+- `[x]` wielowariantowe role z deterministycznym losowaniem opartym o współrzędne i seed (trwałe po reload i undo/redo),
+- `[x]` interaktywny sandbox testowy czasu rzeczywistego w kreatorze (`AutoTileSandboxWidget`),
+- `[x]` malowanie z natychmiastową adaptacją połączeń podczas przeciągania kursora,
+- `[x]` lokalne ograniczanie aktualizacji do promienia 1 bez przeliczania całej mapy,
+- `[x]` bezpieczne fallbacks dla zestawów niekompletnych (4-kafelkowych, 6-kafelkowych),
+- `[x]` biblioteka i trwałość reguł w `.tmmap` oraz `app_config.json`,
+- `[x]` izolacja warstwowa i kompatybilność wsteczna formatów.
 
 **Zależności:** stabilny model zasobów, model warstw, historia operacji.
 
@@ -220,8 +223,8 @@ odczytaniu i eksporcie.
 
 - `[x]` wersjonowany, publiczny schemat JSON,
 - `[x]` walidator projektu przed eksportem,
-- `[x]` import i eksport TMX/Tiled ortogonalnego CSV dla udokumentowanego podzbioru,
-- `[x]` eksport Tiled dla warstw, kafelków, obiektów i kolizji z zachowaniem właściwości,
+- `[~]` import i eksport TMX/Tiled ortogonalnego dla udokumentowanego podzbioru,
+- `[~]` eksport Tiled dla warstw, kafelków, obiektów i kolizji z zachowaniem obsługiwanych właściwości,
 - `[!]` kompatybilność RPG Maker bez fikcyjnych deklaracji,
 - `[x]` eksport zestawu map do folderu,
 - `[x]` eksport danych obiektów i kolizji,
@@ -269,6 +272,76 @@ na rzeczywistych przykładach.
 
 Weryfikacja fazy 10 (23.11.2026): pełny zestaw 344 testów uruchomiony jednym procesem,
 wynik `OK`, czas 332,084 s.
+
+## Faza 11 — Nowy system Paths & Autotile generowany z istniejących tilesetów (One-Tile)
+
+**Priorytet: P0 / Ukończone**
+
+- `[x]` Całkowite zastąpienie starego systemu Paths i usunięcie crashującego importera plików:
+  - Usunięto stary 16-slotowy kreator oraz konieczność importu zewnętrznych arkuszy i plików One-Tile.
+  - Zaimplementowano jeden spójny system Paths pod przyciskiem `Paths` na górnym pasku.
+- `[x]` Przepływ 1-kliknięcia bezpośrednio z biblioteki tilesetów edytora:
+  - `PathGeneratorDialog` z interaktywnym arkuszem `TilesetSheetCanvas`.
+  - Użytkownik wybiera zaimportowany tileset i klika 1 dowolny kafelek.
+  - Automatyczna analiza i inteligentna synteza materiału (`synthesize_from_tileset_context`, `synthesize_from_single_tile`):
+    - Syntetyzuje wszystkie 5 kanonicznych stanów ćwiartek (środek, krawędzie H/V, narożniki zewnętrzne, narożniki wewnętrzne, wysepki 1×1) i 47 kombinacji Wang-blob.
+    - Style krawędzi: organiczny kontur RPG (z cieniowaniem i oświetleniem pikselowym), miękkie przejście (alpha blend) oraz ciemny obrys.
+    - Automatyczne wykrywanie istniejących bloków $3\times3$ lub $2\times3$ w arkuszu.
+- `[x]` Interaktywny poligon sandbox czasu rzeczywistego:
+  - Szablony testowe: `Ścieżka S`, `Skrzyżowanie +`, `Pętla`, `Obszar/Wyspa`, `Wyczyść`.
+  - Natychmiastowe malowanie i testowanie zachowania zakrętów, skrzyżowań i zakończeń.
+- `[x]` Malowanie na mapie w stylu RPG Maker:
+  - Narzędzie Pędzel (`BrushTool`) automatycznie dobiera krawędzie, rogi i skrzyżowania w czasie rzeczywistym.
+  - Narzędzie Gumka (`EraserTool`) inteligentnie przebudowuje zakończenia i sąsiadujące krawędzie po usunięciu kafelka.
+  - Pełna integracja z warstwami, atomowym Undo/Redo oraz formatem `.tmmap`.
+- `[x]` Weryfikacja testowa:
+  - `tests/test_one_tile_paths_system.py`: 14/14 testów zaliczonych (w tym test integracji `deselect` i wyboru w `TilesetPaletteWidget`).
+  - `tests/test_rpg_maker_autotile.py`: 14/14 testów zaliczonych.
+  - `tests/test_path_generator.py`: 16/16 testów zaliczonych.
+  - `tests/test_toolbar_customization.py`, `tests/test_docking_and_layouts.py`, `tests/test_localization.py`: 36/36 zaliczonych.
+  - Pełna kompatybilność lokalizacji PL/EN i brak crashy przy zatwierdzaniu ścieżki i wyborze autotile.
+- `[x]` Naprawa obsługi wyboru kafelków i autotile w palecie:
+  - Zaimplementowano metodę `deselect()` w klasie `TilesetCanvas` w `tileset_palette_widget.py`, usuwającą ramkę zaznaczenia po aktywacji autotile.
+  - Dodano atrybut `has_selection` do kontroli rysowania zaznaczenia w `paintEvent`.
+  - Usunięto błąd `AttributeError: 'TilesetCanvas' object has no attribute 'deselect'` przy zatwierdzaniu wygenerowanej ścieżki (`_accept_and_paint`).
+- `[x]` Naprawa "rozjeżdżania się" paska biblioteki tilesetów:
+  - Zastąpienie szerokich przycisków tekstowych (`[+ Plik(i)]`, `[Folder]`, `[+ Nowy folder]`) jednolitą grupą kompaktowych przycisków 26×26 z ikonami i tooltipami.
+  - Zastosowanie `ElidedLabel` dla nagłówka tilesetów zapobiegające rozpychaniu docka bocznego (`minimumSizeHint` ~226 px).
+  - Pasek szybkiego wyboru autotile'i z poziomym przewijaniem (`QScrollArea`) osadzony ponad podglądem.
+- `[x]` Definitywne i całkowite usunięcie starego systemu Auto-Tile:
+  - Usunięto przestarzały dialog konfiguracji reguł `AutoTileDialog` (`tileset_map_maker/ui/dialogs/autotile_dialog.py`).
+  - Usunięto stary model `PathRuleSet` (`tileset_map_maker/models/path_ruleset.py`).
+  - Usunięto klasy `AutoTileRuleSet` i `AutoTileTopologyType` z `tileset_map_maker/models/autotile.py` (usunięcie ponad 680 linii niepotrzebnego długu technicznego).
+  - Oczyszczono `AutoTileEngine` z przestarzałych metod dopasowywania reguł (`apply_autotile_stroke`, `update_tile_at`, `resolve_layer_ruleset`), pozostawiając wyłącznie szybki silnik proceduralnych ścieżek RPG (Wang 47-blob).
+  - Usunięto zdublowane kontrolki z górnego paska narzędzi (`chk_autotile`, `combo_rules`, `btn_autotile`), kategorię `autotile` z menedżera pasków oraz akcję menu `act_autotile`.
+  - Jedynym oficjalnym narzędziem automatycznego generowania układów kafelków i ścieżek pozostaje generator **Paths** (`btn_path_gen` / `act_path_gen`).
+  - Wszystkie testy jednostkowe zaktualizowane i pomyślnie zweryfikowane.
+- `[x]` Naprawa krytycznego błędu renderowania i zapisu tekstur Paths (brak czarnych / pustych kafelków):
+  - Powiązano `AutoTileEngine` i `RenderEngine` z `AssetManager`: każdy wygenerowany lub wczytany `RPGAutotile` jest automatycznie rejestrowany w `AssetManager` (z czyszczeniem bufora `_missing_asset_ids`) oraz posiada fallback w `RenderEngine.draw_item`.
+  - Naprawiono odbudowę atlasu po zapisie i wczytaniu mapy (`.tmmap`) oraz po restarcie aplikacji (`rebuild_atlas(asset_manager)` i `load_from_dict(..., asset_manager=asset_manager)`).
+  - Dodano zabezpieczenie transakcyjne (`can_render_autotile`) w `AutoTileEngine`, `BaseTool` i `BrushTool`: błędna lub brakująca tekstura nigdy nie nadpisuje ani nie usuwa istniejących kafelków mapy i nie tworzy pustych wpisów historii.
+  - Poprawiono atomowe rejestrowanie zmian sąsiadów w `BrushTool` (pełne Undo/Redo dla wszystkich zmienionych krawędzi) oraz synchronizację `brush_settings.selected_autotile` w `MapCanvas._on_asset_selected`.
+  - Dodano zestaw testów end-to-end weryfikujących rzeczywiste piksele renderowanej mapy (`tests/test_paths_no_black_tiles_regression.py` — 6/6 OK).
+- `[x]` Rozbudowa generatora Paths (dokładność Autotile, układy 2×2 i większe, analiza grafiki):
+  - Naprawiono obsługę bloków 3×3 z przezroczystym środkiem (np. arkusze LPC `terrain_summer`) z automatyczną syntezą nieprzezroczystego wypełnienia oraz 4 właściwych narożników wewnętrznych (skrzyżowania `+`, rozgałęzienia `T`, wcięcia).
+  - Dodano natywną obsługę bloków `2×2`, obszarów prostokątnych `W×H` (zaznaczanie przeciąganiem w `TilesetSheetCanvas`) oraz niestandardowych wariantów wielokafelkowych `CustomPathVariant` (`1×1`, `2×1`, `1×2`, `2×2`, `3×3`, `W×H`) z priorytetami, wagami losowania i ochroną przed nakładaniem.
+  - Rozbudowano analizę zawartości tilesetu (`analyze_tileset_region`) o ocenę przezroczystości i ciągłości krawędzi między kafelkami; nieciągłe zaznaczenie 2×2 nie jest scalane, a fallback wybiera najbardziej widoczny kafelek.
+  - Naprawiono syntezę dowolnych zaznaczeń prostokątnych: atlas korzysta z rzeczywistych czterech kafelków narożnych zamiast rozciągać cały obszar; wycięcie organiczne dotyczy tylko zewnętrznych narożników, bez dziur co kilka pikseli na prostych krawędziach.
+  - Uzupełniono zamknięte przezroczyste ubytki przez propagację lokalnego koloru, poprawiono wklęsłe narożniki i ustabilizowano głębokość cięcia krawędzi, aby przejścia na skrzyżowaniach nie zmieniały grubości.
+  - Dodano regresje dla zaznaczeń `2×1`, `1×3`, `4×2`, wyboru poza arkuszem i ciągłości krawędzi/narożników.
+- `[x]` Import PNG jako mapy rastrowej lub podkładu referencyjnego:
+  - `ProjectIO.import_png_as_map` zachowuje rozmiar 1:1, alpha i warstwę edytowalną.
+  - Zapis projektu kopiuje używane zewnętrzne zasoby do katalogu `assets/`; odczyt po przeniesieniu katalogu projektu potwierdzono testem.
+- `[~]` Import/eksport Tiled TMX:
+  - Testy potwierdzają CSV, XML (`<tile/>`), Base64 (raw, zlib, gzip), TSX zewnętrzne i osadzone, kolekcje obrazów, `margin`/`spacing`, flagi transformacji GID oraz round-trip ortogonalnego podzbioru.
+  - Round-trip zachowuje `firstgid`, `tilecount`, liczbę kolumn, nazwę tilesetu i właściwości kafelków; zweryfikowano również niepełny ostatni rząd siatki.
+  - Zachowywane są offsety warstw i tilesetów, właściwości mapy/warstw/kafelków, opacity/widoczność i kolejność zwykłych warstw; warstwy obrazu są importowane w kolejności dokumentu.
+  - Ograniczenia: zagnieżdżone grupy, nieskończone mapy/chunki, animacje kafelków, kafelkowe obiekty i nieortogonalne orientacje nie są w pełni obsługiwane; importer odrzuca chunkowe mapy nieskończone i ostrzega o pomijanych funkcjach. Warstwy obrazów są eksportowane jako warstwy obiektów, nie jako natywne `<imagelayer>`.
+- `[x]` Niezależność namalowanych Paths od usuwanej definicji:
+  - Usunięta definicja jest archiwizowana w danych projektu, gdyż atlas i źródłowe assety są potrzebne mapom; jest ukryta w bibliotece, ale nadal renderuje namalowane kafelki po zapisie i ponownym otwarciu.
+  - Potwierdzono testem `test_05_archiving_saved_path_preserves_map_tiles_across_reload`.
+- `[x]` Naprawa samoczynnego rozszerzania panelu Tools po uruchomieniu:
+  - Usunięto źródłową przyczynę w `ToolPanel._update_orientation()` (przedwczesne przełączanie do orientacji poziomej z `minWidth=404` przed wyrenderowaniem docelowej wysokości okna) oraz podbito `LAYOUT_VERSION = 4` w celu wyczyszczenia uszkodzonych stanów z poprzedniej wersji.
 
 ---
 

@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QApplication
 from tileset_map_maker.core.autotile_engine import AutoTileEngine
 from tileset_map_maker.core.history import HistoryManager
 from tileset_map_maker.core.terrain_generator import TerrainApplyCommand
-from tileset_map_maker.models.autotile import AutoTileRuleSet
+from tileset_map_maker.core.rpg_autotile import RPGAutotile
 from tileset_map_maker.models.project import Project
 from tileset_map_maker.models.terrain import (
     TerrainConfig,
@@ -90,12 +90,11 @@ class TestPhase7WorldGeneration(unittest.TestCase):
     def test_apply_uses_existing_rules_and_is_undoable(self):
         project = Project(map_width=12, map_height=12)
         engine = AutoTileEngine()
-        grass = AutoTileRuleSet("Grass", "Grass")
-        grass.setup_standard_3x3_box("grass_asset", 0, 0, 32, 32)
-        engine.register_ruleset(grass)
+        grass = RPGAutotile(id="grass_id", name="Grass", tileset_id="grass_asset", tile_size=32)
+        engine.register_rpg_autotile(grass)
         result = self.generator.generate(12, 12, self.config)
         config = TerrainConfig(
-            ruleset_ids={"grass": grass.id}
+            autotile_ids={"grass": grass.id}
         )
         command = TerrainApplyCommand(
             project,
@@ -116,7 +115,7 @@ class TestPhase7WorldGeneration(unittest.TestCase):
         self.assertTrue(grass_cells)
         self.assertEqual(
             project.get_active_layer().get_tile(*grass_cells[0]).asset_id,
-            "grass_asset",
+            "grass_id",
         )
         history.undo()
         self.assertIsNone(

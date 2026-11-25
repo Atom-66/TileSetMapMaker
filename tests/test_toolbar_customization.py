@@ -74,7 +74,7 @@ class TestToolbarCustomization(unittest.TestCase):
         """Verify all 9 standard categories, Randomizer title, and default toolbars."""
         ordered = self.manager.get_ordered_categories()
         cat_ids = [c.id for c in ordered]
-        expected = ["project", "history", "view", "brush", "autotile", "paths", "randomizer", "transforms", "system"]
+        expected = ["project", "history", "view", "brush", "paths", "randomizer", "transforms", "system"]
         self.assertEqual(cat_ids, expected)
 
         # Check Randomizer category title
@@ -83,7 +83,7 @@ class TestToolbarCustomization(unittest.TestCase):
         # Check default toolbar assignment
         self.assertEqual(self.manager.categories["project"].toolbar_id, "main")
         self.assertEqual(self.manager.categories["brush"].toolbar_id, "main")
-        self.assertEqual(self.manager.categories["autotile"].toolbar_id, "secondary")
+        self.assertEqual(self.manager.categories["paths"].toolbar_id, "secondary")
 
         # Register sample items
         w1 = QWidget()
@@ -91,11 +91,11 @@ class TestToolbarCustomization(unittest.TestCase):
         w3 = QWidget()
         self.manager.register_item("item1", "Item 1", "project", widget=w1)
         self.manager.register_item("item2", "Item 2", "brush", widget=w2)
-        self.manager.register_item("item3", "Item 3", "autotile", widget=w3)
+        self.manager.register_item("item3", "Item 3", "paths", widget=w3)
 
         self.assertIn("item1", self.manager.categories["project"].item_ids)
         self.assertIn("item2", self.manager.categories["brush"].item_ids)
-        self.assertIn("item3", self.manager.categories["autotile"].item_ids)
+        self.assertIn("item3", self.manager.categories["paths"].item_ids)
 
         self.manager.build_toolbar()
         self.assertTrue(len(self.main_toolbar.actions()) > 0)
@@ -176,9 +176,14 @@ class TestToolbarCustomization(unittest.TestCase):
 
             # Test switching category to the other toolbar
             dlg.tab_toolbars.setCurrentIndex(0)  # Main toolbar
-            dlg.list_main_cats.setCurrentRow(0)
+            project_row = next(
+                row
+                for row in range(dlg.list_main_cats.count())
+                if dlg.list_main_cats.item(row).data(Qt.ItemDataRole.UserRole) == "project"
+            )
+            dlg.list_main_cats.setCurrentRow(project_row)
             selected_cat_id = dlg._get_current_category_id()
-            self.assertIsNotNone(selected_cat_id)
+            self.assertEqual(selected_cat_id, "project")
 
             initial_tb = dlg.working_categories[selected_cat_id].toolbar_id
             dlg._switch_category_toolbar()
@@ -228,7 +233,7 @@ class TestToolbarCustomization(unittest.TestCase):
         """A floating panel adapts to actual tall and flat resize events."""
         tp = ToolPanel()
         tp.on_dock_location_changed(Qt.DockWidgetArea.NoDockWidgetArea)
-        tp.resize(50, 450)
+        tp.resize(50, 600)
         tp.show()
         app.processEvents()
         app.processEvents()

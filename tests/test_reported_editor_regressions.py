@@ -17,13 +17,6 @@ from tileset_map_maker.core.tools.wand import WandTool
 from tileset_map_maker.models.brush_preset import BrushSettings
 from tileset_map_maker.models.asset import SelectedSubTile
 from tileset_map_maker.models.layer import CollisionObject, MapItem
-from tileset_map_maker.models.path_ruleset import (
-    PathRuleSet,
-    ROLE_EDGE_TOP,
-    ROLE_END,
-    ROLE_START,
-    TEMPLATE_3X3,
-)
 from tileset_map_maker.models.project import Project
 from tileset_map_maker.ui.tool_panel import ToolPanel
 from tileset_map_maker.ui.tileset_palette_widget import TilesetPaletteWidget
@@ -154,14 +147,6 @@ class TestReportedEditorRegressions(unittest.TestCase):
         restored = BrushSettings()
         restored.load_from_dict(settings.to_dict())
         self.assertEqual((restored.gap_min, restored.gap_max), (1, 1))
-
-    def test_paths_3x3_contains_edges_start_and_end(self):
-        ruleset = PathRuleSet(template_type="3x3")
-        roles = ruleset.get_template_roles()
-        self.assertEqual(set(roles), set(TEMPLATE_3X3))
-        self.assertIn(ROLE_EDGE_TOP, roles)
-        self.assertIn(ROLE_START, roles)
-        self.assertIn(ROLE_END, roles)
 
     def test_brush_gap_reduces_painted_cells(self):
         project = Project(map_width=10, map_height=2)

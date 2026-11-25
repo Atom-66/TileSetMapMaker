@@ -31,6 +31,13 @@ class TilesetConfig:
         margin: Optional[int] = None,
         spacing: Optional[int] = None,
         auto_detected: bool = False,
+        tile_offset_x: int = 0,
+        tile_offset_y: int = 0,
+        tiled_first_gid: Optional[int] = None,
+        tiled_tile_count: Optional[int] = None,
+        tiled_columns: Optional[int] = None,
+        tiled_name: Optional[str] = None,
+        tiled_tile_properties: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
         self.tile_width = max(1, tile_width)
         self.tile_height = max(1, tile_height)
@@ -41,6 +48,20 @@ class TilesetConfig:
         self.start_x = max(0, start_x)
         self.start_y = max(0, start_y)
         self.auto_detected = auto_detected
+        self.tile_offset_x = int(tile_offset_x)
+        self.tile_offset_y = int(tile_offset_y)
+        self.tiled_first_gid = (
+            int(tiled_first_gid) if tiled_first_gid is not None else None
+        )
+        self.tiled_tile_count = (
+            int(tiled_tile_count) if tiled_tile_count is not None else None
+        )
+        self.tiled_columns = int(tiled_columns) if tiled_columns is not None else None
+        self.tiled_name = tiled_name
+        self.tiled_tile_properties = {
+            str(tile_id): dict(properties)
+            for tile_id, properties in (tiled_tile_properties or {}).items()
+        }
 
     @property
     def margin(self) -> int:
@@ -117,6 +138,13 @@ class TilesetConfig:
             "margin": self.margin_x,
             "spacing": self.spacing_x,
             "auto_detected": self.auto_detected,
+            "tile_offset_x": self.tile_offset_x,
+            "tile_offset_y": self.tile_offset_y,
+            "tiled_first_gid": self.tiled_first_gid,
+            "tiled_tile_count": self.tiled_tile_count,
+            "tiled_columns": self.tiled_columns,
+            "tiled_name": self.tiled_name,
+            "tiled_tile_properties": self.tiled_tile_properties,
         }
 
     @classmethod
@@ -133,6 +161,13 @@ class TilesetConfig:
             start_x=data.get("start_x", 0),
             start_y=data.get("start_y", 0),
             auto_detected=data.get("auto_detected", False),
+            tile_offset_x=data.get("tile_offset_x", 0),
+            tile_offset_y=data.get("tile_offset_y", 0),
+            tiled_first_gid=data.get("tiled_first_gid"),
+            tiled_tile_count=data.get("tiled_tile_count"),
+            tiled_columns=data.get("tiled_columns"),
+            tiled_name=data.get("tiled_name"),
+            tiled_tile_properties=data.get("tiled_tile_properties"),
         )
 
 
