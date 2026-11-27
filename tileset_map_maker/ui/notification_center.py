@@ -33,9 +33,10 @@ class NotificationBanner(QWidget):
         layout.addWidget(close)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._details_callback = None
-        get_localization().languageChanged.connect(
-            lambda _lang: self.details.setText(tr("notify.details"))
-        )
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str = "") -> None:
+        self.details.setText(tr("notify.details"))
 
     def show_message(
         self, message: str, severity: str = "info", details=None
