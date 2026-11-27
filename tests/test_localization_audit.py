@@ -44,7 +44,8 @@ class TestLocalizationCompletenessAudit(unittest.TestCase):
         fn_node = next(
             n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "plural_category"
         )
-        ns = {"Optional": None}
+        from typing import Optional
+        ns = {"Optional": Optional}
         exec(compile(ast.Module(body=[fn_node], type_ignores=[]), loc_path, "exec"), ns)
         plural_category = ns["plural_category"]
 
