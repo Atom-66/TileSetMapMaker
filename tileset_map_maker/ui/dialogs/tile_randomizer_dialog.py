@@ -62,6 +62,10 @@ class TileRandomizerDialog(QDialog):
 
     def _apply_language(self, _language: str) -> None:
         self.setWindowTitle(tr("dialog.randomizer.title"))
+        if hasattr(self, "lbl_gap_from"):
+            self.lbl_gap_from.setText(tr("dialog.randomizer.gap_from"))
+        if hasattr(self, "lbl_gap_to"):
+            self.lbl_gap_to.setText(tr("dialog.randomizer.gap_to"))
         self._populate_table()
 
     def _init_ui(self) -> None:
@@ -114,9 +118,11 @@ class TileRandomizerDialog(QDialog):
         self.spin_gap_max.setValue(self.settings.gap_max)
         self.spin_gap_min.valueChanged.connect(self._update_gap_range)
         self.spin_gap_max.valueChanged.connect(self._update_gap_range)
-        gap_layout.addWidget(QLabel("Odstęp od:"))
+        self.lbl_gap_from = QLabel(tr("dialog.randomizer.gap_from"))
+        gap_layout.addWidget(self.lbl_gap_from)
         gap_layout.addWidget(self.spin_gap_min)
-        gap_layout.addWidget(QLabel("do:"))
+        self.lbl_gap_to = QLabel(tr("dialog.randomizer.gap_to"))
+        gap_layout.addWidget(self.lbl_gap_to)
         gap_layout.addWidget(self.spin_gap_max)
         gap_layout.addStretch()
         top_layout.addLayout(gap_layout)

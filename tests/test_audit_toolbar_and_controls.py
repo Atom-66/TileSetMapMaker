@@ -174,11 +174,11 @@ class TestAuditToolbarAndControls(unittest.TestCase):
             win.show()
             bar = win.brush_options
 
-            # Activate Variants and Rotation
+            # Activate Variants and Flip Horizontal
             bar.chk_variants.setChecked(True)
-            bar.chk_rot.setChecked(True)
+            bar.chk_flip_h.setChecked(True)
             self.assertTrue(bar.chk_variants.isChecked())
-            self.assertTrue(bar.chk_rot.isChecked())
+            self.assertTrue(bar.chk_flip_h.isChecked())
 
             # Move Variants to project category
             win.toolbar_manager.move_item("variants_toggle", "project", 0)
@@ -187,11 +187,10 @@ class TestAuditToolbarAndControls(unittest.TestCase):
             self.assertTrue(bar.chk_variants.isChecked())
             self.assertTrue(bar.settings.random_variant)
 
-            # Grab widget to verify visual blue color
+            # Grab widget to verify visual blue color (sample background pixel away from white text glyphs)
             pix = bar.chk_variants.grab()
             img = pix.toImage()
-            # Check center pixel color: should be royal blue (#2563eb or #1d4ed8)
-            col = img.pixelColor(bar.chk_variants.width() // 2, bar.chk_variants.height() // 2)
+            col = img.pixelColor(4, bar.chk_variants.height() // 2)
             self.assertGreater(col.blue(), 200)
             self.assertLess(col.red(), 60)
             win.close()

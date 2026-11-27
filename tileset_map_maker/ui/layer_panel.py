@@ -450,7 +450,7 @@ class LayerPanel(QWidget):
                 QMessageBox.warning(
                     self,
                     tr("layer.clear_title"),
-                    "Warstwa jest zablokowana i nie może zostać wyczyszczona.",
+                    tr("layer.locked_clear_warning"),
                 )
                 return
             confirm = QMessageBox.question(
@@ -502,25 +502,32 @@ class LayerPanel(QWidget):
             return
 
         menu = QMenu(self)
-        act_rename = menu.addAction(IconFactory.get_icon("pencil", 16), "Zmień nazwę", lambda: self._on_item_double_clicked(item, 0))
+        act_rename = menu.addAction(
+            IconFactory.get_icon("pencil", 16),
+            tr("layer.context_rename"),
+            lambda: self._on_item_double_clicked(item, 0),
+        )
 
         if not layer.is_group:
             groups = [l for l in self.project.layers if l.is_group and l.id != layer.id]
             if groups:
-                grp_menu = menu.addMenu(IconFactory.get_icon("folder", 16), "Przenieś do grupy...")
-                grp_menu.addAction("Brak grupy (główny poziom)", lambda: self._set_parent_group(layer, None))
+                grp_menu = menu.addMenu(IconFactory.get_icon("folder", 16), tr("layer.context_move_to_group"))
+                grp_menu.addAction(tr("layer.context_no_group"), lambda: self._set_parent_group(layer, None))
                 for g in groups:
-                    grp_menu.addAction(f"Grupa: {g.name}", lambda g_id=g.id: self._set_parent_group(layer, g_id))
+                    grp_menu.addAction(
+                        tr("layer.context_group_item", name=g.name),
+                        lambda g_id=g.id: self._set_parent_group(layer, g_id),
+                    )
 
         menu.addSeparator()
         if not layer.is_group:
             clear_action = menu.addAction(
                 IconFactory.get_icon("eraser", 16),
-                "Wyczyść warstwę",
+                tr("layer.context_clear"),
                 self._clear_layer,
             )
             clear_action.setEnabled(not layer.locked)
-        menu.addAction(IconFactory.get_icon("trash", 16), "Usuń", self._delete_layer)
+        menu.addAction(IconFactory.get_icon("trash", 16), tr("layer.context_delete"), self._delete_layer)
         menu.exec(self.tree_widget.mapToGlobal(pos))
 
     def _set_parent_group(self, layer: Layer, parent_id: Optional[str]) -> None:

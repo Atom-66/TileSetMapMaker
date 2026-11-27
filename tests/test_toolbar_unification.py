@@ -46,8 +46,9 @@ class TestToolbarUnification(unittest.TestCase):
         self.assertIsNotNone(bo.btn_add_selection_variants)
         self.assertIsInstance(bo.chk_avoid, SwitchToggle)
         self.assertIsNotNone(bo.btn_randomizer)
-        self.assertIsInstance(bo.chk_rot, SwitchToggle)
-        self.assertIsInstance(bo.chk_flip, SwitchToggle)
+        self.assertIsNotNone(bo.btn_rot)
+        self.assertIsInstance(bo.chk_flip_h, SwitchToggle)
+        self.assertIsInstance(bo.chk_flip_v, SwitchToggle)
         self.assertIsNotNone(bo.txt_seed)
 
     def test_02_lower_bar_removed_from_central_layout(self):
@@ -103,17 +104,26 @@ class TestToolbarUnification(unittest.TestCase):
         bo.chk_avoid.setChecked(False)
         self.assertFalse(bs.avoid_adjacent)
 
-        # 5. Rotation & Flip
-        bo.chk_rot.setChecked(True)
-        self.assertTrue(bs.random_rotation)
-        bo.chk_rot.setChecked(False)
-        self.assertFalse(bs.random_rotation)
+        # 5. Rotation (90° CW step) & Flip
+        self.assertEqual(bs.rotation, 0)
+        bo.btn_rot.click()
+        self.assertEqual(bs.rotation, 90)
+        bo.btn_rot.click()
+        self.assertEqual(bs.rotation, 180)
+        bo.btn_rot.click()
+        self.assertEqual(bs.rotation, 270)
+        bo.btn_rot.click()
+        self.assertEqual(bs.rotation, 0)
 
-        bo.chk_flip.setChecked(True)
-        self.assertTrue(bs.random_flip_x)
-        self.assertTrue(bs.random_flip_y)
-        bo.chk_flip.setChecked(False)
-        self.assertFalse(bs.random_flip_x)
+        bo.chk_flip_h.setChecked(True)
+        self.assertTrue(bs.flip_horizontal)
+        self.assertFalse(bs.flip_vertical)
+        bo.chk_flip_v.setChecked(True)
+        self.assertTrue(bs.flip_vertical)
+        bo.chk_flip_h.setChecked(False)
+        bo.chk_flip_v.setChecked(False)
+        self.assertFalse(bs.flip_horizontal)
+        self.assertFalse(bs.flip_vertical)
 
         # 6. Seed
         bo.txt_seed.setText("42")

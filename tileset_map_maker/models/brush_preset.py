@@ -47,8 +47,53 @@ class TileVariant:
             return None
 
 
+def can_rotate_selection_90(selected_item: Any) -> Tuple[bool, int, int]:
+    """
+    Checks whether the current selection can be safely rotated by 90°/270°
+    without stretching or clipping against the tile grid.
+    Non-square tiles (tile_width != tile_height, e.g. 32x48) are blocked.
+    """
+    if selected_item is None:
+        return True, 0, 0
+    tw = getattr(selected_item, "tile_width", None)
+    th = getattr(selected_item, "tile_height", None)
+    if tw is not None and th is not None and int(tw) != int(th):
+        return False, int(tw), int(th)
+    return True, int(tw or 0), int(th or 0)
+
+
+def transform_composition_cell(
+    dc: int,
+    dr: int,
+    cols_count: int,
+    rows_count: int,
+    *,
+    flip_x: bool = False,
+    flip_y: bool = False,
+    rotation: float = 0.0,
+) -> Tuple[int, int]:
+    """
+    Maps a source cell offset (dc, dr) inside a (cols_count x rows_count) multi-tile
+    composition to its transformed destination offset (dest_dc, dest_dr) under the
+    exact same transform order used by RenderEngine.draw_item:
+    1) Flip Horizontal (flip_x) and/or Flip Vertical (flip_y)
+    2) Clockwise rotation by 0 / 90 / 180 / 270 degrees.
+    """
+    fc = (cols_count - 1 - dc) if flip_x else dc
+    fr = (rows_count - 1 - dr) if flip_y else dr
+
+    rot = int(round(rotation)) % 360
+    if rot == 90:
+        return rows_count - 1 - fr, fc
+    if rot == 180:
+        return cols_count - 1 - fc, rows_count - 1 - fr
+    if rot == 270:
+        return fr, cols_count - 1 - fc
+    return fc, fr
+
+
 class BrushSettings:
-    """Configurable brush parameters including size, variants, random rotations, weights, and seed."""
+    """Configurable brush parameters including size, variants, deterministic mirror/rotation, weights, and seed."""
 
     def __init__(
         self,
@@ -56,6 +101,9 @@ class BrushSettings:
         spacing: int = 1,
         random_variant: bool = False,
         random_rotation: bool = False,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
+        rotation: int = 0,
         random_flip_x: bool = False,
         random_flip_y: bool = False,
         jitter: float = 0.0,
@@ -75,8 +123,13 @@ class BrushSettings:
         self.spacing = max(1, spacing)
         self.random_variant = random_variant
         self.random_rotation = random_rotation
-        self.random_flip_x = random_flip_x
-        self.random_flip_y = random_flip_y
+        # Deterministic Mirror & Rotation state (single source of truth)
+        self.flip_horizontal = bool(flip_horizontal)
+        self.flip_vertical = bool(flip_vertical)
+        self.rotation = int(round(rotation / 90.0) * 90) % 360
+        # Legacy fields kept disabled by default for backward-compatible serialization
+        self.random_flip_x = bool(random_flip_x)
+        self.random_flip_y = bool(random_flip_y)
         self.jitter = max(0.0, min(1.0, jitter))
         self.density = max(0.1, min(1.0, density))
         self.seed = seed
@@ -192,14 +245,66 @@ class BrushSettings:
         self._last_chosen_id = chosen.id
         return chosen.sub_tile
 
-    def get_random_transform(self) -> Tuple[float, bool, bool, int, int]:
-        """Returns (rotation_deg, flip_x, flip_y, offset_x, offset_y)."""
-        rot = self._rng.choice([0.0, 90.0, 180.0, 270.0]) if self.random_rotation else 0.0
-        fx = self._rng.choice([True, False]) if self.random_flip_x else False
-        fy = self._rng.choice([True, False]) if self.random_flip_y else False
-        ox = int(self._rng.uniform(-16, 16) * self.jitter) if self.jitter > 0 else 0
-        oy = int(self._rng.uniform(-16, 16) * self.jitter) if self.jitter > 0 else 0
+    def toggle_flip_horizontal(self) -> bool:
+        """Applies screen-space horizontal flip using exact D4 group composition."""
+        self.flip_horizontal = not self.flip_horizontal
+        self.rotation = (-self.rotation) % 360
+        return self.flip_horizontal
+
+    def toggle_flip_vertical(self) -> bool:
+        """Applies screen-space vertical flip using exact D4 group composition."""
+        self.flip_vertical = not self.flip_vertical
+        self.rotation = (-self.rotation) % 360
+        return self.flip_vertical
+
+    def set_flip_horizontal(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled != self.flip_horizontal:
+            self.toggle_flip_horizontal()
+
+    def set_flip_vertical(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled != self.flip_vertical:
+            self.toggle_flip_vertical()
+
+    def set_rotation(self, degrees: int) -> None:
+        self.rotation = int(round(degrees / 90.0) * 90) % 360
+
+    def rotate_cw(self) -> int:
+        """Rotates brush orientation 90° clockwise (0 -> 90 -> 180 -> 270 -> 0)."""
+        self.rotation = (self.rotation + 90) % 360
+        return self.rotation
+
+    def rotate_ccw(self) -> int:
+        """Rotates brush orientation 90° counter-clockwise (0 -> 270 -> 180 -> 90 -> 0)."""
+        self.rotation = (self.rotation - 90) % 360
+        return self.rotation
+
+    def reset_transform(self) -> None:
+        self.rotation = 0
+        self.flip_horizontal = False
+        self.flip_vertical = False
+
+    def get_brush_transform(
+        self, *, for_preview: bool = False
+    ) -> Tuple[float, bool, bool, int, int]:
+        """
+        Returns (rotation_deg, flip_x, flip_y, offset_x, offset_y).
+        Both Rotation and Mirror are strictly deterministic and never randomized.
+        """
+        rot = float(self.rotation % 360)
+        fx = bool(self.flip_horizontal)
+        fy = bool(self.flip_vertical)
+        if for_preview or self.jitter <= 0:
+            ox, oy = 0, 0
+        else:
+            ox = int(self._rng.uniform(-16, 16) * self.jitter)
+            oy = int(self._rng.uniform(-16, 16) * self.jitter)
         return rot, fx, fy, ox, oy
+
+    def get_random_transform(self) -> Tuple[float, bool, bool, int, int]:
+        """Returns (rotation_deg, flip_x, flip_y, offset_x, offset_y) with deterministic mirror."""
+        return self.get_brush_transform(for_preview=False)
 
     def to_dict(self) -> Dict[str, Any]:
         vars_list = []
@@ -213,6 +318,9 @@ class BrushSettings:
             "eraser_size": self.eraser_size,
             "random_variant": self.random_variant,
             "random_rotation": self.random_rotation,
+            "flip_horizontal": self.flip_horizontal,
+            "flip_vertical": self.flip_vertical,
+            "rotation": self.rotation,
             "random_flip_x": self.random_flip_x,
             "random_flip_y": self.random_flip_y,
             "seed": self.seed,
@@ -228,8 +336,11 @@ class BrushSettings:
         self.eraser_size = max(1, min(data.get("eraser_size", getattr(self, "eraser_size", 1)), 10))
         self.random_variant = data.get("random_variant", False)
         self.random_rotation = data.get("random_rotation", False)
-        self.random_flip_x = data.get("random_flip_x", False)
-        self.random_flip_y = data.get("random_flip_y", False)
+        self.flip_horizontal = bool(data.get("flip_horizontal", False))
+        self.flip_vertical = bool(data.get("flip_vertical", False))
+        self.rotation = int(round(data.get("rotation", 0) / 90.0) * 90) % 360
+        self.random_flip_x = bool(data.get("random_flip_x", False))
+        self.random_flip_y = bool(data.get("random_flip_y", False))
         self.seed = data.get("seed", None)
         self.auto_tile_enabled = data.get("auto_tile_enabled", False)
         self.avoid_adjacent = data.get("avoid_adjacent", False)

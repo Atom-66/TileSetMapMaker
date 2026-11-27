@@ -27,7 +27,7 @@ class FillTool(BaseTool):
 
         target_tile = layer.get_tile(col, row)
 
-        # Match criteria: same asset_id and source_rect, or both empty
+        # Match criteria: same asset_id, source_rect, and transform, or both empty
         def is_match(c: int, r: int) -> bool:
             curr = layer.get_tile(c, r)
             if target_tile is None:
@@ -38,6 +38,9 @@ class FillTool(BaseTool):
                 curr.asset_id == target_tile.asset_id
                 and curr.source_x == target_tile.source_x
                 and curr.source_y == target_tile.source_y
+                and int(round(curr.rotation)) % 360 == int(round(target_tile.rotation)) % 360
+                and bool(curr.flip_x) == bool(target_tile.flip_x)
+                and bool(curr.flip_y) == bool(target_tile.flip_y)
             )
 
         # Check if already the replacement
@@ -46,6 +49,9 @@ class FillTool(BaseTool):
             and target_tile.asset_id == replacement_template.asset_id
             and target_tile.source_x == replacement_template.source_x
             and target_tile.source_y == replacement_template.source_y
+            and int(round(target_tile.rotation)) % 360 == int(round(replacement_template.rotation)) % 360
+            and bool(target_tile.flip_x) == bool(replacement_template.flip_x)
+            and bool(target_tile.flip_y) == bool(replacement_template.flip_y)
         ):
             return
 

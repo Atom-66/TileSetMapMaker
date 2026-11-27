@@ -1,9 +1,10 @@
 import os
 import logging
+import threading
 from typing import Optional, Tuple, List, Set, Dict, Any
 from PyQt6.QtCore import (
     Qt, QRect, QRectF, QPointF, pyqtSignal, QSize, QSettings, QByteArray, QTimer,
-    QMimeData, QItemSelectionModel,
+    QMimeData, QItemSelectionModel, QThread,
 )
 from PyQt6.QtWidgets import (
     QWidget,
@@ -28,8 +29,10 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QPushButton,
     QApplication,
+    QProgressDialog,
 )
 from PyQt6.QtGui import (
+    QAction,
     QPainter,
     QColor,
     QPen,
@@ -46,6 +49,7 @@ from PyQt6.QtGui import (
     QImage,
     QShowEvent,
     QDrag,
+    QTransform,
 )
 
 from ..models.asset import Asset, AssetType, TilesetConfig, SelectedSubTile
@@ -53,6 +57,11 @@ from ..models.category import CategoryTree, CategoryNode
 from ..core.asset_manager import AssetManager
 from ..core.config_manager import ConfigManager
 from ..core.rpg_autotile import RPGAutotile, SelectedAutotile
+from ..core.tileset_exporter import (
+    TilesetExportResult,
+    default_zip_filename,
+    export_tileset_to_zip,
+)
 from .styles import get_canvas_theme_colors
 from .tileset_slicer_dialog import TilesetSlicerDialog
 from .dialogs.tileset_import_dialog import TilesetImportDialog
@@ -263,6 +272,25 @@ class TilesetCanvas(QWidget):
         self.has_selection = False
         self.is_selecting = False
         self.update()
+
+    def get_selected_cells(self) -> List[Tuple[int, int]]:
+        """
+        Returns the ordered list of currently selected (col, row) cells in the
+        active tileset (left-to-right, top-to-bottom), or an empty list if no
+        tileset is loaded or no cells are selected.
+        """
+        if not self.current_asset or not getattr(self, "has_selection", True):
+            return []
+        cfg = self.current_asset.tileset_config or TilesetConfig(tile_width=32, tile_height=32)
+        grid = cfg.compute_grid(self.current_asset.width, self.current_asset.height)
+        if grid["cols"] <= 0 or grid["rows"] <= 0:
+            return []
+
+        c1 = max(0, min(self.sel_start_col, self.sel_end_col))
+        c2 = min(grid["cols"] - 1, max(self.sel_start_col, self.sel_end_col))
+        r1 = max(0, min(self.sel_start_row, self.sel_end_row))
+        r2 = min(grid["rows"] - 1, max(self.sel_start_row, self.sel_end_row))
+        return [(c, r) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)]
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -759,8 +787,8 @@ class TilesetTreeWidget(QTreeWidget):
                     )
                     QMessageBox.critical(
                         self,
-                        "Błąd importu",
-                        f"Nie udało się zaimportować: {fpath}",
+                        tr("palette.import_error_title"),
+                        tr("palette.import_error_body", path=fpath),
                     )
             if local_paths:
                 self.palette.refresh_tilesets()
@@ -865,6 +893,57 @@ class GlobalImportSettingsDialog(QDialog):
         self.accept()
 
 
+class TilesetZipExportWorker(QThread):
+    """Background worker that slices a tileset (all or selected tiles) into a ZIP of PNGs."""
+
+    progress = pyqtSignal(int, int)
+    export_finished = pyqtSignal(object)  # TilesetExportResult
+    export_failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        source_path: str,
+        tileset_name: str,
+        tileset_config: Optional[TilesetConfig],
+        output_zip_path: str,
+        selected_cells: Optional[List[Tuple[int, int]]] = None,
+        include_empty: bool = False,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self._source_path = source_path
+        self._tileset_name = tileset_name
+        self._tileset_config = (
+            TilesetConfig.from_dict(tileset_config.to_dict())
+            if tileset_config is not None
+            else TilesetConfig(tile_width=32, tile_height=32)
+        )
+        self._output_zip_path = output_zip_path
+        self._selected_cells = list(selected_cells) if selected_cells is not None else None
+        self._include_empty = include_empty
+        self._cancel_event = threading.Event()
+
+    def request_cancel(self) -> None:
+        self._cancel_event.set()
+
+    def run(self) -> None:
+        try:
+            result = export_tileset_to_zip(
+                source_path=self._source_path,
+                tileset_name=self._tileset_name,
+                tileset_config=self._tileset_config,
+                output_zip_path=self._output_zip_path,
+                selected_cells=self._selected_cells,
+                include_empty=self._include_empty,
+                progress_callback=lambda done, total: self.progress.emit(done, total),
+                cancel_check=self._cancel_event.is_set,
+            )
+            self.export_finished.emit(result)
+        except Exception as exc:
+            logger.exception("Tileset ZIP export failed")
+            self.export_failed.emit(str(exc))
+
+
 class TilesetPaletteWidget(QWidget):
     """
     Two-section vertical layout for tileset management:
@@ -896,6 +975,13 @@ class TilesetPaletteWidget(QWidget):
         self.autotile_buttons: Dict[str, QToolButton] = {}
         self.selected_autotile_id: Optional[str] = None
         self.autotile_engine: Optional[Any] = None
+        self._export_worker: Optional[TilesetZipExportWorker] = None
+        self._export_progress_dialog: Optional[QProgressDialog] = None
+        self._exporting_tileset_name: str = ""
+        self._brush_flip_h: bool = False
+        self._brush_flip_v: bool = False
+        self._brush_rotation: int = 0
+        self._last_thumb_sub_tile: Optional[SelectedSubTile] = None
 
         self.setAcceptDrops(True)
         self._init_ui()
@@ -909,6 +995,10 @@ class TilesetPaletteWidget(QWidget):
     def _apply_language(self, _language: str) -> None:
         self.btn_config.setToolTip(tr("palette.slicer_tooltip"))
         self.btn_fit.setToolTip(tr("palette.fit_tooltip"))
+        self.btn_export_zip.setToolTip(tr("palette.export_zip_tooltip"))
+        self.act_export_all_tiles.setText(tr("palette.export_zip_all"))
+        self.act_export_include_empty.setText(tr("palette.export_zip_include_empty"))
+        self._update_export_zip_menu_state()
         self.preview_thumb.setToolTip(tr("palette.preview_tooltip"))
         self.btn_zoom_out.setToolTip(tr("palette.zoom_out_tooltip"))
         self.btn_zoom_in.setToolTip(tr("palette.zoom_in_tooltip"))
@@ -919,8 +1009,12 @@ class TilesetPaletteWidget(QWidget):
         self.btn_rename.setToolTip(tr("palette.rename_tooltip"))
         self.btn_delete.setToolTip(tr("palette.delete_tooltip"))
         self.btn_settings.setToolTip(tr("palette.settings_tooltip"))
+        self.lbl_autotiles_title.setText(tr("palette.autotile_label"))
+        self.btn_add_autotile.setToolTip(tr("palette.add_autotile_tooltip"))
+        self.txt_library_search.setPlaceholderText(tr("palette.search_placeholder"))
         self.canvas.update()
         self.refresh_tilesets()
+        self.refresh_autotiles()
 
     @property
     def tab_bar(self):
@@ -993,6 +1087,51 @@ class TilesetPaletteWidget(QWidget):
         self.btn_fit.clicked.connect(self._fit_to_view)
         top_header.addWidget(self.btn_fit)
 
+        self.btn_export_zip = QToolButton(self.top_widget)
+        self.btn_export_zip.setIcon(IconFactory.get_icon("export-zip", 16))
+        self.btn_export_zip.setFixedSize(32, 26)
+        self.btn_export_zip.setToolTip(tr("palette.export_zip_tooltip"))
+        self.btn_export_zip.setStyleSheet(self._export_button_style())
+        self.btn_export_zip.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.btn_export_zip.setEnabled(False)
+
+        self.export_zip_menu = QMenu(self.btn_export_zip)
+        self.export_zip_menu.aboutToShow.connect(self._update_export_zip_menu_state)
+
+        self.act_export_all_tiles = QAction(
+            IconFactory.get_icon("export-zip", 16),
+            tr("palette.export_zip_all"),
+            self.export_zip_menu,
+        )
+        self.act_export_all_tiles.triggered.connect(
+            lambda: self._export_tileset_zip_action(selected_only=False)
+        )
+        self.export_zip_menu.addAction(self.act_export_all_tiles)
+
+        self.act_export_selected_tiles = QAction(
+            IconFactory.get_icon("select", 16),
+            tr("palette.export_zip_selected"),
+            self.export_zip_menu,
+        )
+        self.act_export_selected_tiles.setEnabled(False)
+        self.act_export_selected_tiles.triggered.connect(
+            lambda: self._export_tileset_zip_action(selected_only=True)
+        )
+        self.export_zip_menu.addAction(self.act_export_selected_tiles)
+
+        self.export_zip_menu.addSeparator()
+
+        self.act_export_include_empty = QAction(
+            tr("palette.export_zip_include_empty"),
+            self.export_zip_menu,
+        )
+        self.act_export_include_empty.setCheckable(True)
+        self.act_export_include_empty.setChecked(False)
+        self.export_zip_menu.addAction(self.act_export_include_empty)
+
+        self.btn_export_zip.setMenu(self.export_zip_menu)
+        top_header.addWidget(self.btn_export_zip)
+
         top_layout.addLayout(top_header)
 
         # RPG Maker Autotiles Quick Selection Strip
@@ -1001,7 +1140,7 @@ class TilesetPaletteWidget(QWidget):
         autotile_strip_layout.setContentsMargins(2, 0, 2, 2)
         autotile_strip_layout.setSpacing(4)
 
-        self.lbl_autotiles_title = QLabel("Autotile:", self.autotile_strip)
+        self.lbl_autotiles_title = QLabel(tr("palette.autotile_label"), self.autotile_strip)
         self.lbl_autotiles_title.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: 600;")
         autotile_strip_layout.addWidget(self.lbl_autotiles_title)
 
@@ -1023,7 +1162,7 @@ class TilesetPaletteWidget(QWidget):
         self.btn_add_autotile = QToolButton(self.autotile_strip)
         self.btn_add_autotile.setIcon(IconFactory.get_icon("plus", 14))
         self.btn_add_autotile.setFixedSize(26, 26)
-        self.btn_add_autotile.setToolTip("Zaimportuj lub stwórz nowy RPG Maker Autotile...")
+        self.btn_add_autotile.setToolTip(tr("palette.add_autotile_tooltip"))
         self.btn_add_autotile.setStyleSheet(self._button_style())
         self.btn_add_autotile.clicked.connect(self._open_autotile_import_dialog)
         autotile_strip_layout.addWidget(self.btn_add_autotile)
@@ -1054,7 +1193,7 @@ class TilesetPaletteWidget(QWidget):
         self.preview_thumb.setToolTip(tr("palette.preview_tooltip"))
         info_layout.addWidget(self.preview_thumb)
 
-        self.lbl_info = ElidedLabel("Brak wyboru")
+        self.lbl_info = ElidedLabel(tr("palette.no_selection"))
         self.lbl_info.setStyleSheet("color: #a1a1aa; font-size: 11px;")
         info_layout.addWidget(self.lbl_info, 1)
 
@@ -1170,7 +1309,7 @@ class TilesetPaletteWidget(QWidget):
 
         bottom_layout.addLayout(lib_header)
         self.txt_library_search = QLineEdit(self.bottom_widget)
-        self.txt_library_search.setPlaceholderText("Szukaj w bibliotece…")
+        self.txt_library_search.setPlaceholderText(tr("palette.search_placeholder"))
         self.txt_library_search.setClearButtonEnabled(True)
         self.library_search_timer = QTimer(self)
         self.library_search_timer.setSingleShot(True)
@@ -1239,6 +1378,20 @@ class TilesetPaletteWidget(QWidget):
                 color: #52525b;
                 border-color: #27272a;
                 background: #18181b;
+            }
+        """
+
+    @staticmethod
+    def _export_button_style() -> str:
+        return TilesetPaletteWidget._button_style() + """
+            QToolButton {
+                padding-right: 10px;
+            }
+            QToolButton::menu-indicator {
+                subcontrol-origin: padding;
+                subcontrol-position: right center;
+                right: 3px;
+                width: 7px;
             }
         """
 
@@ -1479,6 +1632,7 @@ class TilesetPaletteWidget(QWidget):
             self.active_asset_id = active_asset.id
 
         if active_asset:
+            self.btn_export_zip.setEnabled(True)
             if not had_items and not selected:
                 self._select_tree_item_for_asset(active_asset.id)
             self.canvas.set_asset(active_asset)
@@ -1494,9 +1648,12 @@ class TilesetPaletteWidget(QWidget):
             )
         else:
             self.active_asset_id = None
+            self.btn_export_zip.setEnabled(False)
             self.canvas.set_asset(None)
             self.lbl_active_title.setText(tr("palette.preview_empty"))
             self.lbl_info.setText(tr("palette.no_tilesets_import_hint"))
+
+        self._update_export_zip_menu_state()
 
         def restore_selection(item: QTreeWidgetItem) -> None:
             key = (item.data(0, Qt.ItemDataRole.UserRole), item.data(0, Qt.ItemDataRole.UserRole + 1))
@@ -1636,9 +1793,11 @@ class TilesetPaletteWidget(QWidget):
     def set_active_asset(self, asset: Optional[Asset], sub_tile: Optional[SelectedSubTile] = None) -> None:
         if not asset:
             self.active_asset_id = None
+            self.btn_export_zip.setEnabled(False)
             self.canvas.set_asset(None)
             self.lbl_active_title.setText(tr("palette.preview_empty"))
             self.lbl_info.setText(tr("palette.no_tilesets"))
+            self._update_export_zip_menu_state()
             return
 
         if asset.asset_type != AssetType.TILESET:
@@ -1646,6 +1805,7 @@ class TilesetPaletteWidget(QWidget):
 
         is_different_asset = (self.active_asset_id != asset.id)
         self.active_asset_id = asset.id
+        self.btn_export_zip.setEnabled(True)
 
         if not asset.tileset_config:
             asset.tileset_config = TilesetConfig(tile_width=32, tile_height=32)
@@ -1680,6 +1840,7 @@ class TilesetPaletteWidget(QWidget):
             self.canvas.sel_end_row = 0
 
         self._update_info_label(asset, sub_tile)
+        self._update_export_zip_menu_state()
         self.canvas.update()
 
     def set_selected_sub_tile(self, sub_tile: SelectedSubTile) -> None:
@@ -1841,11 +2002,16 @@ class TilesetPaletteWidget(QWidget):
     def _create_folder_action(self, parent_path: Optional[str] = None) -> None:
         parent_path = parent_path or ""
 
+        prompt = (
+            tr("palette.new_subfolder_prompt", parent=parent_path)
+            if parent_path
+            else tr("palette.new_folder_prompt")
+        )
         name, ok = QInputDialog.getText(
             self,
-            "Nowy folder w bibliotece",
-            f"Nazwa folderu{' (podfolder w ' + parent_path + ')' if parent_path else ''}:",
-            text="Nowy folder",
+            tr("palette.new_folder_title"),
+            prompt,
+            text=tr("palette.new_folder_default"),
         )
         if ok and name.strip():
             folder_name = name.strip().replace("/", "_")
@@ -2011,7 +2177,7 @@ class TilesetPaletteWidget(QWidget):
             self,
             tr("dialog.library.select_files"),
             "",
-            "Grafiki (*.png *.jpg *.jpeg *.bmp *.webp);;Wszystkie pliki (*.*)",
+            tr("palette.image_filter"),
         )
         if not files:
             return
@@ -2211,9 +2377,20 @@ class TilesetPaletteWidget(QWidget):
         dlg = GlobalImportSettingsDialog(self.config_manager, self)
         dlg.exec()
 
+    def set_brush_transform(
+        self, flip_h: bool = False, flip_v: bool = False, rotation: int = 0
+    ) -> None:
+        """Updates the active-brush thumbnail preview transform without altering the source tileset sheet."""
+        self._brush_flip_h = bool(flip_h)
+        self._brush_flip_v = bool(flip_v)
+        self._brush_rotation = int(round(rotation / 90.0) * 90) % 360
+        if self.canvas.current_asset is not None:
+            self._render_thumb(self.canvas.current_asset, self._last_thumb_sub_tile)
+
     def _render_thumb(self, asset: Optional[Asset], sub_tile: Optional[SelectedSubTile] = None) -> None:
         if not hasattr(self, "preview_thumb"):
             return
+        self._last_thumb_sub_tile = sub_tile
         thumb = QPixmap(32, 32)
         thumb.fill(QColor("#18181b"))
         p = QPainter(thumb)
@@ -2226,6 +2403,12 @@ class TilesetPaletteWidget(QWidget):
             full_pix = self.asset_manager.get_pixmap(asset.id)
             if full_pix and not full_pix.isNull():
                 cropped = full_pix.copy(sub_tile.sub_x, sub_tile.sub_y, sub_tile.sub_w, sub_tile.sub_h)
+                if self._brush_flip_h or self._brush_flip_v or self._brush_rotation:
+                    t = QTransform()
+                    if self._brush_rotation:
+                        t.rotate(self._brush_rotation)
+                    t.scale(-1 if self._brush_flip_h else 1, -1 if self._brush_flip_v else 1)
+                    cropped = cropped.transformed(t, Qt.TransformationMode.FastTransformation)
                 scaled = cropped.scaled(
                     26,
                     26,
@@ -2294,6 +2477,7 @@ class TilesetPaletteWidget(QWidget):
                 btn.setChecked(False)
         if self.canvas.current_asset:
             self._update_info_label(self.canvas.current_asset, sub_tile)
+        self._update_export_zip_menu_state()
 
     def _open_slicer_dialog(self) -> None:
         if not self.canvas.current_asset:
@@ -2307,6 +2491,175 @@ class TilesetPaletteWidget(QWidget):
 
     def _fit_to_view(self) -> None:
         self.canvas.fit_to_view()
+
+    def _update_export_zip_menu_state(self) -> None:
+        if not hasattr(self, "act_export_selected_tiles"):
+            return
+        has_asset = self.canvas.current_asset is not None
+        self.act_export_all_tiles.setEnabled(has_asset)
+        selected_cells = self.canvas.get_selected_cells() if has_asset else []
+        count = len(selected_cells)
+        self.act_export_selected_tiles.setEnabled(has_asset and count > 0)
+        if count > 0:
+            self.act_export_selected_tiles.setText(
+                tr("palette.export_zip_selected_count", count=count)
+            )
+        else:
+            self.act_export_selected_tiles.setText(tr("palette.export_zip_selected"))
+
+    def _export_tileset_zip_action(self, selected_only: bool = False) -> None:
+        asset = self.canvas.current_asset
+        if not asset:
+            return
+        if self._export_worker is not None and self._export_worker.isRunning():
+            return
+
+        selected_cells: Optional[List[Tuple[int, int]]] = None
+        if selected_only:
+            selected_cells = self.canvas.get_selected_cells()
+            if not selected_cells:
+                return
+
+        default_dir = (
+            os.path.dirname(asset.file_path)
+            if asset.file_path and os.path.isdir(os.path.dirname(asset.file_path))
+            else os.getcwd()
+        )
+        suggested_path = os.path.join(
+            default_dir,
+            default_zip_filename(asset.name, selected_only=selected_only),
+        )
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("dialog.tileset_export.save_title"),
+            suggested_path,
+            tr("dialog.tileset_export.file_filter"),
+        )
+        if not save_path:
+            return
+        if not save_path.lower().endswith(".zip"):
+            save_path += ".zip"
+
+        include_empty = self.act_export_include_empty.isChecked()
+        self._start_tileset_zip_export(
+            asset,
+            save_path,
+            selected_cells=selected_cells,
+            include_empty=include_empty,
+        )
+
+    def _start_tileset_zip_export(
+        self,
+        asset: Asset,
+        save_path: str,
+        *,
+        selected_cells: Optional[List[Tuple[int, int]]] = None,
+        include_empty: bool = False,
+    ) -> None:
+        self._exporting_tileset_name = asset.name
+
+        progress = QProgressDialog(
+            tr(
+                "dialog.tileset_export.progress_label",
+                name=asset.name,
+                current=0,
+                total=0,
+            ),
+            tr("button.cancel"),
+            0,
+            0,
+            self,
+        )
+        progress.setWindowTitle(tr("dialog.tileset_export.progress_title"))
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(150)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        self._export_progress_dialog = progress
+
+        worker = TilesetZipExportWorker(
+            source_path=asset.file_path,
+            tileset_name=asset.name,
+            tileset_config=asset.tileset_config,
+            output_zip_path=save_path,
+            selected_cells=selected_cells,
+            include_empty=include_empty,
+            parent=self,
+        )
+        self._export_worker = worker
+        self.btn_export_zip.setEnabled(False)
+
+        progress.canceled.connect(worker.request_cancel)
+        worker.progress.connect(self._on_tileset_zip_export_progress)
+        worker.export_finished.connect(self._on_tileset_zip_export_finished)
+        worker.export_failed.connect(self._on_tileset_zip_export_failed)
+        worker.finished.connect(self._cleanup_tileset_zip_export_worker)
+        worker.start()
+
+    def _on_tileset_zip_export_progress(self, current: int, total: int) -> None:
+        dlg = self._export_progress_dialog
+        if not dlg:
+            return
+        if dlg.maximum() != total:
+            dlg.setMaximum(total)
+        dlg.setValue(current)
+        dlg.setLabelText(
+            tr(
+                "dialog.tileset_export.progress_label",
+                name=self._exporting_tileset_name,
+                current=current,
+                total=total,
+            )
+        )
+
+    def _close_export_progress_dialog(self) -> None:
+        dlg = self._export_progress_dialog
+        self._export_progress_dialog = None
+        if dlg is not None:
+            dlg.close()
+            dlg.deleteLater()
+
+    def _on_tileset_zip_export_finished(self, result: TilesetExportResult) -> None:
+        self._close_export_progress_dialog()
+        if result.cancelled:
+            return
+        if result.exported_count == 0:
+            QMessageBox.information(
+                self,
+                tr("dialog.tileset_export.done_title"),
+                tr(
+                    "dialog.tileset_export.empty_message",
+                    total=result.total_cells,
+                    path=result.output_path,
+                ),
+            )
+            return
+        QMessageBox.information(
+            self,
+            tr("dialog.tileset_export.done_title"),
+            tr(
+                "dialog.tileset_export.done_message",
+                exported=result.exported_count,
+                skipped=result.skipped_empty_count,
+                path=result.output_path,
+            ),
+        )
+
+    def _on_tileset_zip_export_failed(self, error_message: str) -> None:
+        self._close_export_progress_dialog()
+        QMessageBox.critical(
+            self,
+            tr("dialog.tileset_export.error_title"),
+            tr("dialog.tileset_export.error_message", error=error_message),
+        )
+
+    def _cleanup_tileset_zip_export_worker(self) -> None:
+        worker = self._export_worker
+        self._export_worker = None
+        self.btn_export_zip.setEnabled(self.canvas.current_asset is not None)
+        if worker is not None:
+            worker.deleteLater()
 
     # --------------------------------------------------------------------------
     # RPG MAKER AUTOTILES PALETTE INTEGRATION
@@ -2334,7 +2687,14 @@ class TilesetPaletteWidget(QWidget):
             preview = at.get_preview_pixmap(24)
             btn.setIcon(QIcon(preview))
             btn.setIconSize(QSize(24, 24))
-            btn.setToolTip(f"Autotile: {at.name}\nTyp: {at.terrain_type}\nFormat: {at.format.value}")
+            btn.setToolTip(
+                tr(
+                    "palette.autotile_tooltip",
+                    name=at.name,
+                    terrain=at.terrain_type,
+                    fmt=at.format.value,
+                )
+            )
             btn.setStyleSheet("""
                 QToolButton {
                     background: #27272a;
@@ -2370,9 +2730,12 @@ class TilesetPaletteWidget(QWidget):
 
         # Update preview thumbnail and info label
         self.preview_thumb.setPixmap(autotile.get_preview_pixmap(24))
-        self.lbl_info.setText(f"Autotile: {autotile.name} [{autotile.terrain_type}]")
+        self.lbl_info.setText(
+            tr("palette.autotile_selected_info", name=autotile.name, terrain=autotile.terrain_type)
+        )
         if hasattr(self.canvas, "deselect"):
             self.canvas.deselect()
+        self._update_export_zip_menu_state()
 
     def _open_autotile_import_dialog(self) -> None:
         win = self.window()

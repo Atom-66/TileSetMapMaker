@@ -70,9 +70,9 @@ class ExportDialog(QDialog):
         form.addRow(tr("dialog.export.scale"), self.combo_scale)
 
         self.combo_scope = QComboBox()
-        self.combo_scope.addItem("Aktywna mapa")
-        self.combo_scope.addItem("Wszystkie mapy")
-        form.addRow("Zakres:", self.combo_scope)
+        self.combo_scope.addItem(tr("dialog.export.scope_active"))
+        self.combo_scope.addItem(tr("dialog.export.scope_all"))
+        form.addRow(tr("dialog.export.scope_label"), self.combo_scope)
 
         # Export area
         self.combo_area = QComboBox()
@@ -80,7 +80,7 @@ class ExportDialog(QDialog):
             tr("dialog.export.area_full"),
             tr("dialog.export.area_crop"),
         ])
-        form.addRow("Obszar eksportu:", self.combo_area)
+        form.addRow(tr("dialog.export.area_label"), self.combo_area)
 
         # Layers selection
         self.combo_layers = QComboBox()
@@ -142,7 +142,7 @@ class ExportDialog(QDialog):
             self,
             tr("dialog.export.browse_title"),
             self.txt_path.text(),
-            "Pliki PNG (*.png)",
+            tr("dialog.export.png_filter"),
         )
         if path:
             self.txt_path.setText(path)
@@ -174,9 +174,7 @@ class ExportDialog(QDialog):
             answer = QMessageBox.question(
                 self,
                 tr("dialog.export.error_title"),
-                "Projekt odwołuje się do brakujących zasobów:\n"
-                + "\n".join(missing_assets[:10])
-                + "\n\nKontynuować eksport?",
+                tr("dialog.export.missing_assets_confirm", assets="\n".join(missing_assets[:10])),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )

@@ -30,6 +30,13 @@ _HISTORY_DESCRIPTION_KEYS = {
     "Rysowanie linii": "history.command.line",
     "Rysowanie prostokąta": "history.command.rectangle",
     "Przelosowanie wariantów kafelków": "history.command.randomize",
+    "Wyrównanie obiektów": "history.command.object_align",
+    "Przesunięcie obiektu": "history.command.object_move",
+    "Obrót obiektu": "history.command.object_rotate",
+    "Obrót gizmo": "history.command.gizmo_rotate",
+    "Wypełnienie zaznaczenia": "history.command.selection_fill",
+    "Przesunięcie zaznaczenia": "history.command.selection_move",
+    "Obrót zaznaczenia": "history.command.selection_rotate",
 }
 
 
@@ -90,6 +97,9 @@ class HistoryPanel(QWidget):
         if description.startswith("Usuń warstwę '") and description.endswith("'"):
             name = description[len("Usuń warstwę '"):-1]
             return tr("history.command.layer_remove", name=name)
+        if description.startswith("Wyczyść warstwę '") and description.endswith("'"):
+            name = description[len("Wyczyść warstwę '"):-1]
+            return tr("history.command.layer_clear", name=name)
         key = _HISTORY_DESCRIPTION_KEYS.get(description)
         return tr(key) if key else description
 

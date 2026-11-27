@@ -82,6 +82,7 @@ _LOCALIZED_TOOLBAR_ITEM_IDS = {
     "variants_dialog",
     "rot_toggle",
     "flip_toggle",
+    "flip_v_toggle",
     "seed_group",
 }
 
@@ -637,16 +638,15 @@ class FlowLayout(QLayout):
         return self.minimumSize()
 
     def minimumSize(self) -> QSize:
-        sz = QSize()
-        for item in self._item_list:
-            sz = sz.expandedTo(item.minimumSize())
+        # Never propagate the widest category's width upward to QMainWindow;
+        # FlowLayout adapts to whatever width the window gives it.
         m = self.contentsMargins()
-        sz += QSize(m.left() + m.right(), m.top() + m.bottom())
-        return sz
+        return QSize(60 + m.left() + m.right(), 26 + m.top() + m.bottom())
 
     def _do_layout(self, rect: QRect, apply_geometry: bool = True) -> int:
         m = self.contentsMargins()
         effective_rect = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        avail_w = max(1, effective_rect.width())
         x = effective_rect.x()
         y = effective_rect.y()
         line_height = 0
@@ -658,7 +658,7 @@ class FlowLayout(QLayout):
             if wid and wid.isHidden():
                 continue
             item_sz = item.sizeHint()
-            item_w = item_sz.width()
+            item_w = min(item_sz.width(), avail_w)
             item_h = max(item_sz.height(), 26)
             next_x = x + item_w + h_spacing
             if next_x - h_spacing > effective_rect.right() and line_height > 0:
@@ -830,17 +830,21 @@ class CustomizableToolBar(QToolBar):
         self._actions_list.append(act)
         return act
 
+    MAX_FLOW_HEIGHT = 180
+
     def _flow_height(self, width: int) -> int:
         # Preserve a stable toolbar band even when the currently visible item set
-        # fits in one short row.  Its height is then independent of rebuild timing.
-        return max(self.flow_layout.heightForWidth(max(width, 100)), 48)
+        # fits in one short row, and cap maximum height so the bar never pushes
+        # the main window or map canvas off-screen.
+        raw_h = max(self.flow_layout.heightForWidth(max(width, 100)), 48)
+        return min(raw_h, self.MAX_FLOW_HEIGHT)
 
     def sizeHint(self) -> QSize:
         w = max(self.width(), 100)
         return QSize(w, self._flow_height(w))
 
     def minimumSizeHint(self) -> QSize:
-        # Height must follow the wrapped rows, otherwise QMainWindow may squash the bar
+        # Keep horizontal minimum compact so QMainWindow never widens on toolbar rebuild/edit mode
         return QSize(100, self._flow_height(max(self.width(), 100)))
 
     def hasHeightForWidth(self) -> bool:
@@ -1353,12 +1357,16 @@ class ToolbarEditModeBanner(QFrame):
     """
     Prominent notification banner displayed while toolbar customization mode is active.
     Provides clear instructions, 'Zakończ personalizację', and 'Przywróć domyślne' buttons.
+    Designed with Ignored horizontal size policy and compact minimumSizeHint so showing
+    the banner NEVER expands QMainWindow horizontally at any resolution or DPI.
     """
 
     def __init__(self, manager: "ToolbarManager", parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.manager = manager
         self.setFixedHeight(36)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(0)
         self.setStyleSheet("""
             ToolbarEditModeBanner {
                 background-color: #1e293b;
@@ -1375,7 +1383,7 @@ class ToolbarEditModeBanner(QFrame):
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: 600;
-                padding: 4px 12px;
+                padding: 4px 10px;
                 min-height: 24px;
             }
             QPushButton#btn_done {
@@ -1399,29 +1407,50 @@ class ToolbarEditModeBanner(QFrame):
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 0, 14, 0)
-        layout.setSpacing(12)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(8)
 
         icon_lbl = QLabel()
         icon_lbl.setPixmap(IconFactory.get_icon("layout", 16).pixmap(16, 16))
+        icon_lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         layout.addWidget(icon_lbl)
 
-        info_lbl = QLabel(tr("toolbar.edit_banner"))
-        layout.addWidget(info_lbl, 1)
+        self.info_lbl = QLabel(tr("toolbar.edit_banner"))
+        self.info_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.info_lbl.setMinimumWidth(0)
+        self.info_lbl.setToolTip(tr("toolbar.edit_banner"))
+        layout.addWidget(self.info_lbl, 1)
 
-        btn_reset = QPushButton("↺ " + tr("toolbar.reset_layout"))
-        btn_reset.setObjectName("btn_reset")
-        btn_reset.setToolTip(tr("toolbar.reset_tooltip"))
-        btn_reset.clicked.connect(lambda: self.manager.reset_to_default(save=True))
-        layout.addWidget(btn_reset)
+        self.btn_reset = QPushButton("↺ " + tr("toolbar.reset_layout"))
+        self.btn_reset.setObjectName("btn_reset")
+        self.btn_reset.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.btn_reset.setToolTip(tr("toolbar.reset_tooltip"))
+        self.btn_reset.clicked.connect(lambda: self.manager.reset_to_default(save=True))
+        layout.addWidget(self.btn_reset)
 
-        btn_done = QPushButton("✓ " + tr("toolbar.edit_mode_finish"))
-        btn_done.setObjectName("btn_done")
-        btn_done.setToolTip(tr("toolbar.done_tooltip"))
-        btn_done.clicked.connect(lambda: self.manager.set_edit_mode(False))
-        layout.addWidget(btn_done)
+        self.btn_done = QPushButton("✓ " + tr("toolbar.edit_mode_finish"))
+        self.btn_done.setObjectName("btn_done")
+        self.btn_done.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.btn_done.setToolTip(tr("toolbar.done_tooltip"))
+        self.btn_done.clicked.connect(lambda: self.manager.set_edit_mode(False))
+        layout.addWidget(self.btn_done)
 
+        get_localization().languageChanged.connect(self._apply_language)
         self.hide()
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, 36)
+
+    def sizeHint(self) -> QSize:
+        return QSize(0, 36)
+
+    def _apply_language(self, _language: str) -> None:
+        self.info_lbl.setText(tr("toolbar.edit_banner"))
+        self.info_lbl.setToolTip(tr("toolbar.edit_banner"))
+        self.btn_reset.setText("↺ " + tr("toolbar.reset_layout"))
+        self.btn_reset.setToolTip(tr("toolbar.reset_tooltip"))
+        self.btn_done.setText("✓ " + tr("toolbar.edit_mode_finish"))
+        self.btn_done.setToolTip(tr("toolbar.done_tooltip"))
 
 
 class ToolbarVisibilityDialog(QDialog):
@@ -2826,7 +2855,7 @@ class ToolbarManager(QObject):
         ("brush", "Pędzel", "brush", "main", ["brush_size", "save_stamp"]),
         ("paths", "Ścieżki", "path", "secondary", ["path_gen_dialog"]),
         ("randomizer", "Randomizer", "randomizer", "secondary", ["variants_toggle", "variants_count", "variants_add", "variants_avoid", "variants_dialog"]),
-        ("transforms", "Transformacje", "rotate", "secondary", ["rot_toggle", "flip_toggle", "seed_group"]),
+        ("transforms", "Transformacje", "rotate", "secondary", ["flip_toggle", "flip_v_toggle", "rot_toggle", "seed_group"]),
         ("system", "System", "settings", "main", ["settings", "shortcuts", "reset_ui"]),
     ]
 
@@ -3130,15 +3159,6 @@ class ToolbarManager(QObject):
     def set_edit_mode(self, active: bool) -> None:
         if self.is_edit_mode == active:
             return
-        window = self.parent_widget
-        if active and isinstance(window, QWidget):
-            self._edit_geometry = window.saveGeometry()
-            self._edit_window_size = window.size()
-            self._edit_window_state = window.saveState() if hasattr(window, "saveState") else None
-            self._edit_was_fullscreen = (
-                window.isFullScreen() or window.isMaximized()
-            )
-            self._edit_was_maximized = window.isMaximized()
         if not active:
             for drag_filter in self._item_drag_filters.values():
                 drag_filter.cancel()
@@ -3161,20 +3181,6 @@ class ToolbarManager(QObject):
         if self.edit_banner:
             self.edit_banner.setVisible(active)
         self.edit_mode_changed.emit(active)
-        if (
-            not active
-            and isinstance(window, QWidget)
-            and hasattr(self, "_edit_geometry")
-        ):
-            if hasattr(window, "restoreState") and self._edit_window_state:
-                window.restoreState(self._edit_window_state)
-            window.restoreGeometry(self._edit_geometry)
-            window.resize(self._edit_window_size)
-            if self._edit_was_fullscreen and hasattr(window, "showFullScreen"):
-                if self._edit_was_maximized:
-                    window.showMaximized()
-                else:
-                    window.showFullScreen()
 
     def toggle_edit_mode(self) -> None:
         self.set_edit_mode(not self.is_edit_mode)

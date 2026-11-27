@@ -201,6 +201,6 @@ class BrushTool(BaseTool):
             for dc in range(-radius, radius + (bs.size % 2 == 0) + 1):
                 tc = context.cursor_col + dc
                 tr = context.cursor_row + dr
-                items = self.create_items_from_selection(tc, tr, context)
+                items = self.create_items_from_selection(tc, tr, context, for_preview=True)
                 previews.extend(items)
         return previews

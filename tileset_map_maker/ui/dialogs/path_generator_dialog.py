@@ -44,7 +44,7 @@ from ...core.rpg_autotile import (
 )
 from ...core.paths import ConnectionRuleEngine
 from ..icons import IconFactory
-from ...core.localization import tr
+from ...core.localization import get_localization, tr
 from .autotile_sandbox_widget import AutoTileSandboxWidget
 
 logger = logging.getLogger("PathGeneratorDialog")
@@ -267,7 +267,7 @@ class TilesetSheetCanvas(QWidget):
             painter.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter,
-                "Brak zaimportowanych tilesetów.\nZaimportuj arkusz w panelu Biblioteki.",
+                tr("path_gen.sheet_empty"),
             )
 
 
@@ -389,6 +389,100 @@ class PathGeneratorDialog(QDialog):
         self._build_ui()
         self._populate_tilesets(initial_asset_id)
         self._populate_saved_autotiles()
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, *_args) -> None:
+        self.setWindowTitle(tr("dialog.path.title"))
+        self.table.setHorizontalHeaderLabels(["ID", tr("dialog.path.table_role")])
+        self.lbl_header.setText(tr("path_gen.header"))
+        self.grp_tileset.setTitle(tr("path_gen.grp_tileset"))
+        self.grp_sheet.setTitle(tr("path_gen.grp_sheet"))
+        self.btn_zoom_out.setToolTip(tr("path_gen.zoom_out_tooltip"))
+        self.btn_zoom_reset.setToolTip(tr("path_gen.zoom_reset_tooltip"))
+        self.btn_zoom_in.setToolTip(tr("path_gen.zoom_in_tooltip"))
+        self.grp_params.setTitle(tr("path_gen.grp_params"))
+        for key, widget in (
+            ("path_gen.mode_label", self.cmb_mode),
+            ("path_gen.width_label", self.width_row_widget),
+            ("path_gen.style_label", self.cmb_style),
+            ("path_gen.name_label", self.txt_name),
+            ("path_gen.terrain_label", self.txt_terrain),
+        ):
+            lbl = self.form_params.labelForField(widget)
+            if lbl is not None:
+                lbl.setText(tr(key))
+        mode_keys = (
+            "path_gen.mode_auto",
+            "path_gen.mode_single",
+            "path_gen.mode_2x2",
+            "path_gen.mode_wxh",
+            "path_gen.mode_3x3_center",
+            "path_gen.mode_3x3_tl",
+            "path_gen.mode_2x3_vx",
+            "path_gen.mode_custom",
+        )
+        for i, k in enumerate(mode_keys):
+            if i < self.cmb_mode.count():
+                self.cmb_mode.setItemText(i, tr(k))
+        self.spin_path_width.setSuffix(tr("path_gen.width_suffix"))
+        self.spin_path_width.setToolTip(tr("path_gen.width_tooltip"))
+        for i, k in enumerate(("path_gen.rim_wide", "path_gen.rim_balanced", "path_gen.rim_narrow")):
+            if i < self.cmb_rim_balance.count():
+                self.cmb_rim_balance.setItemText(i, tr(k))
+        for i, k in enumerate(("path_gen.style_organic", "path_gen.style_alpha", "path_gen.style_outline")):
+            if i < self.cmb_style.count():
+                self.cmb_style.setItemText(i, tr(k))
+        self.txt_name.setPlaceholderText(tr("path_gen.name_placeholder"))
+        self.grp_variants.setTitle(tr("path_gen.grp_variants"))
+        mask_keys = (
+            "path_gen.mask_cross",
+            "path_gen.mask_center",
+            "path_gen.mask_turn_es",
+            "path_gen.mask_turn_ws",
+            "path_gen.mask_turn_ne",
+            "path_gen.mask_turn_nw",
+            "path_gen.mask_straight_h",
+            "path_gen.mask_straight_v",
+            "path_gen.mask_t_wes",
+            "path_gen.mask_t_wen",
+            "path_gen.mask_t_nse",
+            "path_gen.mask_t_nsw",
+            "path_gen.mask_isolated",
+        )
+        for i, k in enumerate(mask_keys):
+            if i < self.cmb_variant_mask.count():
+                self.cmb_variant_mask.setItemText(i, tr(k))
+        self.spin_variant_prio.setPrefix(tr("path_gen.prio_prefix"))
+        self.spin_variant_prio.setToolTip(tr("path_gen.prio_tooltip"))
+        self.spin_variant_weight.setPrefix(tr("path_gen.weight_prefix"))
+        self.spin_variant_weight.setToolTip(tr("path_gen.weight_tooltip"))
+        self.cmb_variant_role.setToolTip(tr("path_gen.role_tooltip"))
+        self.btn_add_variant.setText(tr("path_gen.btn_assign"))
+        self.btn_analyze_sheet.setText(tr("path_gen.btn_analyze"))
+        self.btn_analyze_sheet.setToolTip(tr("path_gen.btn_analyze_tooltip"))
+        self.btn_suggest_compat.setText(tr("path_gen.btn_compat"))
+        self.btn_suggest_compat.setToolTip(tr("path_gen.btn_compat_tooltip"))
+        self.lbl_compat_info.setText(tr("path_gen.compat_default"))
+        self.grp_sandbox.setTitle(tr("path_gen.grp_sandbox"))
+        self.btn_curve.setText(tr("path_gen.preset_curve"))
+        self.btn_curve.setToolTip(tr("path_gen.preset_curve_tooltip"))
+        self.btn_cross.setText(tr("path_gen.preset_cross"))
+        self.btn_cross.setToolTip(tr("path_gen.preset_cross_tooltip"))
+        self.btn_loop.setText(tr("path_gen.preset_loop"))
+        self.btn_loop.setToolTip(tr("path_gen.preset_loop_tooltip"))
+        self.btn_area.setText(tr("path_gen.preset_area"))
+        self.btn_area.setToolTip(tr("path_gen.preset_area_tooltip"))
+        self.btn_clear.setText(tr("path_gen.preset_clear"))
+        self.lbl_hint.setText(tr("path_gen.sandbox_hint"))
+        self.grp_saved.setTitle(tr("path_gen.grp_saved"))
+        self.btn_del_saved.setText(tr("path_gen.btn_delete_saved"))
+        self.btn_accept.setText(tr("path_gen.btn_accept"))
+        self.btn_cancel.setText(tr("button.cancel"))
+        if not self.selected_asset:
+            self.lbl_tileset_info.setText(tr("path_gen.no_tilesets"))
+            self.lbl_status.setText(tr("path_gen.status_init"))
+        self.sheet_canvas.update()
+        self.sandbox.update()
 
     # --------------------------------------------------------------------------
     # UI CONSTRUCTION
@@ -399,13 +493,10 @@ class PathGeneratorDialog(QDialog):
         main_layout.setSpacing(10)
 
         # Header description
-        lbl_header = QLabel(
-            "<b>Generator Ścieżek i Autotile (One-Tile)</b>: Wybierz kafelek z dowolnego zaimportowanego tilesetu. "
-            "System automatycznie zsyntetyzuje kompletną ścieżkę Autotile (krawędzie, narożniki, skrzyżowania) gotową do malowania jednym kliknięciem."
-        )
-        lbl_header.setStyleSheet("color: #a1a1aa; font-size: 11px;")
-        lbl_header.setWordWrap(True)
-        main_layout.addWidget(lbl_header)
+        self.lbl_header = QLabel(tr("path_gen.header"))
+        self.lbl_header.setStyleSheet("color: #a1a1aa; font-size: 11px;")
+        self.lbl_header.setWordWrap(True)
+        main_layout.addWidget(self.lbl_header)
 
         # Compatibility table for tests checking table headers
         self.table = QTableWidget(self)
@@ -425,28 +516,28 @@ class PathGeneratorDialog(QDialog):
         left_layout.setSpacing(8)
 
         # 1. Tileset selector group
-        grp_tileset = QGroupBox("1. Wybór tilesetu z biblioteki edytora", left_widget)
-        tileset_layout = QVBoxLayout(grp_tileset)
+        self.grp_tileset = QGroupBox(tr("path_gen.grp_tileset"), left_widget)
+        tileset_layout = QVBoxLayout(self.grp_tileset)
         tileset_layout.setContentsMargins(10, 12, 10, 10)
         tileset_layout.setSpacing(6)
 
-        self.cmb_tileset = QComboBox(grp_tileset)
+        self.cmb_tileset = QComboBox(self.grp_tileset)
         self.cmb_tileset.currentIndexChanged.connect(self._on_tileset_changed)
         tileset_layout.addWidget(self.cmb_tileset)
 
-        self.lbl_tileset_info = QLabel("Brak zaimportowanych tilesetów", grp_tileset)
+        self.lbl_tileset_info = QLabel(tr("path_gen.no_tilesets"), self.grp_tileset)
         self.lbl_tileset_info.setStyleSheet("color: #71717a; font-size: 10px;")
         tileset_layout.addWidget(self.lbl_tileset_info)
 
-        left_layout.addWidget(grp_tileset)
+        left_layout.addWidget(self.grp_tileset)
 
         # 2. Interactive sheet canvas group
-        grp_sheet = QGroupBox("2. Kliknij wybrany kafelek źródłowy materiału", left_widget)
-        sheet_layout = QVBoxLayout(grp_sheet)
+        self.grp_sheet = QGroupBox(tr("path_gen.grp_sheet"), left_widget)
+        sheet_layout = QVBoxLayout(self.grp_sheet)
         sheet_layout.setContentsMargins(10, 12, 10, 10)
         sheet_layout.setSpacing(6)
 
-        self.sheet_scroll = QScrollArea(grp_sheet)
+        self.sheet_scroll = QScrollArea(self.grp_sheet)
         self.sheet_scroll.setWidgetResizable(False)
         self.sheet_canvas = TilesetSheetCanvas(self.sheet_scroll)
         self.sheet_canvas.tile_selected.connect(self._on_tile_clicked)
@@ -457,167 +548,169 @@ class PathGeneratorDialog(QDialog):
 
         # Tile selection info bar
         tile_bar = QHBoxLayout()
-        self.lbl_tile_thumb = QLabel(grp_sheet)
+        self.lbl_tile_thumb = QLabel(self.grp_sheet)
         self.lbl_tile_thumb.setFixedSize(36, 36)
         self.lbl_tile_thumb.setStyleSheet("border: 1px solid #3f3f46; border-radius: 4px; background: #18181b;")
         tile_bar.addWidget(self.lbl_tile_thumb)
 
-        self.lbl_tile_coords = QLabel("Wybrany kafel: [kolumna: 0, wiersz: 0]", grp_sheet)
+        self.lbl_tile_coords = QLabel(tr("path_gen.selected_tile_init"), self.grp_sheet)
         self.lbl_tile_coords.setStyleSheet("font-weight: 600; color: #38bdf8; font-size: 11px;")
         tile_bar.addWidget(self.lbl_tile_coords, 1)
 
         # Zoom controls for tileset sheet preview (A. Źródło)
-        btn_zoom_out = QPushButton("−", grp_sheet)
-        btn_zoom_out.setFixedWidth(26)
-        btn_zoom_out.setToolTip("Pomniejsz arkusz (Ctrl+Kółko)")
-        btn_zoom_out.clicked.connect(lambda: self.sheet_canvas.set_zoom(self.sheet_canvas.zoom - 0.5))
-        tile_bar.addWidget(btn_zoom_out)
+        self.btn_zoom_out = QPushButton("−", self.grp_sheet)
+        self.btn_zoom_out.setFixedWidth(26)
+        self.btn_zoom_out.setToolTip(tr("path_gen.zoom_out_tooltip"))
+        self.btn_zoom_out.clicked.connect(lambda: self.sheet_canvas.set_zoom(self.sheet_canvas.zoom - 0.5))
+        tile_bar.addWidget(self.btn_zoom_out)
 
-        btn_zoom_reset = QPushButton("1:1", grp_sheet)
-        btn_zoom_reset.setFixedWidth(34)
-        btn_zoom_reset.setToolTip("Przywróć powiększenie 100%")
-        btn_zoom_reset.clicked.connect(lambda: self.sheet_canvas.set_zoom(1.0))
-        tile_bar.addWidget(btn_zoom_reset)
+        self.btn_zoom_reset = QPushButton("1:1", self.grp_sheet)
+        self.btn_zoom_reset.setFixedWidth(34)
+        self.btn_zoom_reset.setToolTip(tr("path_gen.zoom_reset_tooltip"))
+        self.btn_zoom_reset.clicked.connect(lambda: self.sheet_canvas.set_zoom(1.0))
+        tile_bar.addWidget(self.btn_zoom_reset)
 
-        btn_zoom_in = QPushButton("+", grp_sheet)
-        btn_zoom_in.setFixedWidth(26)
-        btn_zoom_in.setToolTip("Powiększ arkusz (Ctrl+Kółko)")
-        btn_zoom_in.clicked.connect(lambda: self.sheet_canvas.set_zoom(self.sheet_canvas.zoom + 0.5))
-        tile_bar.addWidget(btn_zoom_in)
+        self.btn_zoom_in = QPushButton("+", self.grp_sheet)
+        self.btn_zoom_in.setFixedWidth(26)
+        self.btn_zoom_in.setToolTip(tr("path_gen.zoom_in_tooltip"))
+        self.btn_zoom_in.clicked.connect(lambda: self.sheet_canvas.set_zoom(self.sheet_canvas.zoom + 0.5))
+        tile_bar.addWidget(self.btn_zoom_in)
 
         sheet_layout.addLayout(tile_bar)
-        left_layout.addWidget(grp_sheet, 1)
+        left_layout.addWidget(self.grp_sheet, 1)
 
         # 3. Generation parameters group
-        grp_params = QGroupBox("3. Parametry automatycznej syntezy", left_widget)
-        form_params = QFormLayout(grp_params)
-        form_params.setContentsMargins(10, 12, 10, 10)
-        form_params.setSpacing(6)
+        self.grp_params = QGroupBox(tr("path_gen.grp_params"), left_widget)
+        self.form_params = QFormLayout(self.grp_params)
+        self.form_params.setContentsMargins(10, 12, 10, 10)
+        self.form_params.setSpacing(6)
 
-        self.cmb_mode = QComboBox(grp_params)
-        self.cmb_mode.addItem("Automatyczny (analiza krawędzi i otoczenia)", "auto")
-        self.cmb_mode.addItem("Pojedynczy kafelek (synteza krawędzi)", "single_tile")
-        self.cmb_mode.addItem("Blok 2×2 z arkusza (4 narożniki / wyspa)", "block_2x2")
-        self.cmb_mode.addItem("Kompozycja wielokafelkowa W×H (1 wariant = W×H komórek)", "composition_wxh")
-        self.cmb_mode.addItem("Blok 3×3 z arkusza (kafel jako środek)", "block_3x3_center")
-        self.cmb_mode.addItem("Blok 3×3 z arkusza (kafel jako róg TL)", "block_3x3_tl")
-        self.cmb_mode.addItem("Układ 2×3 RPG Maker VX z arkusza", "block_2x3_vx")
-        self.cmb_mode.addItem("Zaznaczony obszar W×H (niestandardowy)", "custom_region")
+        self.cmb_mode = QComboBox(self.grp_params)
+        self.cmb_mode.addItem(tr("path_gen.mode_auto"), "auto")
+        self.cmb_mode.addItem(tr("path_gen.mode_single"), "single_tile")
+        self.cmb_mode.addItem(tr("path_gen.mode_2x2"), "block_2x2")
+        self.cmb_mode.addItem(tr("path_gen.mode_wxh"), "composition_wxh")
+        self.cmb_mode.addItem(tr("path_gen.mode_3x3_center"), "block_3x3_center")
+        self.cmb_mode.addItem(tr("path_gen.mode_3x3_tl"), "block_3x3_tl")
+        self.cmb_mode.addItem(tr("path_gen.mode_2x3_vx"), "block_2x3_vx")
+        self.cmb_mode.addItem(tr("path_gen.mode_custom"), "custom_region")
         self.cmb_mode.currentIndexChanged.connect(self._regenerate_autotile)
-        form_params.addRow("Tryb generowania:", self.cmb_mode)
+        self.form_params.addRow(tr("path_gen.mode_label"), self.cmb_mode)
 
-        width_row = QHBoxLayout()
-        self.spin_path_width = QSpinBox(grp_params)
+        self.width_row_widget = QWidget(self.grp_params)
+        width_row = QHBoxLayout(self.width_row_widget)
+        width_row.setContentsMargins(0, 0, 0, 0)
+        self.spin_path_width = QSpinBox(self.width_row_widget)
         self.spin_path_width.setRange(1, 4)
         self.spin_path_width.setValue(1)
-        self.spin_path_width.setSuffix(" kaf.")
-        self.spin_path_width.setToolTip("Szerokość malowanej ścieżki w kafelkach (1 = pojedyncza, 2 = podwójna itd.)")
+        self.spin_path_width.setSuffix(tr("path_gen.width_suffix"))
+        self.spin_path_width.setToolTip(tr("path_gen.width_tooltip"))
         self.spin_path_width.valueChanged.connect(self._regenerate_autotile)
         width_row.addWidget(self.spin_path_width)
 
-        self.cmb_rim_balance = QComboBox(grp_params)
-        self.cmb_rim_balance.addItem("Nawierzchnia: Szeroka", 0.28)
-        self.cmb_rim_balance.addItem("Nawierzchnia: Zrównoważona", 0.40)
-        self.cmb_rim_balance.addItem("Nawierzchnia: Wąska", 0.52)
+        self.cmb_rim_balance = QComboBox(self.width_row_widget)
+        self.cmb_rim_balance.addItem(tr("path_gen.rim_wide"), 0.28)
+        self.cmb_rim_balance.addItem(tr("path_gen.rim_balanced"), 0.40)
+        self.cmb_rim_balance.addItem(tr("path_gen.rim_narrow"), 0.52)
         self.cmb_rim_balance.setCurrentIndex(1)
         self.cmb_rim_balance.currentIndexChanged.connect(self._regenerate_autotile)
         width_row.addWidget(self.cmb_rim_balance, 1)
-        form_params.addRow("Szerokość ścieżki:", width_row)
+        self.form_params.addRow(tr("path_gen.width_label"), self.width_row_widget)
 
-        self.cmb_style = QComboBox(grp_params)
-        self.cmb_style.addItem("Organiczny kontur RPG (cieniowany)", "organic")
-        self.cmb_style.addItem("Miękkie przejście (Alpha Blend)", "alpha_fade")
-        self.cmb_style.addItem("Ciemny obrys (Pixel Outline)", "dark_outline")
+        self.cmb_style = QComboBox(self.grp_params)
+        self.cmb_style.addItem(tr("path_gen.style_organic"), "organic")
+        self.cmb_style.addItem(tr("path_gen.style_alpha"), "alpha_fade")
+        self.cmb_style.addItem(tr("path_gen.style_outline"), "dark_outline")
         self.cmb_style.currentIndexChanged.connect(self._regenerate_autotile)
-        form_params.addRow("Styl krawędzi:", self.cmb_style)
+        self.form_params.addRow(tr("path_gen.style_label"), self.cmb_style)
 
-        self.txt_name = QLineEdit(grp_params)
-        self.txt_name.setPlaceholderText("np. Kamienna Ścieżka")
+        self.txt_name = QLineEdit(self.grp_params)
+        self.txt_name.setPlaceholderText(tr("path_gen.name_placeholder"))
         self.txt_name.textEdited.connect(lambda _t: setattr(self, "_name_manually_edited", True))
-        form_params.addRow("Nazwa ścieżki:", self.txt_name)
+        self.form_params.addRow(tr("path_gen.name_label"), self.txt_name)
 
-        self.txt_terrain = QLineEdit(grp_params)
+        self.txt_terrain = QLineEdit(self.grp_params)
         self.txt_terrain.setText("path")
-        form_params.addRow("Typ terenu:", self.txt_terrain)
+        self.form_params.addRow(tr("path_gen.terrain_label"), self.txt_terrain)
 
-        left_layout.addWidget(grp_params)
+        left_layout.addWidget(self.grp_params)
 
         # 3b. Custom multi-tile variants (1x1, 2x1, 1x2, 2x2, 3x3, WxH)
-        grp_variants = QGroupBox("3b. Warianty i wyjątki (1×1, 2×2, W×H)", left_widget)
-        var_layout = QVBoxLayout(grp_variants)
+        self.grp_variants = QGroupBox(tr("path_gen.grp_variants"), left_widget)
+        var_layout = QVBoxLayout(self.grp_variants)
         var_layout.setContentsMargins(8, 10, 8, 8)
         var_layout.setSpacing(4)
 
         var_row1 = QHBoxLayout()
-        self.cmb_variant_mask = QComboBox(grp_variants)
-        self.cmb_variant_mask.addItem("Skrzyżowanie + (N+E+S+W)", 85)
-        self.cmb_variant_mask.addItem("Środek pełny (255)", 255)
-        self.cmb_variant_mask.addItem("Zakręt ⌜ (E+S)", 20)
-        self.cmb_variant_mask.addItem("Zakręt ⌝ (W+S)", 80)
-        self.cmb_variant_mask.addItem("Zakręt ⌞ (N+E)", 5)
-        self.cmb_variant_mask.addItem("Zakręt ⌟ (N+W)", 65)
-        self.cmb_variant_mask.addItem("Prosta pozioma (W+E)", 68)
-        self.cmb_variant_mask.addItem("Prosta pionowa (N+S)", 17)
-        self.cmb_variant_mask.addItem("Rozgałęzienie T (W+E+S)", 84)
-        self.cmb_variant_mask.addItem("Rozgałęzienie T (W+E+N)", 69)
-        self.cmb_variant_mask.addItem("Rozgałęzienie T (N+S+E)", 21)
-        self.cmb_variant_mask.addItem("Rozgałęzienie T (N+S+W)", 81)
-        self.cmb_variant_mask.addItem("Izolowany 1×1 (0)", 0)
+        self.cmb_variant_mask = QComboBox(self.grp_variants)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_cross"), 85)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_center"), 255)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_turn_es"), 20)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_turn_ws"), 80)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_turn_ne"), 5)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_turn_nw"), 65)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_straight_h"), 68)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_straight_v"), 17)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_t_wes"), 84)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_t_wen"), 69)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_t_nse"), 21)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_t_nsw"), 81)
+        self.cmb_variant_mask.addItem(tr("path_gen.mask_isolated"), 0)
         var_row1.addWidget(self.cmb_variant_mask, 1)
 
-        self.spin_variant_prio = QSpinBox(grp_variants)
+        self.spin_variant_prio = QSpinBox(self.grp_variants)
         self.spin_variant_prio.setRange(1, 100)
         self.spin_variant_prio.setValue(10)
-        self.spin_variant_prio.setPrefix("Prio: ")
-        self.spin_variant_prio.setToolTip("Priorytet wariantu (wyższy nadpisuje domyślne reguły)")
+        self.spin_variant_prio.setPrefix(tr("path_gen.prio_prefix"))
+        self.spin_variant_prio.setToolTip(tr("path_gen.prio_tooltip"))
         var_row1.addWidget(self.spin_variant_prio)
 
-        self.spin_variant_weight = QDoubleSpinBox(grp_variants)
+        self.spin_variant_weight = QDoubleSpinBox(self.grp_variants)
         self.spin_variant_weight.setRange(0.1, 100.0)
         self.spin_variant_weight.setValue(1.0)
         self.spin_variant_weight.setSingleStep(0.5)
-        self.spin_variant_weight.setPrefix("Waga: ")
-        self.spin_variant_weight.setToolTip("Waga losowania, gdy wiele wariantów ma tę samą maskę i priorytet")
+        self.spin_variant_weight.setPrefix(tr("path_gen.weight_prefix"))
+        self.spin_variant_weight.setToolTip(tr("path_gen.weight_tooltip"))
         var_row1.addWidget(self.spin_variant_weight)
         var_layout.addLayout(var_row1)
 
         var_row2 = QHBoxLayout()
-        self.cmb_variant_role = QComboBox(grp_variants)
+        self.cmb_variant_role = QComboBox(self.grp_variants)
         for role_name in VARIANT_ROLES:
             self.cmb_variant_role.addItem(role_name, role_name)
-        self.cmb_variant_role.setToolTip("Rola wariantu (np. cross, center, composition, decoration)")
+        self.cmb_variant_role.setToolTip(tr("path_gen.role_tooltip"))
         var_row2.addWidget(self.cmb_variant_role)
 
-        self.btn_add_variant = QPushButton("➕ Przypisz obszar", grp_variants)
+        self.btn_add_variant = QPushButton(tr("path_gen.btn_assign"), self.grp_variants)
         self.btn_add_variant.clicked.connect(self._add_custom_variant)
         var_row2.addWidget(self.btn_add_variant)
 
-        self.cmb_custom_variants = QComboBox(grp_variants)
+        self.cmb_custom_variants = QComboBox(self.grp_variants)
         var_row2.addWidget(self.cmb_custom_variants, 1)
 
-        self.btn_del_variant = QPushButton("🗑", grp_variants)
+        self.btn_del_variant = QPushButton("🗑", self.grp_variants)
         self.btn_del_variant.setFixedWidth(30)
         self.btn_del_variant.clicked.connect(self._remove_selected_custom_variant)
         var_row2.addWidget(self.btn_del_variant)
         var_layout.addLayout(var_row2)
 
         var_row3 = QHBoxLayout()
-        self.btn_analyze_sheet = QPushButton("🔍 Auto-analizuj arkusz", grp_variants)
-        self.btn_analyze_sheet.setToolTip("Analizuje cały arkusz i proponuje rozpoznane bloki oraz warianty")
+        self.btn_analyze_sheet = QPushButton(tr("path_gen.btn_analyze"), self.grp_variants)
+        self.btn_analyze_sheet.setToolTip(tr("path_gen.btn_analyze_tooltip"))
         self.btn_analyze_sheet.clicked.connect(self._auto_analyze_sheet)
         var_row3.addWidget(self.btn_analyze_sheet)
 
-        self.btn_suggest_compat = QPushButton("🔗 Analizuj kompatybilność", grp_variants)
-        self.btn_suggest_compat.setToolTip("Oblicza kierunkowe reguły kompatybilności krawędzi (N/E/S/W) dla wariantów")
+        self.btn_suggest_compat = QPushButton(tr("path_gen.btn_compat"), self.grp_variants)
+        self.btn_suggest_compat.setToolTip(tr("path_gen.btn_compat_tooltip"))
         self.btn_suggest_compat.clicked.connect(self._auto_suggest_compatibility)
         var_row3.addWidget(self.btn_suggest_compat)
         var_layout.addLayout(var_row3)
 
-        self.lbl_compat_info = QLabel("Kompatybilność: automatyczna analiza krawędzi i szerokości", grp_variants)
+        self.lbl_compat_info = QLabel(tr("path_gen.compat_default"), self.grp_variants)
         self.lbl_compat_info.setStyleSheet("color: #71717a; font-size: 10px;")
         var_layout.addWidget(self.lbl_compat_info)
 
-        left_layout.addWidget(grp_variants)
+        left_layout.addWidget(self.grp_variants)
         splitter.addWidget(left_widget)
 
         # ----------------------------------------------------------------------
@@ -629,13 +722,13 @@ class PathGeneratorDialog(QDialog):
         right_layout.setSpacing(8)
 
         # Status badge
-        self.lbl_status = QLabel("Status analizy: Wybierz kafelek z arkusza", right_widget)
+        self.lbl_status = QLabel(tr("path_gen.status_init"), right_widget)
         self.lbl_status.setStyleSheet("color: #a1a1aa; font-size: 11px; padding: 4px; background: #27272a; border-radius: 4px;")
         right_layout.addWidget(self.lbl_status)
 
         # Sandbox testing ground
-        grp_sandbox = QGroupBox("4. Interaktywny poligon testowy ścieżki (Sandbox)", right_widget)
-        sb_layout = QVBoxLayout(grp_sandbox)
+        self.grp_sandbox = QGroupBox(tr("path_gen.grp_sandbox"), right_widget)
+        sb_layout = QVBoxLayout(self.grp_sandbox)
         sb_layout.setContentsMargins(10, 12, 10, 10)
         sb_layout.setSpacing(8)
 
@@ -643,29 +736,29 @@ class PathGeneratorDialog(QDialog):
         preset_bar = QHBoxLayout()
         preset_bar.setSpacing(4)
 
-        btn_curve = QPushButton("🔄 Ścieżka S", grp_sandbox)
-        btn_curve.setToolTip("Rysuje przykładową krętą ścieżkę z zakrętami i prostymi")
-        btn_curve.clicked.connect(self._load_sample_curve)
-        preset_bar.addWidget(btn_curve)
+        self.btn_curve = QPushButton(tr("path_gen.preset_curve"), self.grp_sandbox)
+        self.btn_curve.setToolTip(tr("path_gen.preset_curve_tooltip"))
+        self.btn_curve.clicked.connect(self._load_sample_curve)
+        preset_bar.addWidget(self.btn_curve)
 
-        btn_cross = QPushButton("➕ Skrzyżowanie", grp_sandbox)
-        btn_cross.setToolTip("Rysuje skrzyżowanie 4-kierunkowe oraz rozgałęzienia T")
-        btn_cross.clicked.connect(self._load_sample_cross)
-        preset_bar.addWidget(btn_cross)
+        self.btn_cross = QPushButton(tr("path_gen.preset_cross"), self.grp_sandbox)
+        self.btn_cross.setToolTip(tr("path_gen.preset_cross_tooltip"))
+        self.btn_cross.clicked.connect(self._load_sample_cross)
+        preset_bar.addWidget(self.btn_cross)
 
-        btn_loop = QPushButton("🔁 Pętla", grp_sandbox)
-        btn_loop.setToolTip("Rysuje zamknięty tor z narożnikami")
-        btn_loop.clicked.connect(self._load_sample_loop)
-        preset_bar.addWidget(btn_loop)
+        self.btn_loop = QPushButton(tr("path_gen.preset_loop"), self.grp_sandbox)
+        self.btn_loop.setToolTip(tr("path_gen.preset_loop_tooltip"))
+        self.btn_loop.clicked.connect(self._load_sample_loop)
+        preset_bar.addWidget(self.btn_loop)
 
-        btn_area = QPushButton("🏝️ Obszar", grp_sandbox)
-        btn_area.setToolTip("Rysuje szeroki obszar ze środkiem i narożnikami")
-        btn_area.clicked.connect(self._load_sample_area)
-        preset_bar.addWidget(btn_area)
+        self.btn_area = QPushButton(tr("path_gen.preset_area"), self.grp_sandbox)
+        self.btn_area.setToolTip(tr("path_gen.preset_area_tooltip"))
+        self.btn_area.clicked.connect(self._load_sample_area)
+        preset_bar.addWidget(self.btn_area)
 
-        btn_clear = QPushButton("🧹 Wyczyść", grp_sandbox)
-        btn_clear.clicked.connect(self._clear_sandbox)
-        preset_bar.addWidget(btn_clear)
+        self.btn_clear = QPushButton(tr("path_gen.preset_clear"), self.grp_sandbox)
+        self.btn_clear.clicked.connect(self._clear_sandbox)
+        preset_bar.addWidget(self.btn_clear)
 
         sb_layout.addLayout(preset_bar)
 
@@ -676,45 +769,45 @@ class PathGeneratorDialog(QDialog):
             cols=11,
             rows=8,
             tile_size=34,
-            parent=grp_sandbox,
+            parent=self.grp_sandbox,
         )
         sb_layout.addWidget(self.sandbox, 1)
 
         # Hint for mouse drawing
-        lbl_hint = QLabel("💡 Wskazówka: Rysuj w sandboksie lewym przyciskiem myszy, usuwaj prawym.", grp_sandbox)
-        lbl_hint.setStyleSheet("color: #71717a; font-size: 10px;")
-        sb_layout.addWidget(lbl_hint)
+        self.lbl_hint = QLabel(tr("path_gen.sandbox_hint"), self.grp_sandbox)
+        self.lbl_hint.setStyleSheet("color: #71717a; font-size: 10px;")
+        sb_layout.addWidget(self.lbl_hint)
 
-        right_layout.addWidget(grp_sandbox, 1)
+        right_layout.addWidget(self.grp_sandbox, 1)
 
         # Saved autotiles management
-        grp_saved = QGroupBox("5. Zapisane Autotile w projekcie", right_widget)
-        saved_layout = QHBoxLayout(grp_saved)
+        self.grp_saved = QGroupBox(tr("path_gen.grp_saved"), right_widget)
+        saved_layout = QHBoxLayout(self.grp_saved)
         saved_layout.setContentsMargins(10, 10, 10, 10)
         saved_layout.setSpacing(6)
 
-        self.cmb_saved = QComboBox(grp_saved)
+        self.cmb_saved = QComboBox(self.grp_saved)
         self.cmb_saved.currentIndexChanged.connect(self._on_saved_autotile_selected)
         saved_layout.addWidget(self.cmb_saved, 1)
 
-        btn_del_saved = QPushButton("🗑 Usuń", grp_saved)
-        btn_del_saved.clicked.connect(self._delete_saved_autotile)
-        saved_layout.addWidget(btn_del_saved)
+        self.btn_del_saved = QPushButton(tr("path_gen.btn_delete_saved"), self.grp_saved)
+        self.btn_del_saved.clicked.connect(self._delete_saved_autotile)
+        saved_layout.addWidget(self.btn_del_saved)
 
-        right_layout.addWidget(grp_saved)
+        right_layout.addWidget(self.grp_saved)
 
         # Action Buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        self.btn_accept = QPushButton("✅ Utwórz ścieżkę i maluj na mapie", self)
+        self.btn_accept = QPushButton(tr("path_gen.btn_accept"), self)
         self.btn_accept.setObjectName("primaryBtn")
         self.btn_accept.clicked.connect(self._accept_and_paint)
         btn_row.addWidget(self.btn_accept, 1)
 
-        btn_cancel = QPushButton("Anuluj", self)
-        btn_cancel.clicked.connect(self.reject)
-        btn_row.addWidget(btn_cancel)
+        self.btn_cancel = QPushButton(tr("button.cancel"), self)
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_cancel)
 
         right_layout.addLayout(btn_row)
         splitter.addWidget(right_widget)
@@ -741,7 +834,11 @@ class PathGeneratorDialog(QDialog):
             tw = ts.tileset_config.tile_width if ts.tileset_config else 32
             th = ts.tileset_config.tile_height if ts.tileset_config else 32
             icon = IconFactory.get_icon("map", 16)
-            self.cmb_tileset.addItem(icon, f"{ts.name} ({w}×{h} px, kafel {tw}×{th})", ts.id)
+            self.cmb_tileset.addItem(
+                icon,
+                tr("path_gen.tileset_item", name=ts.name, w=w, h=h, tw=tw, th=th),
+                ts.id,
+            )
 
         self.cmb_tileset.blockSignals(False)
 
@@ -755,7 +852,7 @@ class PathGeneratorDialog(QDialog):
             self.cmb_tileset.setCurrentIndex(idx)
             self._on_tileset_changed(idx)
         else:
-            self.lbl_tileset_info.setText("Brak zaimportowanych tilesetów.")
+            self.lbl_tileset_info.setText(tr("path_gen.no_tilesets"))
             self.btn_accept.setEnabled(False)
 
     def _on_tileset_changed(self, index: int) -> None:
@@ -779,7 +876,16 @@ class PathGeneratorDialog(QDialog):
             cols = asset.width // tw if tw > 0 else 0
             rows = asset.height // th if th > 0 else 0
         self.lbl_tileset_info.setText(
-            f"Wymiary: {asset.width}×{asset.height} px | Kafel: {tw}×{th} px | Siatka: {cols}×{rows} ({cols * rows} kafli)"
+            tr(
+                "path_gen.tileset_info",
+                w=asset.width,
+                h=asset.height,
+                tw=tw,
+                th=th,
+                cols=cols,
+                rows=rows,
+                count=cols * rows,
+            )
         )
 
         # Auto-select tile
@@ -874,14 +980,14 @@ class PathGeneratorDialog(QDialog):
             tile_size=ts,
             tileset_config=ts_cfg,
         )
-        self.lbl_status.setText(f"Status analizy: {analysis.summary}")
+        self.lbl_status.setText(tr("path_gen.status_fmt", desc=analysis.summary))
         self.lbl_compat_info.setText(
-            f"Rozpoznano {len(analysis.proposed_variants)} kompozycji/bloków w arkuszu (cache aktywny)."
+            tr("path_gen.analyze_result", count=len(analysis.proposed_variants))
         )
 
     def _auto_suggest_compatibility(self) -> None:
         if not self._custom_variants:
-            self.lbl_compat_info.setText("Dodaj warianty, aby wyznaczyć macierz kompatybilności N/E/S/W.")
+            self.lbl_compat_info.setText(tr("path_gen.compat_empty"))
             return
         matrix = ConnectionRuleEngine.suggest_compatibility_matrix(self._custom_variants)
         links = 0
@@ -890,7 +996,7 @@ class PathGeneratorDialog(QDialog):
             v.compatible_neighbors = {d: list(ids) for d, ids in v_rules.items()}
             links += sum(len(ids) for ids in v_rules.values())
         self.lbl_compat_info.setText(
-            f"Wyznaczono {links} kompatybilnych połączeń krawędzi dla {len(self._custom_variants)} wariantów."
+            tr("path_gen.compat_result", links=links, count=len(self._custom_variants))
         )
         self._regenerate_autotile()
 
@@ -929,7 +1035,13 @@ class PathGeneratorDialog(QDialog):
 
         size_suffix = f" ({self.selected_w_tiles}×{self.selected_h_tiles})" if (self.selected_w_tiles > 1 or self.selected_h_tiles > 1) else ""
         if not self._name_manually_edited or not self.txt_name.text().strip():
-            name = f"{self.selected_asset.name} - Kafel ({self.selected_col}, {self.selected_row}){size_suffix}"
+            name = tr(
+                "path_gen.auto_name",
+                name=self.selected_asset.name,
+                col=self.selected_col,
+                row=self.selected_row,
+                suffix=size_suffix,
+            )
             self.txt_name.setText(name)
         else:
             name = self.txt_name.text().strip()
@@ -951,7 +1063,15 @@ class PathGeneratorDialog(QDialog):
                 )
             )
         self.lbl_tile_coords.setText(
-            f"Wybrany obszar: [kolumna: {self.selected_col}, wiersz: {self.selected_row}] {self.selected_w_tiles}×{self.selected_h_tiles} ({self.selected_col * ts}, {self.selected_row * ts} px)"
+            tr(
+                "path_gen.selected_region",
+                col=self.selected_col,
+                row=self.selected_row,
+                w=self.selected_w_tiles,
+                h=self.selected_h_tiles,
+                px=self.selected_col * ts,
+                py=self.selected_row * ts,
+            )
         )
 
         # Synthesize Autotile
@@ -968,7 +1088,7 @@ class PathGeneratorDialog(QDialog):
             h_tiles=self.selected_h_tiles,
             rim_balance=rim_balance,
         )
-        self.lbl_status.setText(f"Status analizy: {desc}")
+        self.lbl_status.setText(tr("path_gen.status_fmt", desc=desc))
 
         autotile = RPGAutotile(
             name=name,
@@ -1104,15 +1224,15 @@ class PathGeneratorDialog(QDialog):
     # --------------------------------------------------------------------------
     def _accept_and_paint(self) -> None:
         if not self.current_autotile:
-            QMessageBox.warning(self, "Błąd", "Wybierz kafelek z arkusza przed zatwierdzeniem.")
+            QMessageBox.warning(self, tr("dialog.error"), tr("path_gen.err_select_tile"))
             return
 
         if not self.current_autotile.has_valid_atlas(self.asset_manager):
             if not self.current_autotile.rebuild_atlas(self.asset_manager) or not self.current_autotile.has_valid_atlas(self.asset_manager):
                 QMessageBox.warning(
                     self,
-                    "Błąd generowania ścieżki",
-                    "Nie udało się wygenerować prawidłowego atlasu tekstury dla wybranego kafelka.",
+                    tr("path_gen.err_atlas_title"),
+                    tr("path_gen.err_atlas_body"),
                 )
                 return
 

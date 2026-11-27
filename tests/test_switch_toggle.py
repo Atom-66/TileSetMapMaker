@@ -124,13 +124,16 @@ class TestSwitchToggle(unittest.TestCase):
         bar.chk_avoid.setChecked(True)
         self.assertTrue(bs.avoid_adjacent)
 
-        # 4. Rotation & Flip toggles
-        self.assertIsInstance(bar.chk_rot, SwitchToggle)
-        self.assertIsInstance(bar.chk_flip, SwitchToggle)
-        bar.chk_rot.setChecked(True)
-        self.assertTrue(bs.random_rotation)
-        bar.chk_flip.setChecked(True)
-        self.assertTrue(bs.random_flip_x)
+        # 4. Rotation (90° action button) & Flip toggles
+        bar.btn_rot.click()
+        self.assertEqual(bs.rotation, 90)
+        self.assertIsInstance(bar.chk_flip_h, SwitchToggle)
+        self.assertIsInstance(bar.chk_flip_v, SwitchToggle)
+        bar.chk_flip_h.setChecked(True)
+        self.assertTrue(bs.flip_horizontal)
+        self.assertFalse(bs.flip_vertical)
+        bar.chk_flip_v.setChecked(True)
+        self.assertTrue(bs.flip_vertical)
 
     def test_08_dialogs_switch_toggle_integration(self):
         proj = Project(name="TestProj", map_width=10, map_height=10)

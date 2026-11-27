@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QFrame,
 )
-from ..models.brush_preset import BrushSettings
+from ..models.brush_preset import BrushSettings, can_rotate_selection_90
 from ..models.asset import SelectedSubTile
 from .widgets.switch_toggle import SwitchToggle, ToolbarToggleButton
 from .icons import IconFactory
@@ -62,12 +62,15 @@ class BrushOptionsBar(QWidget):
         if hasattr(self, "chk_avoid"):
             self.chk_avoid.setText(tr("brush.no_repeat"))
             self.chk_avoid.setToolTip(tr("brush.avoid_tooltip"))
-        if hasattr(self, "chk_rot"):
-            self.chk_rot.setText(tr("brush.rotation"))
-            self.chk_rot.setToolTip(tr("brush.rotation_tooltip"))
-        if hasattr(self, "chk_flip"):
-            self.chk_flip.setText(tr("brush.flip"))
-            self.chk_flip.setToolTip(tr("brush.flip_tooltip"))
+        if hasattr(self, "btn_rot"):
+            self._update_rot_button()
+            self.btn_rot.setToolTip(tr("brush.rotation_tooltip"))
+        if hasattr(self, "chk_flip_h"):
+            self.chk_flip_h.setText(tr("brush.flip_h"))
+            self.chk_flip_h.setToolTip(tr("brush.flip_h_tooltip"))
+        if hasattr(self, "chk_flip_v"):
+            self.chk_flip_v.setText(tr("brush.flip_v"))
+            self.chk_flip_v.setToolTip(tr("brush.flip_v_tooltip"))
         if hasattr(self, "lbl_seed"):
             self.lbl_seed.setText(tr("brush.seed"))
             self.txt_seed.setPlaceholderText(tr("brush.seed_placeholder"))
@@ -176,16 +179,35 @@ class BrushOptionsBar(QWidget):
 
         layout.addWidget(self._create_separator())
 
-        # 4. Losowy obrót, odbicie i ziarno (Seed)
-        self.chk_rot = ToolbarToggleButton(tr("brush.rotation"), checked=self.settings.random_rotation, icon_name="rotate")
-        self.chk_rot.setToolTip(tr("brush.rotation_tooltip"))
-        self.chk_rot.toggled.connect(self._on_rot_toggled)
-        layout.addWidget(self.chk_rot)
+        # 4. Trzy niezależne przyciski transformacji: Mirror Horizontal, Mirror Vertical, Rotation 90° (R) + Seed
+        self.chk_flip_h = ToolbarToggleButton(
+            tr("brush.flip_h"),
+            checked=self.settings.flip_horizontal,
+            icon_name="flip-horizontal",
+        )
+        self.chk_flip_h.setToolTip(tr("brush.flip_h_tooltip"))
+        self.chk_flip_h.toggled.connect(self._on_flip_h_toggled)
+        self.chk_flip = self.chk_flip_h  # Backward-compatible alias
+        layout.addWidget(self.chk_flip_h)
 
-        self.chk_flip = ToolbarToggleButton(tr("brush.flip"), checked=self.settings.random_flip_x, icon_name="flip-horizontal")
-        self.chk_flip.setToolTip(tr("brush.flip_tooltip"))
-        self.chk_flip.toggled.connect(self._on_flip_toggled)
-        layout.addWidget(self.chk_flip)
+        self.chk_flip_v = ToolbarToggleButton(
+            tr("brush.flip_v"),
+            checked=self.settings.flip_vertical,
+            icon_name="flip-vertical",
+        )
+        self.chk_flip_v.setToolTip(tr("brush.flip_v_tooltip"))
+        self.chk_flip_v.toggled.connect(self._on_flip_v_toggled)
+        layout.addWidget(self.chk_flip_v)
+
+        self.btn_rot = QToolButton()
+        self.btn_rot.setIcon(IconFactory.get_icon("rotate", 14))
+        self.btn_rot.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_rot.setToolTip(tr("brush.rotation_tooltip"))
+        self.btn_rot.setFixedHeight(26)
+        self.btn_rot.clicked.connect(lambda: self.rotate_brush(clockwise=True))
+        self.chk_rot = self.btn_rot  # Backward-compatible alias
+        self._update_rot_button()
+        layout.addWidget(self.btn_rot)
 
         self.widget_seed = QWidget()
         lay_seed = QHBoxLayout(self.widget_seed)
@@ -213,74 +235,81 @@ class BrushOptionsBar(QWidget):
         """Provides all brush and generation controls for modular toolbar categories."""
         return {
             "brush_size": {
-                "label": "Rozmiar pędzla",
+                "label": tr("toolbar.item.brush_size"),
                 "category": "brush",
                 "widget": self.widget_brush_size,
                 "icon": "brush",
-                "tooltip": "Rozmiar pędzla (1-10 kafelków)",
+                "tooltip": tr("brush.size_tooltip"),
             },
             "path_gen_dialog": {
-                "label": "Generator Ścieżek",
+                "label": tr("toolbar.item.path_gen_dialog"),
                 "category": "paths",
                 "widget": self.btn_path_gen,
                 "icon": "path",
-                "tooltip": "Otwórz Generator Ścieżek (konfigurator kafelków ścieżki i podgląd na żywo)",
+                "tooltip": tr("brush.path_tooltip"),
             },
             "variants_toggle": {
-                "label": "Randomizer",
+                "label": tr("toolbar.item.variants_toggle"),
                 "category": "randomizer",
                 "widget": self.chk_variants,
                 "icon": "randomizer",
-                "tooltip": "Włącz losowy wybór kafelków (Tile Randomizer)",
+                "tooltip": tr("brush.variant_tooltip"),
             },
             "variants_count": {
-                "label": "Licznik wariantów Randomizera",
+                "label": tr("toolbar.item.variants_count"),
                 "category": "randomizer",
                 "widget": self.lbl_variant_count,
                 "icon": "randomizer",
-                "tooltip": "Liczba aktywnych wariantów pędzla w Randomizerze",
+                "tooltip": tr("brush.variant_count_tooltip"),
             },
             "variants_add": {
-                "label": "Dodaj zaznaczenie do Randomizera",
+                "label": tr("toolbar.item.variants_add"),
                 "category": "randomizer",
                 "widget": self.btn_add_selection_variants,
                 "icon": "plus",
-                "tooltip": "Dodaj aktualnie zaznaczony kafelek lub blok kafelków do Randomizera",
+                "tooltip": tr("brush.add_selection_tooltip"),
             },
             "variants_avoid": {
-                "label": "Bez powtórzeń (Avoid Adjacent)",
+                "label": tr("toolbar.item.variants_avoid"),
                 "category": "randomizer",
                 "widget": self.chk_avoid,
                 "icon": "sparkles",
-                "tooltip": "Zapobiega umieszczaniu identycznych wariantów bezpośrednio obok siebie",
+                "tooltip": tr("brush.avoid_tooltip"),
             },
             "variants_dialog": {
-                "label": "Konfigurator Randomizera",
+                "label": tr("toolbar.item.variants_dialog"),
                 "category": "randomizer",
                 "widget": self.btn_randomizer,
                 "icon": "randomizer",
-                "tooltip": "Otwórz konfigurator wariantów, wag i seeda (Tile Randomizer)",
-            },
-            "rot_toggle": {
-                "label": "Losowy obrót (Rotation)",
-                "category": "transforms",
-                "widget": self.chk_rot,
-                "icon": "rotate",
-                "tooltip": "Losuj rotację kafelka (0, 90, 180, 270 stopni)",
+                "tooltip": tr("brush.randomizer_tooltip"),
             },
             "flip_toggle": {
-                "label": "Losowe odbicie (Flip)",
+                "label": tr("toolbar.item.flip_toggle"),
                 "category": "transforms",
-                "widget": self.chk_flip,
+                "widget": self.chk_flip_h,
                 "icon": "flip-horizontal",
-                "tooltip": "Losuj odbicie lustrzane kafelka",
+                "tooltip": tr("brush.flip_h_tooltip"),
+            },
+            "flip_v_toggle": {
+                "label": tr("toolbar.item.flip_v_toggle"),
+                "category": "transforms",
+                "widget": self.chk_flip_v,
+                "icon": "flip-vertical",
+                "tooltip": tr("brush.flip_v_tooltip"),
+            },
+            "rot_toggle": {
+                "label": tr("toolbar.item.rot_toggle"),
+                "category": "transforms",
+                "widget": self.btn_rot,
+                "icon": "rotate",
+                "tooltip": tr("brush.rotation_tooltip"),
             },
             "seed_group": {
-                "label": "Ziarno generatora (Seed)",
+                "label": tr("toolbar.item.seed_group"),
                 "category": "transforms",
                 "widget": self.widget_seed,
                 "icon": "sparkles",
-                "tooltip": "Ziarno generatora losowego (puste = w pełni losowe)",
+                "tooltip": tr("brush.seed_tooltip"),
             },
         }
 
@@ -384,14 +413,71 @@ class BrushOptionsBar(QWidget):
         self.settings.avoid_adjacent = checked
         self.options_changed.emit()
 
-    def _on_rot_toggled(self, checked: bool) -> None:
-        self.settings.random_rotation = checked
+    def _update_rot_button(self) -> None:
+        if not hasattr(self, "btn_rot"):
+            return
+        angle = int(self.settings.rotation) % 360
+        self.btn_rot.setText(f" {tr('brush.rotation')} {angle}°")
+        if angle != 0:
+            self.btn_rot.setStyleSheet("""
+                QToolButton {
+                    background: #2563eb;
+                    color: #ffffff;
+                    border: 1px solid #3b82f6;
+                    border-radius: 4px;
+                    padding: 2px 7px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QToolButton:hover {
+                    background: #1d4ed8;
+                    border-color: #60a5fa;
+                }
+            """)
+        else:
+            self.btn_rot.setStyleSheet(self._button_style())
+
+    def rotate_brush(self, clockwise: bool = True) -> bool:
+        """Rotates the active brush orientation by 90° CW (R) or CCW (Shift+R)."""
+        sel = self.asset_manager.selected_item if self.asset_manager else None
+        ok, tw, th = can_rotate_selection_90(sel)
+        if not ok:
+            msg = tr("brush.rotation_blocked_nonsquare", w=tw, h=th)
+            win = self.window()
+            if hasattr(win, "notification_banner") and win.notification_banner is not None:
+                win.notification_banner.show_message(msg, "warning")
+            elif hasattr(win, "statusBar") and win.statusBar() is not None:
+                win.statusBar().showMessage(msg, 3500)
+            return False
+        if clockwise:
+            self.settings.rotate_cw()
+        else:
+            self.settings.rotate_ccw()
+        self.sync_transform_buttons()
+        self.options_changed.emit()
+        return True
+
+    def _on_flip_h_toggled(self, checked: bool) -> None:
+        self.settings.set_flip_horizontal(checked)
+        self.sync_transform_buttons()
         self.options_changed.emit()
 
-    def _on_flip_toggled(self, checked: bool) -> None:
-        self.settings.random_flip_x = checked
-        self.settings.random_flip_y = checked
+    def _on_flip_v_toggled(self, checked: bool) -> None:
+        self.settings.set_flip_vertical(checked)
+        self.sync_transform_buttons()
         self.options_changed.emit()
+
+    def sync_transform_buttons(self) -> None:
+        """Synchronizes Rotate angle label and Flip H / Flip V button states with BrushSettings."""
+        self._update_rot_button()
+        if hasattr(self, "chk_flip_h"):
+            self.chk_flip_h.blockSignals(True)
+            self.chk_flip_h.setChecked(self.settings.flip_horizontal)
+            self.chk_flip_h.blockSignals(False)
+        if hasattr(self, "chk_flip_v"):
+            self.chk_flip_v.blockSignals(True)
+            self.chk_flip_v.setChecked(self.settings.flip_vertical)
+            self.chk_flip_v.blockSignals(False)
 
     def _on_seed_changed(self, text: str) -> None:
         if text.strip().isdigit():
@@ -445,6 +531,7 @@ class BrushOptionsBar(QWidget):
             else:
                 self.txt_seed.clear()
             self.txt_seed.blockSignals(False)
+        self.sync_transform_buttons()
 
     def open_path_generator_dialog(self) -> None:
         win = self.window()

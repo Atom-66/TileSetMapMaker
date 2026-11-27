@@ -213,7 +213,7 @@ class AutoTileSandboxWidget(QWidget):
             painter.drawText(
                 QRect(0, 0, self.cols * ts, self.rows * ts),
                 Qt.AlignmentFlag.AlignCenter,
-                "Wybierz kafelek z arkusza po lewej stronie,\naby zobaczyć podgląd ścieżki na żywo.",
+                tr("path_gen.sandbox_select_prompt"),
             )
 
         # Help hint when empty
@@ -224,7 +224,7 @@ class AutoTileSandboxWidget(QWidget):
             painter.drawText(
                 QRect(0, 0, self.cols * ts, self.rows * ts),
                 Qt.AlignmentFlag.AlignCenter,
-                "Kliknij lub przeciągnij lewym przyciskiem myszy, aby rysować ścieżkę.\nPrawy przycisk myszy usuwa kafelki (gumka).",
+                tr("path_gen.sandbox_draw_prompt"),
             )
 
     def get_coverage_summary(self) -> Dict[str, Any]:

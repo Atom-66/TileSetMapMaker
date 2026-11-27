@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...core.autotile_engine import AutoTileEngine
+from ...core.localization import get_localization, tr
 from ...core.terrain_generator import TerrainApplyCommand
 from ...models.project import Project
 from ...models.terrain import (
@@ -120,10 +121,11 @@ class TerrainGeneratorDialog(QDialog):
         self.history_manager = history_manager
         self.result: Optional[TerrainResult] = None
         self._generation_running = False
-        self.setWindowTitle("Generator terenu")
+        self.setWindowTitle(tr("dialog.terrain.title"))
         self.resize(760, 620)
         self._init_ui()
         self._load_config(generator.last_config)
+        get_localization().languageChanged.connect(self._apply_language)
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -132,14 +134,15 @@ class TerrainGeneratorDialog(QDialog):
         for key, preset in self.generator.presets.items():
             self.combo_preset.addItem(preset.name, key)
         self.combo_preset.currentIndexChanged.connect(self._preset_changed)
-        top.addWidget(QLabel("Preset:"))
+        self.lbl_preset = QLabel(tr("dialog.terrain.preset"))
+        top.addWidget(self.lbl_preset)
         top.addWidget(self.combo_preset, 1)
-        save_preset = QPushButton("Zapisz preset")
-        save_preset.clicked.connect(self._save_preset)
-        top.addWidget(save_preset)
+        self.btn_save_preset = QPushButton(tr("dialog.terrain.save_preset"))
+        self.btn_save_preset.clicked.connect(self._save_preset)
+        top.addWidget(self.btn_save_preset)
         root.addLayout(top)
 
-        form = QFormLayout()
+        self.form = QFormLayout()
         self.spin_seed = QSpinBox()
         self.spin_seed.setRange(0, 2_147_483_647)
         self.spin_scale = QDoubleSpinBox()
@@ -161,53 +164,71 @@ class TerrainGeneratorDialog(QDialog):
         self.spin_roads.setRange(0, 12)
         self.spin_road_width = QSpinBox()
         self.spin_road_width.setRange(1, 7)
-        for label, widget in (
-            ("Seed:", self.spin_seed),
-            ("Skala szumu:", self.spin_scale),
-            ("Poziom wody:", self.spin_water),
-            ("Poziom gór:", self.spin_mountain),
-            ("Próg lasu:", self.spin_forest),
-            ("Rzeki:", self.spin_rivers),
-            ("Szerokość rzek:", self.spin_river_width),
-            ("Drogi:", self.spin_roads),
-            ("Szerokość dróg:", self.spin_road_width),
-        ):
-            form.addRow(label, widget)
-        root.addLayout(form)
+        self._param_rows = (
+            ("dialog.terrain.seed", self.spin_seed),
+            ("dialog.terrain.scale", self.spin_scale),
+            ("dialog.terrain.water_level", self.spin_water),
+            ("dialog.terrain.mountain_level", self.spin_mountain),
+            ("dialog.terrain.forest_threshold", self.spin_forest),
+            ("dialog.terrain.rivers", self.spin_rivers),
+            ("dialog.terrain.river_width", self.spin_river_width),
+            ("dialog.terrain.roads", self.spin_roads),
+            ("dialog.terrain.road_width", self.spin_road_width),
+        )
+        for key, widget in self._param_rows:
+            self.form.addRow(tr(key), widget)
+        root.addLayout(self.form)
 
-        rules_label = QLabel("Ścieżki i autotile terenu")
-        rules_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
-        root.addWidget(rules_label)
+        self.rules_label = QLabel(tr("dialog.terrain.rules_header"))
+        self.rules_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        root.addWidget(self.rules_label)
         self.rule_combos: Dict[str, QComboBox] = {}
         for terrain in TerrainType:
             combo = QComboBox()
-            combo.addItem("Brak mapowania", "")
+            combo.addItem(tr("dialog.terrain.no_mapping"), "")
             for autotile in getattr(self.autotile_engine, "rpg_autotiles", {}).values():
                 combo.addItem(
                     f"{autotile.name} ({autotile.terrain_type})",
                     autotile.id,
                 )
             self.rule_combos[terrain.name.casefold()] = combo
-            form.addRow(f"{terrain.name.title()}:", combo)
+            self.form.addRow(f"{terrain.name.title()}:", combo)
 
         self.preview = TerrainPreview()
         root.addWidget(self.preview, 1)
 
         buttons = QHBoxLayout()
-        preview_button = QPushButton("Generuj podgląd")
-        preview_button.clicked.connect(self.preview_generation)
-        buttons.addWidget(preview_button)
-        restore_button = QPushButton("Przywróć poprzedni")
-        restore_button.clicked.connect(self.restore_previous)
-        buttons.addWidget(restore_button)
+        self.preview_button = QPushButton(tr("dialog.terrain.generate_preview"))
+        self.preview_button.clicked.connect(self.preview_generation)
+        buttons.addWidget(self.preview_button)
+        self.restore_button = QPushButton(tr("dialog.terrain.restore_previous"))
+        self.restore_button.clicked.connect(self.restore_previous)
+        buttons.addWidget(self.restore_button)
         buttons.addStretch()
-        apply_button = QPushButton("Zastosuj na aktywnej warstwie")
-        apply_button.clicked.connect(self.apply_generation)
-        buttons.addWidget(apply_button)
-        close_button = QPushButton("Zamknij")
-        close_button.clicked.connect(self.accept)
-        buttons.addWidget(close_button)
+        self.apply_button = QPushButton(tr("dialog.terrain.apply_layer"))
+        self.apply_button.clicked.connect(self.apply_generation)
+        buttons.addWidget(self.apply_button)
+        self.close_button = QPushButton(tr("button.close"))
+        self.close_button.clicked.connect(self.accept)
+        buttons.addWidget(self.close_button)
         root.addLayout(buttons)
+
+    def _apply_language(self, *_args) -> None:
+        self.setWindowTitle(tr("dialog.terrain.title"))
+        self.lbl_preset.setText(tr("dialog.terrain.preset"))
+        self.btn_save_preset.setText(tr("dialog.terrain.save_preset"))
+        for key, widget in self._param_rows:
+            lbl = self.form.labelForField(widget)
+            if lbl is not None:
+                lbl.setText(tr(key))
+        self.rules_label.setText(tr("dialog.terrain.rules_header"))
+        for combo in self.rule_combos.values():
+            if combo.count() > 0:
+                combo.setItemText(0, tr("dialog.terrain.no_mapping"))
+        self.preview_button.setText(tr("dialog.terrain.generate_preview"))
+        self.restore_button.setText(tr("dialog.terrain.restore_previous"))
+        self.apply_button.setText(tr("dialog.terrain.apply_layer"))
+        self.close_button.setText(tr("button.close"))
 
     def _load_config(self, config: TerrainConfig) -> None:
         self.spin_seed.setValue(config.seed)
@@ -283,14 +304,18 @@ class TerrainGeneratorDialog(QDialog):
         self._generation_running = False
         self._generation_task = None
         QMessageBox.critical(
-            self, "Błąd generatora", f"Nie udało się wygenerować terenu:\n{message}"
+            self,
+            tr("dialog.terrain.error_title"),
+            tr("dialog.terrain.error_body", error=message),
         )
 
     def restore_previous(self) -> None:
         self.result = self.generator.restore_previous()
         if self.result is None:
             QMessageBox.information(
-                self, "Brak wyniku", "Nie ma poprzedniego podglądu do przywrócenia."
+                self,
+                tr("dialog.terrain.no_result_title"),
+                tr("dialog.terrain.no_result_body"),
             )
             return
         self.preview.set_result(self.result)
@@ -302,14 +327,16 @@ class TerrainGeneratorDialog(QDialog):
         if not config.ruleset_ids:
             QMessageBox.warning(
                 self,
-                "Brak reguł",
-                "Przypisz co najmniej jedną regułę terenu przed zastosowaniem.",
+                tr("dialog.terrain.no_rules_title"),
+                tr("dialog.terrain.no_rules_body"),
             )
             return
         layer = self.project.get_active_layer()
         if not layer or layer.locked:
             QMessageBox.warning(
-                self, "Nieaktywna warstwa", "Wybierz edytowalną warstwę."
+                self,
+                tr("dialog.terrain.inactive_layer_title"),
+                tr("dialog.terrain.inactive_layer_body"),
             )
             return
         command = TerrainApplyCommand(

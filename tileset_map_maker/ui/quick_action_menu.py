@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor
 
 from .icons import IconFactory
+from ..core.localization import get_localization, tr
 
 
 class QuickActionMenu(QWidget):
@@ -49,31 +50,32 @@ class QuickActionMenu(QWidget):
         inner_layout.setContentsMargins(8, 8, 8, 8)
         inner_layout.setSpacing(6)
 
-        header = QLabel("Szybkie Narzędzia")
-        header.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: 600; border: none; padding: 2px;")
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner_layout.addWidget(header)
+        self.header = QLabel(tr("quick_menu.title"))
+        self.header.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: 600; border: none; padding: 2px;")
+        self.header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner_layout.addWidget(self.header)
 
         grid = QGridLayout()
         grid.setSpacing(6)
 
-        tools = [
-            ("brush", "Pędzel (B)", 0, 0),
-            ("eraser", "Gumka (E)", 0, 1),
-            ("fill", "Wypełnianie (G)", 0, 2),
-            ("eyedropper", "Pipeta (I)", 1, 0),
-            ("select", "Zaznaczanie (S)", 1, 1),
-            ("wand", "Różdżka (W)", 1, 2),
-            ("object", "Obiekt (V)", 2, 0),
-            ("line", "Linia (L)", 2, 1),
-            ("rect", "Prostokąt (U)", 2, 2),
+        self._tool_specs = [
+            ("brush", "tool.brush", "B", 0, 0),
+            ("eraser", "tool.eraser", "E", 0, 1),
+            ("fill", "tool.fill", "G", 0, 2),
+            ("eyedropper", "tool.eyedropper", "I", 1, 0),
+            ("select", "tool.select", "S", 1, 1),
+            ("wand", "tool.wand", "W", 1, 2),
+            ("object", "tool.object", "V", 2, 0),
+            ("line", "tool.line", "L", 2, 1),
+            ("rect", "tool.rect", "U", 2, 2),
         ]
+        self._tool_buttons = {}
 
-        for key, label, r, c in tools:
+        for key, label_key, shortcut, r, c in self._tool_specs:
             btn = QToolButton(container)
             btn.setIcon(IconFactory.get_icon(key, size=24))
             btn.setIconSize(QSize(22, 22))
-            btn.setToolTip(label)
+            btn.setToolTip(f"{tr(label_key)} ({shortcut})")
             btn.setFixedSize(46, 46)
             btn.setStyleSheet("""
                 QToolButton {
@@ -91,8 +93,15 @@ class QuickActionMenu(QWidget):
             """)
             btn.clicked.connect(lambda checked, k=key: self._on_select(k))
             grid.addWidget(btn, r, c)
+            self._tool_buttons[key] = (btn, label_key, shortcut)
 
         inner_layout.addLayout(grid)
+        get_localization().languageChanged.connect(self._apply_language)
+
+    def _apply_language(self, _language: str) -> None:
+        self.header.setText(tr("quick_menu.title"))
+        for btn, label_key, shortcut in self._tool_buttons.values():
+            btn.setToolTip(f"{tr(label_key)} ({shortcut})")
 
     def _on_select(self, key: str) -> None:
         self.tool_selected.emit(key)

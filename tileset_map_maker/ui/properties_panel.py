@@ -118,10 +118,10 @@ class PropertiesPanel(QWidget):
         self.lbl_map_dim = QLabel()
         self.lbl_tile_dim = QLabel()
         self.lbl_layers_cnt = QLabel()
-        self.form_map.addRow("Nazwa:", self.lbl_map_name)
-        self.form_map.addRow("Wymiary mapy:", self.lbl_map_dim)
-        self.form_map.addRow("Rozmiar kafelka:", self.lbl_tile_dim)
-        self.form_map.addRow("Liczba warstw:", self.lbl_layers_cnt)
+        self.form_map.addRow(tr("properties.name"), self.lbl_map_name)
+        self.form_map.addRow(tr("properties.map_dimensions"), self.lbl_map_dim)
+        self.form_map.addRow(tr("properties.tile_size"), self.lbl_tile_dim)
+        self.form_map.addRow(tr("properties.layer_count"), self.lbl_layers_cnt)
         c_layout.addWidget(self.grp_map)
 
         # 2. Active Layer Properties
@@ -131,9 +131,9 @@ class PropertiesPanel(QWidget):
         self.lbl_layer_name = QLabel()
         self.lbl_layer_status = QLabel()
         self.lbl_layer_opacity = QLabel()
-        self.form_layer.addRow("Nazwa:", self.lbl_layer_name)
-        self.form_layer.addRow("Status:", self.lbl_layer_status)
-        self.form_layer.addRow("Przezroczystość:", self.lbl_layer_opacity)
+        self.form_layer.addRow(tr("properties.name"), self.lbl_layer_name)
+        self.form_layer.addRow(tr("properties.status"), self.lbl_layer_status)
+        self.form_layer.addRow(tr("properties.opacity"), self.lbl_layer_opacity)
         c_layout.addWidget(self.grp_layer)
 
         # 3. Selection Properties & Sliced Preview
@@ -175,10 +175,10 @@ class PropertiesPanel(QWidget):
         self.lbl_sel_name = QLabel("-")
         self.lbl_sel_pos = QLabel("-")
         self.lbl_sel_size = QLabel("-")
-        self.form_sel.addRow("Typ:", self.lbl_sel_type)
-        self.form_sel.addRow("Zasób:", self.lbl_sel_name)
-        self.form_sel.addRow("Pozycja źródłowa:", self.lbl_sel_pos)
-        self.form_sel.addRow("Rozmiar źródłowy:", self.lbl_sel_size)
+        self.form_sel.addRow(tr("properties.type"), self.lbl_sel_type)
+        self.form_sel.addRow(tr("properties.asset"), self.lbl_sel_name)
+        self.form_sel.addRow(tr("properties.source_position"), self.lbl_sel_pos)
+        self.form_sel.addRow(tr("properties.source_size"), self.lbl_sel_size)
         self.txt_object_type = QLineEdit()
         self.txt_interaction = QLineEdit()
         self.spin_interaction_radius = QDoubleSpinBox()
@@ -188,13 +188,13 @@ class PropertiesPanel(QWidget):
         self.txt_object_properties.setPlaceholderText(
             "hp=100:integer, name=Goblin:string"
         )
-        for label, field in (
-            ("Typ obiektu:", self.txt_object_type),
-            ("Interakcja:", self.txt_interaction),
-            ("Promień:", self.spin_interaction_radius),
-            ("Właściwości:", self.txt_object_properties),
+        for label_key, field in (
+            ("properties.object_type", self.txt_object_type),
+            ("properties.interaction", self.txt_interaction),
+            ("properties.radius", self.spin_interaction_radius),
+            ("properties.custom_properties", self.txt_object_properties),
         ):
-            self.form_sel.addRow(label, field)
+            self.form_sel.addRow(tr(label_key), field)
         self.txt_object_type.editingFinished.connect(self._save_object_properties)
         self.txt_interaction.editingFinished.connect(self._save_object_properties)
         self.spin_interaction_radius.editingFinished.connect(
@@ -240,8 +240,26 @@ class PropertiesPanel(QWidget):
             ),
             (
                 self.form_sel,
-                (self.lbl_sel_type, self.lbl_sel_name, self.lbl_sel_pos, self.lbl_sel_size),
-                ("properties.type", "properties.asset", "properties.source_position", "properties.source_size"),
+                (
+                    self.lbl_sel_type,
+                    self.lbl_sel_name,
+                    self.lbl_sel_pos,
+                    self.lbl_sel_size,
+                    self.txt_object_type,
+                    self.txt_interaction,
+                    self.spin_interaction_radius,
+                    self.txt_object_properties,
+                ),
+                (
+                    "properties.type",
+                    "properties.asset",
+                    "properties.source_position",
+                    "properties.source_size",
+                    "properties.object_type",
+                    "properties.interaction",
+                    "properties.radius",
+                    "properties.custom_properties",
+                ),
             ),
         ):
             for field, key in zip(fields, keys):
@@ -310,7 +328,7 @@ class PropertiesPanel(QWidget):
                 sub_pixmap = self.asset_manager.get_pixmap(asset.id)
         elif isinstance(self.selected_item, MapItem):
             obj = self.selected_item
-            self.lbl_sel_type.setText(obj.object_type or "Obiekt")
+            self.lbl_sel_type.setText(obj.object_type or tr("properties.object_default"))
             self.lbl_sel_name.setText(obj.id)
             self.lbl_sel_pos.setText(
                 f"X: {obj.free_x if obj.free_x is not None else obj.col}, "

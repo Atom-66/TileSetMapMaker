@@ -129,7 +129,7 @@ class MainWindow(QMainWindow):
             project=self.project,
             history_manager=self.history_manager,
         )
-        self.brush_options.options_changed.connect(self.canvas.update)
+        self.brush_options.options_changed.connect(self._on_brush_options_changed)
 
         # Multi-Map Tab Bar (Aseprite & Tiled style)
         self.map_tab_bar = MapTabBar(self.project, central_container)
@@ -175,7 +175,7 @@ class MainWindow(QMainWindow):
         )
 
         # 1. Tool Dock (draggable toolbox, dockable to left, right, top, bottom, or floating)
-        self.tool_dock = QDockWidget("Narzędzia", self)
+        self.tool_dock = QDockWidget(tr("dock.tools"), self)
         self.tool_dock.setObjectName("ToolDock")
         self.tool_dock.setFeatures(dock_features)
         self.tool_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -191,7 +191,7 @@ class MainWindow(QMainWindow):
         self.tileset_palette.refresh_autotiles()
 
         # 3. Tileset Preview Dock (top section: interactive canvas & tile selector)
-        self.tileset_preview_dock = QDockWidget("Podgląd tilesetu", self)
+        self.tileset_preview_dock = QDockWidget(tr("dock.tileset_preview"), self)
         self.tileset_preview_dock.setObjectName("TilesetPreviewDock")
         self.tileset_preview_dock.setFeatures(dock_features)
         self.tileset_preview_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -200,7 +200,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tileset_preview_dock)
 
         # 4. Tileset Library Dock (bottom section: folders, tree, import buttons)
-        self.tileset_library_dock = QDockWidget("Biblioteka tilesetów", self)
+        self.tileset_library_dock = QDockWidget(tr("dock.tileset_library"), self)
         self.tileset_library_dock.setObjectName("TilesetLibraryDock")
         self.tileset_library_dock.setFeatures(dock_features)
         self.tileset_library_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -214,7 +214,7 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.tileset_preview_dock], [260], Qt.Orientation.Horizontal)
 
         # 5. Right Docks: Layers, Objects, Properties, History, Minimap
-        self.layer_dock = QDockWidget("Warstwy i grupy mapy", self)
+        self.layer_dock = QDockWidget(tr("dock.layers"), self)
         self.layer_dock.setObjectName("RightDockLayers")
         self.layer_dock.setFeatures(dock_features)
         self.layer_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -224,7 +224,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock)
 
         # 6. Properties Dock
-        self.properties_dock = QDockWidget("Właściwości", self)
+        self.properties_dock = QDockWidget(tr("dock.properties"), self)
         self.properties_dock.setObjectName("PropertiesDock")
         self.properties_dock.setFeatures(dock_features)
         self.properties_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -234,7 +234,7 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(self.layer_dock, self.properties_dock)
 
         # 7. History Dock
-        self.history_dock = QDockWidget("Historia operacji", self)
+        self.history_dock = QDockWidget(tr("dock.history"), self)
         self.history_dock.setObjectName("HistoryDock")
         self.history_dock.setFeatures(dock_features)
         self.history_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -244,7 +244,7 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(self.layer_dock, self.history_dock)
 
         # 8. Minimap Dock (TASK-505)
-        self.minimap_dock = QDockWidget("Minimapa", self)
+        self.minimap_dock = QDockWidget(tr("dock.minimap"), self)
         self.minimap_dock.setObjectName("MinimapDock")
         self.minimap_dock.setFeatures(dock_features)
         self.minimap_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -266,9 +266,9 @@ class MainWindow(QMainWindow):
         self.lbl_status_pos = QLabel(f"{tr('status.cursor')}: (0, 0)")
         self.lbl_status_size = QLabel(f"{tr('status.size')}: {self.project.map_width}x{self.project.map_height} ({self.project.tile_size}px)")
         self.lbl_status_zoom = QLabel(f"{tr('status.zoom')}: 200%")
-        self.lbl_status_layer = QLabel(f"{tr('status.layer')}: Ground")
+        self.lbl_status_layer = QLabel(f"{tr('status.layer')}: {tr('status.none')}")
         self.lbl_status_asset = QLabel(f"{tr('status.asset')}: {tr('status.none')}")
-        self.lbl_status_performance = QLabel("Render: -- ms | RAM: -- MB")
+        self.lbl_status_performance = QLabel(tr("status.perf_idle"))
 
         self.status_bar.addWidget(self.lbl_status_pos)
         self.status_bar.addWidget(self.lbl_status_size)
@@ -281,16 +281,29 @@ class MainWindow(QMainWindow):
         self.performance_timer.timeout.connect(self._update_performance_status)
         self.performance_timer.start()
 
+    def _on_brush_options_changed(self) -> None:
+        self.canvas.update()
+        bs = self.canvas.tool_context.brush_settings
+        if hasattr(self, "tileset_palette") and hasattr(self.tileset_palette, "set_brush_transform"):
+            self.tileset_palette.set_brush_transform(
+                flip_h=bs.flip_horizontal,
+                flip_v=bs.flip_vertical,
+                rotation=bs.rotation,
+            )
+
     def _update_performance_status(self) -> None:
         summary = self.render_engine.metrics.summary()
         self.lbl_status_performance.setText(
-            f"Render: {summary['last_render_ms']:.1f} ms "
-            f"({summary['last_visible_items']} elem.) | "
-            f"RAM: {summary['memory_mb']:.0f} MB"
+            tr(
+                "status.perf",
+                ms=summary["last_render_ms"],
+                items=summary["last_visible_items"],
+                ram=summary["memory_mb"],
+            )
         )
 
     def _init_toolbar(self) -> None:
-        self.toolbar = CustomizableToolBar("Główny pasek narzędzi", toolbar_id="main", parent=self)
+        self.toolbar = CustomizableToolBar(tr("toolbar.main_name"), toolbar_id="main", parent=self)
         self.toolbar.setObjectName("MainToolBar")
         self.toolbar.setIconSize(QSize(20, 20))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar)
@@ -300,39 +313,39 @@ class MainWindow(QMainWindow):
         # swallowed clicks on the first buttons.
         self.brush_options.hide()
 
-        self.secondary_toolbar = CustomizableToolBar("Dodatkowy pasek narzędzi", toolbar_id="secondary", parent=self)
+        self.secondary_toolbar = CustomizableToolBar(tr("toolbar.secondary_name"), toolbar_id="secondary", parent=self)
         self.secondary_toolbar.setObjectName("SecondaryToolBar")
         self.secondary_toolbar.setIconSize(QSize(20, 20))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.secondary_toolbar)
         self.insertToolBarBreak(self.secondary_toolbar)
 
         # 1. Project actions
-        self.act_new = QAction(IconFactory.get_icon("new", 20), "Nowy", self)
+        self.act_new = QAction(IconFactory.get_icon("new", 20), tr("action.new"), self)
         self.act_new.setShortcut(QKeySequence.StandardKey.New)
         self.act_new.setToolTip(tr("tooltip.new_project"))
         self.act_new.triggered.connect(self.new_project)
         self.addAction(self.act_new)
 
-        self.act_open = QAction(IconFactory.get_icon("open", 20), "Otwórz", self)
+        self.act_open = QAction(IconFactory.get_icon("open", 20), tr("action.open"), self)
         self.act_open.setShortcut(QKeySequence.StandardKey.Open)
         self.act_open.setToolTip(tr("tooltip.open_project"))
         self.act_open.triggered.connect(self.open_project)
         self.addAction(self.act_open)
 
-        self.act_save = QAction(IconFactory.get_icon("save", 20), "Zapisz", self)
+        self.act_save = QAction(IconFactory.get_icon("save", 20), tr("action.save"), self)
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
         self.act_save.setToolTip(tr("tooltip.save_project"))
         self.act_save.triggered.connect(self.save_project)
         self.addAction(self.act_save)
 
-        self.act_export = QAction(IconFactory.get_icon("export", 20), "Eksport PNG", self)
+        self.act_export = QAction(IconFactory.get_icon("export", 20), tr("action.export_png"), self)
         self.act_export.setShortcut("Ctrl+E")
         self.act_export.setToolTip(tr("tooltip.export_png"))
         self.act_export.triggered.connect(self.export_png_dialog)
         self.addAction(self.act_export)
 
         # 2. History actions
-        self.act_undo = QAction(IconFactory.get_icon("undo", 20), "Cofnij", self)
+        self.act_undo = QAction(IconFactory.get_icon("undo", 20), tr("action.undo"), self)
         self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
         self.act_undo.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.act_undo.setToolTip(tr("tooltip.undo"))
@@ -340,7 +353,7 @@ class MainWindow(QMainWindow):
         self.act_undo.triggered.connect(lambda: self.history_manager.undo())
         self.canvas.addAction(self.act_undo)
 
-        self.act_redo = QAction(IconFactory.get_icon("redo", 20), "Ponów", self)
+        self.act_redo = QAction(IconFactory.get_icon("redo", 20), tr("action.redo"), self)
         self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
         self.act_redo.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.act_redo.setToolTip(tr("tooltip.redo"))
@@ -349,7 +362,7 @@ class MainWindow(QMainWindow):
         self.canvas.addAction(self.act_redo)
 
         # 3. View actions
-        self.act_grid = QAction(IconFactory.get_icon("grid", 20), "Siatka", self)
+        self.act_grid = QAction(IconFactory.get_icon("grid", 20), tr("action.grid"), self)
         self.act_grid.setCheckable(True)
         self.act_grid.setChecked(True)
         self.act_grid.setShortcut("Ctrl+G")
@@ -357,14 +370,14 @@ class MainWindow(QMainWindow):
         self.act_grid.triggered.connect(lambda: self.canvas.toggle_grid(self.act_grid.isChecked()))
         self.addAction(self.act_grid)
 
-        self.act_fit = QAction(IconFactory.get_icon("fit", 20), "Dopasuj", self)
+        self.act_fit = QAction(IconFactory.get_icon("fit", 20), tr("action.fit"), self)
         self.act_fit.setShortcut("Ctrl+F")
         self.act_fit.setToolTip(tr("tooltip.fit"))
         self.act_fit.triggered.connect(self.canvas.fit_to_view)
         self.addAction(self.act_fit)
 
         self.act_command_search = QAction(
-            IconFactory.get_icon("search", 20), "Szukaj polecenia...", self
+            IconFactory.get_icon("search", 20), tr("action.command_search"), self
         )
         self.act_command_search.setShortcut("Ctrl+K")
         self.act_command_search.triggered.connect(self.open_command_search)
@@ -372,44 +385,44 @@ class MainWindow(QMainWindow):
 
         self.act_palette = self.tileset_dock.toggleViewAction()
         self.act_palette.setIcon(IconFactory.get_icon("palette", 20))
-        self.act_palette.setText("Paleta")
+        self.act_palette.setText(tr("action.palette"))
         self.act_palette.setToolTip(tr("tooltip.palette"))
         self.addAction(self.act_palette)
 
         # 4. Brush & Stamp
-        self.act_save_stamp = QAction(IconFactory.get_icon("save_stamp", 20), "Zapisz stempel", self)
+        self.act_save_stamp = QAction(IconFactory.get_icon("save_stamp", 20), tr("action.save_stamp"), self)
         self.act_save_stamp.setToolTip(tr("tooltip.save_stamp"))
         self.act_save_stamp.triggered.connect(self.save_selection_as_stamp)
         self.addAction(self.act_save_stamp)
 
         # Menu bar references
-        self.act_path_gen = QAction(IconFactory.get_icon("path", 20), "Ścieżki", self)
+        self.act_path_gen = QAction(IconFactory.get_icon("path", 20), tr("action.path_generator"), self)
         self.act_path_gen.setToolTip(tr("tooltip.path"))
         self.act_path_gen.triggered.connect(self.open_path_generator_dialog)
 
-        self.act_randomizer = QAction(IconFactory.get_icon("randomizer", 20), "Randomizer", self)
+        self.act_randomizer = QAction(IconFactory.get_icon("randomizer", 20), tr("action.randomizer"), self)
         self.act_randomizer.setToolTip(tr("tooltip.randomizer"))
         self.act_randomizer.triggered.connect(self.brush_options.open_randomizer_dialog)
 
         self.act_terrain_generator = QAction(
-            IconFactory.get_icon("terrain", 20), "Generator terenu", self
+            IconFactory.get_icon("terrain", 20), tr("action.terrain_generator"), self
         )
         self.act_terrain_generator.triggered.connect(
             self.open_terrain_generator_dialog
         )
 
         # 5. System actions
-        self.act_settings = QAction(IconFactory.get_icon("settings", 20), "Ustawienia", self)
+        self.act_settings = QAction(IconFactory.get_icon("settings", 20), tr("action.settings"), self)
         self.act_settings.setToolTip(tr("tooltip.settings"))
         self.act_settings.triggered.connect(self.open_map_settings)
         self.addAction(self.act_settings)
 
-        self.act_shortcuts = QAction(IconFactory.get_icon("shortcuts", 20), "Skróty", self)
+        self.act_shortcuts = QAction(IconFactory.get_icon("shortcuts", 20), tr("action.shortcuts"), self)
         self.act_shortcuts.setToolTip(tr("tooltip.shortcuts"))
         self.act_shortcuts.triggered.connect(self.open_shortcuts_dialog)
         self.addAction(self.act_shortcuts)
 
-        self.act_reset_ui = QAction(IconFactory.get_icon("reset_ui", 20), "Reset", self)
+        self.act_reset_ui = QAction(IconFactory.get_icon("reset_ui", 20), tr("action.reset_ui"), self)
         self.act_reset_ui.setToolTip(tr("tooltip.reset_layout"))
         self.act_reset_ui.triggered.connect(self._reset_dock_layout)
         self.addAction(self.act_reset_ui)
@@ -424,22 +437,22 @@ class MainWindow(QMainWindow):
         self.toolbar_manager.secondary_toolbar_visible = False
 
         # Register Project items
-        self.toolbar_manager.register_item("new", "Nowy", "project", action=self.act_new, icon_name="new")
-        self.toolbar_manager.register_item("open", "Otwórz", "project", action=self.act_open, icon_name="open")
-        self.toolbar_manager.register_item("save", "Zapisz", "project", action=self.act_save, icon_name="save")
-        self.toolbar_manager.register_item("export", "Eksport PNG", "project", action=self.act_export, icon_name="export")
+        self.toolbar_manager.register_item("new", tr("action.new"), "project", action=self.act_new, icon_name="new")
+        self.toolbar_manager.register_item("open", tr("action.open"), "project", action=self.act_open, icon_name="open")
+        self.toolbar_manager.register_item("save", tr("action.save"), "project", action=self.act_save, icon_name="save")
+        self.toolbar_manager.register_item("export", tr("action.export_png"), "project", action=self.act_export, icon_name="export")
 
         # Register History items
-        self.toolbar_manager.register_item("undo", "Cofnij", "history", action=self.act_undo, icon_name="undo")
-        self.toolbar_manager.register_item("redo", "Ponów", "history", action=self.act_redo, icon_name="redo")
+        self.toolbar_manager.register_item("undo", tr("action.undo"), "history", action=self.act_undo, icon_name="undo")
+        self.toolbar_manager.register_item("redo", tr("action.redo"), "history", action=self.act_redo, icon_name="redo")
 
         # Register View items
-        self.toolbar_manager.register_item("grid", "Siatka", "view", action=self.act_grid, icon_name="grid")
-        self.toolbar_manager.register_item("fit", "Dopasuj widok", "view", action=self.act_fit, icon_name="fit")
-        self.toolbar_manager.register_item("palette", "Paleta", "view", action=self.act_palette, icon_name="palette")
+        self.toolbar_manager.register_item("grid", tr("action.grid"), "view", action=self.act_grid, icon_name="grid")
+        self.toolbar_manager.register_item("fit", tr("action.fit"), "view", action=self.act_fit, icon_name="fit")
+        self.toolbar_manager.register_item("palette", tr("action.palette"), "view", action=self.act_palette, icon_name="palette")
 
         # Register Brush items
-        self.toolbar_manager.register_item("save_stamp", "Zapisz stempel", "brush", action=self.act_save_stamp, icon_name="save_stamp")
+        self.toolbar_manager.register_item("save_stamp", tr("action.save_stamp"), "brush", action=self.act_save_stamp, icon_name="save_stamp")
 
         # Register Brush Options Bar modular items (brush size, autotile, paths, randomizer, transforms)
         for item_id, item_data in self.brush_options.get_toolbar_items().items():
@@ -453,9 +466,9 @@ class MainWindow(QMainWindow):
             )
 
         # Register System items
-        self.toolbar_manager.register_item("settings", "Ustawienia", "system", action=self.act_settings, icon_name="settings")
-        self.toolbar_manager.register_item("shortcuts", "Skróty", "system", action=self.act_shortcuts, icon_name="shortcuts")
-        self.toolbar_manager.register_item("reset_ui", "Reset układu", "system", action=self.act_reset_ui, icon_name="reset_ui")
+        self.toolbar_manager.register_item("settings", tr("action.settings"), "system", action=self.act_settings, icon_name="settings")
+        self.toolbar_manager.register_item("shortcuts", tr("action.shortcuts"), "system", action=self.act_shortcuts, icon_name="shortcuts")
+        self.toolbar_manager.register_item("reset_ui", tr("action.reset_ui"), "system", action=self.act_reset_ui, icon_name="reset_ui")
 
         # Load layout configuration (or safe default)
         self.toolbar_manager.load_layout()
@@ -470,133 +483,133 @@ class MainWindow(QMainWindow):
     def _init_menubar(self) -> None:
         mb = self.menuBar()
 
-        # 1. Plik
-        menu_file = mb.addMenu("&Plik")
+        # 1. File
+        menu_file = mb.addMenu(tr("menu.file"))
         menu_file.addAction(self.act_new)
         menu_file.addAction(self.act_open)
         self.act_import_map = QAction(
-            IconFactory.get_icon("import", 16), "Importuj mapę (PNG / TMX)...", self
+            IconFactory.get_icon("import", 16), tr("action.import_map"), self
         )
         self.act_import_map.triggered.connect(lambda: self.import_map_dialog())
         menu_file.addAction(self.act_import_map)
-        act_open_last = QAction(IconFactory.get_icon("open", 16), "Otwórz ostatnią sesję", self)
-        act_open_last.triggered.connect(self.open_last_session)
-        menu_file.addAction(act_open_last)
+        self.act_open_last = QAction(IconFactory.get_icon("open", 16), tr("action.open_last_session"), self)
+        self.act_open_last.triggered.connect(self.open_last_session)
+        menu_file.addAction(self.act_open_last)
         menu_file.addAction(self.act_save)
-        act_save_as = QAction(IconFactory.get_icon("save-as", 16), "Zapisz jako...", self)
-        act_save_as.setShortcut("Ctrl+Shift+S")
-        act_save_as.triggered.connect(self._save_project_as)
-        menu_file.addAction(act_save_as)
+        self.act_save_as = QAction(IconFactory.get_icon("save-as", 16), tr("action.save_as"), self)
+        self.act_save_as.setShortcut("Ctrl+Shift+S")
+        self.act_save_as.triggered.connect(self._save_project_as)
+        menu_file.addAction(self.act_save_as)
         menu_file.addSeparator()
         menu_file.addAction(self.act_export)
-        act_export_tmx = QAction(
-            IconFactory.get_icon("export", 16), "Eksportuj Tiled TMX...", self
+        self.act_export_tmx = QAction(
+            IconFactory.get_icon("export", 16), tr("action.export_tmx"), self
         )
-        act_export_tmx.triggered.connect(self.export_tmx_dialog)
-        menu_file.addAction(act_export_tmx)
-        act_export_bundle = QAction(
-            IconFactory.get_icon("export", 16), "Eksportuj pakiet projektu...", self
+        self.act_export_tmx.triggered.connect(self.export_tmx_dialog)
+        menu_file.addAction(self.act_export_tmx)
+        self.act_export_bundle = QAction(
+            IconFactory.get_icon("export", 16), tr("action.export_bundle"), self
         )
-        act_export_bundle.triggered.connect(self.export_bundle_dialog)
-        menu_file.addAction(act_export_bundle)
+        self.act_export_bundle.triggered.connect(self.export_bundle_dialog)
+        menu_file.addAction(self.act_export_bundle)
         menu_file.addSeparator()
-        act_exit = QAction(IconFactory.get_icon("exit", 16), "Zamknij program", self)
-        act_exit.setShortcut("Ctrl+Q")
-        act_exit.triggered.connect(self.close)
-        menu_file.addAction(act_exit)
+        self.act_exit = QAction(IconFactory.get_icon("exit", 16), tr("action.exit"), self)
+        self.act_exit.setShortcut("Ctrl+Q")
+        self.act_exit.triggered.connect(self.close)
+        menu_file.addAction(self.act_exit)
 
-        # 2. Edycja
-        menu_edit = mb.addMenu("&Edycja")
+        # 2. Edit
+        menu_edit = mb.addMenu(tr("menu.edit"))
         menu_edit.addAction(self.act_undo)
         menu_edit.addAction(self.act_redo)
         menu_edit.addSeparator()
-        act_copy = QAction(IconFactory.get_icon("copy", 16), tr("selection.copy"), self.canvas)
-        act_copy.setShortcut(QKeySequence.StandardKey.Copy)
-        act_copy.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        act_copy.triggered.connect(self._copy_selection)
-        self.canvas.addAction(act_copy)
-        menu_edit.addAction(act_copy)
-        act_cut = QAction(tr("selection.cut"), self.canvas)
-        act_cut.setShortcut(QKeySequence.StandardKey.Cut)
-        act_cut.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        act_cut.triggered.connect(self._cut_selection)
-        self.canvas.addAction(act_cut)
-        menu_edit.addAction(act_cut)
-        act_paste = QAction(IconFactory.get_icon("paste", 16), tr("selection.paste"), self.canvas)
-        act_paste.setShortcut(QKeySequence.StandardKey.Paste)
-        act_paste.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        act_paste.triggered.connect(self._paste_stamp)
-        self.canvas.addAction(act_paste)
-        menu_edit.addAction(act_paste)
-        act_del = QAction(IconFactory.get_icon("trash", 16), tr("selection.delete"), self.canvas)
-        act_del.setShortcuts([QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)])
-        act_del.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        act_del.triggered.connect(self._delete_selection)
-        self.canvas.addAction(act_del)
-        menu_edit.addAction(act_del)
-        act_select_all = QAction(tr("selection.all"), self.canvas)
-        act_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
-        act_select_all.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        act_select_all.triggered.connect(self._select_all_cells)
-        self.canvas.addAction(act_select_all)
-        menu_edit.addAction(act_select_all)
+        self.act_copy = QAction(IconFactory.get_icon("copy", 16), tr("selection.copy"), self.canvas)
+        self.act_copy.setShortcut(QKeySequence.StandardKey.Copy)
+        self.act_copy.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.act_copy.triggered.connect(self._copy_selection)
+        self.canvas.addAction(self.act_copy)
+        menu_edit.addAction(self.act_copy)
+        self.act_cut = QAction(tr("selection.cut"), self.canvas)
+        self.act_cut.setShortcut(QKeySequence.StandardKey.Cut)
+        self.act_cut.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.act_cut.triggered.connect(self._cut_selection)
+        self.canvas.addAction(self.act_cut)
+        menu_edit.addAction(self.act_cut)
+        self.act_paste = QAction(IconFactory.get_icon("paste", 16), tr("selection.paste"), self.canvas)
+        self.act_paste.setShortcut(QKeySequence.StandardKey.Paste)
+        self.act_paste.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.act_paste.triggered.connect(self._paste_stamp)
+        self.canvas.addAction(self.act_paste)
+        menu_edit.addAction(self.act_paste)
+        self.act_del = QAction(IconFactory.get_icon("trash", 16), tr("selection.delete"), self.canvas)
+        self.act_del.setShortcuts([QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)])
+        self.act_del.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.act_del.triggered.connect(self._delete_selection)
+        self.canvas.addAction(self.act_del)
+        menu_edit.addAction(self.act_del)
+        self.act_select_all = QAction(tr("selection.all"), self.canvas)
+        self.act_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
+        self.act_select_all.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.act_select_all.triggered.connect(self._select_all_cells)
+        self.canvas.addAction(self.act_select_all)
+        menu_edit.addAction(self.act_select_all)
         menu_edit.addSeparator()
-        act_prefs = QAction(IconFactory.get_icon("settings", 16), "Preferencje...", self)
-        act_prefs.setShortcut("Ctrl+,")
-        act_prefs.triggered.connect(self.open_preferences_dialog)
-        menu_edit.addAction(act_prefs)
+        self.act_prefs = QAction(IconFactory.get_icon("settings", 16), tr("action.preferences"), self)
+        self.act_prefs.setShortcut("Ctrl+,")
+        self.act_prefs.triggered.connect(self.open_preferences_dialog)
+        menu_edit.addAction(self.act_prefs)
 
-        # 3. Widok (View Menu)
-        menu_view = mb.addMenu("&Widok")
+        # 3. View Menu
+        menu_view = mb.addMenu(tr("menu.view"))
 
-        # Submenu: Układ interfejsu (Layout Management)
-        self.menu_layout = menu_view.addMenu(IconFactory.get_icon("layout", 16), "&Układ interfejsu")
+        # Submenu: Interface Layout
+        self.menu_layout = menu_view.addMenu(IconFactory.get_icon("layout", 16), tr("menu.layout"))
 
-        self.act_layout_default = QAction(IconFactory.get_icon("fit", 16), "Domyślny układ (Photoshop / Tiled)", self)
+        self.act_layout_default = QAction(IconFactory.get_icon("fit", 16), tr("action.layout_default"), self)
         self.act_layout_default.setShortcut("Ctrl+Shift+D")
         self.act_layout_default.triggered.connect(self._reset_dock_layout)
         self.menu_layout.addAction(self.act_layout_default)
 
         self.menu_layout.addSeparator()
 
-        self.act_layout_save = QAction(IconFactory.get_icon("save", 16), "Zapisz bieżący układ jako...", self)
+        self.act_layout_save = QAction(IconFactory.get_icon("save", 16), tr("action.layout_save"), self)
         self.act_layout_save.triggered.connect(self.save_custom_layout_action)
         self.menu_layout.addAction(self.act_layout_save)
 
-        self.menu_load_layout = self.menu_layout.addMenu(IconFactory.get_icon("open", 16), "Wczytaj zapisany układ")
-        self.menu_rename_layout = self.menu_layout.addMenu(IconFactory.get_icon("pencil", 16), "Zmień nazwę zapisanego układu")
-        self.menu_delete_layout = self.menu_layout.addMenu(IconFactory.get_icon("trash", 16), "Usuń zapisany układ")
+        self.menu_load_layout = self.menu_layout.addMenu(IconFactory.get_icon("open", 16), tr("action.layout_load"))
+        self.menu_rename_layout = self.menu_layout.addMenu(IconFactory.get_icon("pencil", 16), tr("action.layout_rename"))
+        self.menu_delete_layout = self.menu_layout.addMenu(IconFactory.get_icon("trash", 16), tr("action.layout_delete"))
 
         self.menu_layout.addSeparator()
 
         # Built-in Presets
-        self.act_preset_map_edit = QAction(IconFactory.get_icon("map-edit", 16), "Edycja mapy (Maksymalne płótno i warstwy)", self)
+        self.act_preset_map_edit = QAction(IconFactory.get_icon("map-edit", 16), tr("action.preset_map_edit"), self)
         self.act_preset_map_edit.triggered.connect(lambda: self.apply_layout_preset("map_editing"))
         self.menu_layout.addAction(self.act_preset_map_edit)
 
-        self.act_preset_tileset = QAction(IconFactory.get_icon("palette", 16), "Studio tilesetów (Powiększona paleta)", self)
+        self.act_preset_tileset = QAction(IconFactory.get_icon("palette", 16), tr("action.preset_tileset"), self)
         self.act_preset_tileset.triggered.connect(lambda: self.apply_layout_preset("tileset_studio"))
         self.menu_layout.addAction(self.act_preset_tileset)
 
-        self.act_preset_minimal = QAction(IconFactory.get_icon("arrows-maximize", 16), "Minimalistyczny (Tylko narzędzia)", self)
+        self.act_preset_minimal = QAction(IconFactory.get_icon("arrows-maximize", 16), tr("action.preset_minimal"), self)
         self.act_preset_minimal.triggered.connect(lambda: self.apply_layout_preset("minimalist"))
         self.menu_layout.addAction(self.act_preset_minimal)
 
-        self.act_preset_expanded = QAction(IconFactory.get_icon("layout", 16), "Wszystkie panele (Rozszerzony)", self)
+        self.act_preset_expanded = QAction(IconFactory.get_icon("layout", 16), tr("action.preset_expanded"), self)
         self.act_preset_expanded.triggered.connect(lambda: self.apply_layout_preset("expanded"))
         self.menu_layout.addAction(self.act_preset_expanded)
 
         self._rebuild_layout_menu()
 
-        # Submenu: Panele dokowalne
-        menu_docks = menu_view.addMenu(IconFactory.get_icon("layout", 16), "&Panele dokowalne")
-        menu_docks.addAction(self.tileset_preview_dock.toggleViewAction())
-        menu_docks.addAction(self.tileset_library_dock.toggleViewAction())
-        menu_docks.addAction(self.layer_dock.toggleViewAction())
-        menu_docks.addAction(self.properties_dock.toggleViewAction())
-        menu_docks.addAction(self.history_dock.toggleViewAction())
-        menu_docks.addAction(self.minimap_dock.toggleViewAction())
-        menu_docks.addAction(self.tool_dock.toggleViewAction())
+        # Submenu: Dockable Panels
+        self.menu_docks = menu_view.addMenu(IconFactory.get_icon("layout", 16), tr("menu.docks"))
+        self.menu_docks.addAction(self.tileset_preview_dock.toggleViewAction())
+        self.menu_docks.addAction(self.tileset_library_dock.toggleViewAction())
+        self.menu_docks.addAction(self.layer_dock.toggleViewAction())
+        self.menu_docks.addAction(self.properties_dock.toggleViewAction())
+        self.menu_docks.addAction(self.history_dock.toggleViewAction())
+        self.menu_docks.addAction(self.minimap_dock.toggleViewAction())
+        self.menu_docks.addAction(self.tool_dock.toggleViewAction())
 
         # Direct shortcuts for toggling individual docks in main View menu
         menu_view.addAction(self.tileset_preview_dock.toggleViewAction())
@@ -609,76 +622,83 @@ class MainWindow(QMainWindow):
 
         menu_view.addSeparator()
         menu_view.addAction(self.act_command_search)
-        act_save_profile = QAction("Zapisz profil interfejsu...", self)
-        act_save_profile.triggered.connect(self.save_interface_profile)
-        menu_view.addAction(act_save_profile)
-        act_load_profile = QAction("Wczytaj profil interfejsu...", self)
-        act_load_profile.triggered.connect(self.load_interface_profile)
-        menu_view.addAction(act_load_profile)
-        act_onboarding = QAction("Samouczek pierwszego uruchomienia", self)
-        act_onboarding.triggered.connect(self.show_onboarding)
-        menu_view.addAction(act_onboarding)
-        act_diagnostics = QAction("Eksportuj diagnostykę...", self)
-        act_diagnostics.triggered.connect(self.export_diagnostics)
-        menu_view.addAction(act_diagnostics)
-        menu_view.addAction(self._make_widget_toggle_action("Pasek zakładek map", self.map_tab_bar))
+        self.act_save_profile = QAction(tr("action.save_profile"), self)
+        self.act_save_profile.triggered.connect(self.save_interface_profile)
+        menu_view.addAction(self.act_save_profile)
+        self.act_load_profile = QAction(tr("action.load_profile"), self)
+        self.act_load_profile.triggered.connect(self.load_interface_profile)
+        menu_view.addAction(self.act_load_profile)
+        self.act_onboarding = QAction(tr("action.onboarding"), self)
+        self.act_onboarding.triggered.connect(self.show_onboarding)
+        menu_view.addAction(self.act_onboarding)
+        self.act_diagnostics = QAction(tr("action.export_diagnostics"), self)
+        self.act_diagnostics.triggered.connect(self.export_diagnostics)
+        menu_view.addAction(self.act_diagnostics)
+        self.act_map_tab_bar = self._make_widget_toggle_action(tr("action.map_tab_bar"), self.map_tab_bar)
+        menu_view.addAction(self.act_map_tab_bar)
         menu_view.addAction(self.toolbar.toggleViewAction())
         menu_view.addAction(self.secondary_toolbar.toggleViewAction())
-        self.act_toolbar_edit = QAction(IconFactory.get_icon("edit", 16), "Personalizuj paski narzędzi (Drag & Drop)...", self)
+        self.act_toolbar_edit = QAction(IconFactory.get_icon("edit", 16), tr("action.toolbar_edit"), self)
         self.act_toolbar_edit.setShortcut("Ctrl+Alt+T")
         self.act_toolbar_edit.setCheckable(True)
         self.act_toolbar_edit.triggered.connect(self.toolbar_manager.toggle_edit_mode)
         menu_view.addAction(self.act_toolbar_edit)
         self.toolbar_manager.edit_mode_changed.connect(self.act_toolbar_edit.setChecked)
 
-        self.act_customize_toolbar = QAction(IconFactory.get_icon("settings", 16), "Dostosuj paski narzędzi (Dialog)...", self)
+        self.act_customize_toolbar = QAction(IconFactory.get_icon("settings", 16), tr("action.customize_toolbar"), self)
         self.act_customize_toolbar.setToolTip(tr("tooltip.customize_toolbar"))
         self.act_customize_toolbar.triggered.connect(lambda: self.toolbar_manager.open_customizer_dialog())
         menu_view.addAction(self.act_customize_toolbar)
 
-        self.act_toolbar_visibility = QAction(IconFactory.get_icon("eye", 16), "Widoczność przycisków paska...", self)
+        self.act_toolbar_visibility = QAction(IconFactory.get_icon("eye", 16), tr("action.toolbar_visibility"), self)
         self.act_toolbar_visibility.setToolTip(tr("tooltip.toolbar_visibility"))
         self.act_toolbar_visibility.triggered.connect(lambda: self.toolbar_manager.open_visibility_dialog(self))
         menu_view.addAction(self.act_toolbar_visibility)
 
-        self.act_toolbar_show_all = QAction(IconFactory.get_icon("check", 16), "Pokaż wszystkie przyciski paska", self)
+        self.act_toolbar_show_all = QAction(IconFactory.get_icon("check", 16), tr("action.toolbar_show_all"), self)
         self.act_toolbar_show_all.setToolTip(tr("tooltip.toolbar_show_all"))
         self.act_toolbar_show_all.triggered.connect(lambda: self.toolbar_manager.show_all_items())
         menu_view.addAction(self.act_toolbar_show_all)
         menu_view.addAction(self.act_grid)
-        act_hud = QAction(IconFactory.get_icon("hud", 16), "Wskaźnik współrzędnych (HUD)", self)
-        act_hud.setCheckable(True)
-        act_hud.setChecked(self.canvas.show_hud)
-        act_hud.triggered.connect(lambda ch: setattr(self.canvas, "show_hud", ch) or self.canvas.update())
-        menu_view.addAction(act_hud)
+        self.act_hud = QAction(IconFactory.get_icon("hud", 16), tr("action.hud"), self)
+        self.act_hud.setCheckable(True)
+        self.act_hud.setChecked(self.canvas.show_hud)
+        self.act_hud.triggered.connect(lambda ch: setattr(self.canvas, "show_hud", ch) or self.canvas.update())
+        menu_view.addAction(self.act_hud)
         menu_view.addAction(self.act_fit)
         menu_view.addSeparator()
         menu_view.addAction(self.act_reset_ui)
-        self.act_full = QAction(IconFactory.get_icon("fullscreen", 16), "Pełny obszar roboczy (F11)", self)
+        self.act_full = QAction(IconFactory.get_icon("fullscreen", 16), tr("action.fullscreen"), self)
         self.act_full.setShortcut("F11")
         self.act_full.triggered.connect(self._toggle_fullscreen_workspace)
         menu_view.addAction(self.act_full)
 
-        # 4. Narzędzia
-        menu_tools = mb.addMenu("&Narzędzia")
+        # 4. Tools
+        menu_tools = mb.addMenu(tr("menu.tools"))
+        self._tool_menu_actions = []
         for tool_name in ["brush", "eraser", "fill", "line", "rect", "select", "wand", "object", "eyedropper", "stamp"]:
             tool_obj = self.tool_panel.get_tool(tool_name)
             if tool_obj:
-                act = QAction(IconFactory.get_icon(tool_name, 16), f"{tool_obj.name} ({tool_obj.shortcut})", self)
+                act = QAction(
+                    IconFactory.get_icon(tool_name, 16),
+                    f"{tr(f'tool.{tool_name}')} ({tool_obj.shortcut})",
+                    self,
+                )
                 act.triggered.connect(lambda ch, n=tool_name: self.tool_panel.select_tool_by_key(n))
                 menu_tools.addAction(act)
+                self._tool_menu_actions.append((act, tool_name, tool_obj.shortcut))
         menu_tools.addSeparator()
         menu_tools.addAction(self.act_path_gen)
         menu_tools.addAction(self.act_randomizer)
         menu_tools.addAction(self.act_terrain_generator)
         menu_tools.addAction(self.act_save_stamp)
 
-        # 5. Pomoc
-        menu_help = mb.addMenu("&Pomoc")
+        # 5. Help
+        menu_help = mb.addMenu(tr("menu.help"))
         menu_help.addAction(self.act_shortcuts)
-        act_about = QAction(IconFactory.get_icon("about", 16), "O programie", self)
-        act_about.triggered.connect(self._show_about_dialog)
-        menu_help.addAction(act_about)
+        self.act_about = QAction(IconFactory.get_icon("about", 16), tr("action.about"), self)
+        self.act_about.triggered.connect(self._show_about_dialog)
+        menu_help.addAction(self.act_about)
 
     def _make_widget_toggle_action(self, text: str, widget: QWidget) -> QAction:
         act = QAction(text, self)
@@ -891,18 +911,71 @@ class MainWindow(QMainWindow):
 
         action_keys = [
             ("act_new", "action.new"), ("act_open", "action.open"),
-            ("act_save", "action.save"), ("act_export", "action.export_png"),
+            ("act_import_map", "action.import_map"), ("act_open_last", "action.open_last_session"),
+            ("act_save", "action.save"), ("act_save_as", "action.save_as"),
+            ("act_export", "action.export_png"), ("act_export_tmx", "action.export_tmx"),
+            ("act_export_bundle", "action.export_bundle"), ("act_exit", "action.exit"),
             ("act_undo", "action.undo"), ("act_redo", "action.redo"),
+            ("act_copy", "selection.copy"), ("act_cut", "selection.cut"),
+            ("act_paste", "selection.paste"), ("act_del", "selection.delete"),
+            ("act_select_all", "selection.all"), ("act_prefs", "action.preferences"),
             ("act_grid", "action.grid"), ("act_fit", "action.fit"),
+            ("act_command_search", "action.command_search"),
             ("act_palette", "action.palette"), ("act_save_stamp", "action.save_stamp"),
             ("act_path_gen", "action.path_generator"),
-            ("act_randomizer", "action.randomizer"), ("act_settings", "action.settings"),
+            ("act_randomizer", "action.randomizer"),
+            ("act_terrain_generator", "action.terrain_generator"),
+            ("act_settings", "action.settings"),
             ("act_shortcuts", "action.shortcuts"), ("act_reset_ui", "action.reset_ui"),
+            ("act_layout_default", "action.layout_default"),
+            ("act_layout_save", "action.layout_save"),
+            ("act_preset_map_edit", "action.preset_map_edit"),
+            ("act_preset_tileset", "action.preset_tileset"),
+            ("act_preset_minimal", "action.preset_minimal"),
+            ("act_preset_expanded", "action.preset_expanded"),
+            ("act_save_profile", "action.save_profile"),
+            ("act_load_profile", "action.load_profile"),
+            ("act_onboarding", "action.onboarding"),
+            ("act_diagnostics", "action.export_diagnostics"),
+            ("act_map_tab_bar", "action.map_tab_bar"),
+            ("act_toolbar_edit", "action.toolbar_edit"),
+            ("act_customize_toolbar", "action.customize_toolbar"),
+            ("act_toolbar_visibility", "action.toolbar_visibility"),
+            ("act_toolbar_show_all", "action.toolbar_show_all"),
+            ("act_hud", "action.hud"),
+            ("act_full", "action.fullscreen"),
+            ("act_about", "action.about"),
         ]
         for attr, key in action_keys:
             action = getattr(self, attr, None)
             if action is not None:
                 action.setText(tr(key))
+
+        tooltip_keys = [
+            ("act_new", "tooltip.new_project"), ("act_open", "tooltip.open_project"),
+            ("act_save", "tooltip.save_project"), ("act_export", "tooltip.export_png"),
+            ("act_undo", "tooltip.undo"), ("act_redo", "tooltip.redo"),
+            ("act_grid", "tooltip.grid"), ("act_fit", "tooltip.fit"),
+            ("act_palette", "tooltip.palette"), ("act_save_stamp", "tooltip.save_stamp"),
+            ("act_path_gen", "tooltip.path"), ("act_randomizer", "tooltip.randomizer"),
+            ("act_settings", "tooltip.settings"), ("act_shortcuts", "tooltip.shortcuts"),
+            ("act_reset_ui", "tooltip.reset_layout"),
+            ("act_customize_toolbar", "tooltip.customize_toolbar"),
+            ("act_toolbar_visibility", "tooltip.toolbar_visibility"),
+            ("act_toolbar_show_all", "tooltip.toolbar_show_all"),
+        ]
+        for attr, key in tooltip_keys:
+            action = getattr(self, attr, None)
+            if action is not None:
+                action.setToolTip(tr(key))
+
+        for act, tool_name, shortcut in getattr(self, "_tool_menu_actions", []):
+            act.setText(f"{tr(f'tool.{tool_name}')} ({shortcut})")
+
+        if hasattr(self, "toolbar"):
+            self.toolbar.setWindowTitle(tr("toolbar.main_name"))
+        if hasattr(self, "secondary_toolbar"):
+            self.secondary_toolbar.setWindowTitle(tr("toolbar.secondary_name"))
 
         dock_keys = [
             ("tool_dock", "dock.tools"),
@@ -928,9 +1001,15 @@ class MainWindow(QMainWindow):
                 action.setText(tr(key))
             if hasattr(self, "menu_layout"):
                 self.menu_layout.menuAction().setText(tr("menu.layout"))
+                self.menu_load_layout.menuAction().setText(tr("action.layout_load"))
+                self.menu_rename_layout.menuAction().setText(tr("action.layout_rename"))
+                self.menu_delete_layout.menuAction().setText(tr("action.layout_delete"))
                 self._rebuild_layout_menu()
+            if hasattr(self, "menu_docks"):
+                self.menu_docks.menuAction().setText(tr("menu.docks"))
 
         self._update_status_bar()
+        self._update_performance_status()
         self._update_title()
         self.canvas.update()
 
@@ -1043,7 +1122,7 @@ class MainWindow(QMainWindow):
                             asset.tileset_config = TilesetConfig(tile_width=tile_w, tile_height=tile_h)
                             self.tileset_palette.set_active_asset(asset)
                             self.tool_panel.select_tool_by_key("brush")
-                            self.statusBar().showMessage(f"Zaimportowano tileset: {asset.name}", 3000)
+                            self.statusBar().showMessage(tr("status.imported_tileset", name=asset.name), 3000)
                 else:
                     self.asset_manager.import_single_file(p, force_asset_type=AssetType.TILESET)
         self.tileset_palette.refresh_tilesets()
@@ -1054,7 +1133,7 @@ class MainWindow(QMainWindow):
             tool = self.canvas.tool_context.selection_tool
         if isinstance(tool, SelectTool) and tool.selection_rect:
             if tool.copy_selection(self.canvas.tool_context):
-                self.statusBar().showMessage("Skopiowano zaznaczenie do schowka.", 2500)
+                self.statusBar().showMessage(tr("status.copied_selection"), 2500)
             else:
                 self.statusBar().showMessage(tr("selection.invalid_edit"), 5000)
             return
@@ -1174,7 +1253,7 @@ class MainWindow(QMainWindow):
         self.config_manager.save_terrain_generator(self.terrain_generator)
 
     def _on_autosaved(self, path: str) -> None:
-        self.statusBar().showMessage(f"Autozapis wykonany ({os.path.basename(path)})", 2500)
+        self.statusBar().showMessage(tr("status.autosave_done", time=os.path.basename(path)), 2500)
 
     def new_project(self) -> None:
         if not self._confirm_unsaved_changes():
@@ -1208,7 +1287,7 @@ class MainWindow(QMainWindow):
                 self,
                 tr("dialog.project.open_title"),
                 self.config_manager.get_last_project_path(),
-                "Projekty (*.tmmap *.json);;Tiled (*.tmx);;Wszystkie pliki (*.*)",
+                tr("dialog.project.open_filter"),
             )
         if not path:
             return
@@ -1219,8 +1298,8 @@ class MainWindow(QMainWindow):
             if warnings:
                 QMessageBox.warning(
                     self,
-                    "Ostrzeżenia importu TMX",
-                    "Mapa została zaimportowana z uwagami:\n\n• " + "\n• ".join(warnings),
+                    tr("dialog.tmx.warnings_title"),
+                    tr("dialog.tmx.warnings_body", warnings="\n• ".join(warnings)),
                 )
         elif os.path.splitext(path)[1].casefold() == ".png":
             self.import_map_dialog(path)
@@ -1248,7 +1327,7 @@ class MainWindow(QMainWindow):
             self._update_title()
             self._update_status_bar()
             self.notification_banner.show_message(
-                f"Otwarto projekt '{proj.name}'.", "success"
+                tr("notify.project_opened", name=proj.name), "success"
             )
 
     def import_map_dialog(self, file_path: Optional[str] = None) -> None:
@@ -1257,9 +1336,9 @@ class MainWindow(QMainWindow):
         if not path:
             path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Importuj mapę (PNG / TMX)",
+                tr("dialog.import_map.title"),
                 "",
-                "Mapy (*.png *.tmx);;Obrazy PNG (*.png);;Tiled TMX (*.tmx);;Wszystkie pliki (*.*)",
+                tr("dialog.import_map.filter"),
             )
         if not path:
             return
@@ -1301,26 +1380,26 @@ class MainWindow(QMainWindow):
                 self._update_status_bar()
                 self.canvas.fit_to_view()
                 self.notification_banner.show_message(
-                    f"Zaimportowano mapę PNG '{os.path.basename(path)}'.", "success"
+                    tr("notify.png_map_imported", name=os.path.basename(path)), "success"
                 )
             else:
                 QMessageBox.critical(
                     self,
-                    "Błąd importu PNG",
-                    ProjectIO.get_last_error() or "Nie udało się zaimportować mapy PNG.",
+                    tr("dialog.import_png.error_title"),
+                    ProjectIO.get_last_error() or tr("dialog.import_png.error_body"),
                 )
         else:
             self.diagnostics.logger.error(
-                ProjectIO.get_last_error() or "Nie udało się otworzyć projektu"
+                ProjectIO.get_last_error() or tr("dialog.project.open_error")
             )
             self.notification_banner.show_message(
-                "Nie udało się otworzyć projektu.",
+                tr("dialog.project.open_error"),
                 "error",
                 lambda: QMessageBox.critical(
                     self,
-                    "Błąd projektu",
+                    tr("dialog.project.error_title"),
                     ProjectIO.get_last_error()
-                    or "Nie udało się otworzyć projektu.",
+                    or tr("dialog.project.open_error"),
                 ),
             )
             QMessageBox.critical(
@@ -1335,7 +1414,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 tr("dialog.project.open_title"),
-                "Brak ostatnio używanego projektu do otwarcia.",
+                tr("dialog.project.no_last_session"),
             )
             return
         if self._confirm_unsaved_changes():
@@ -1347,7 +1426,7 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             tr("dialog.map.save"),
-            "Bieżący projekt zawiera niezapisane zmiany. Zapisać je?",
+            tr("dialog.project.unsaved_confirm"),
             QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel,
@@ -1384,20 +1463,20 @@ class MainWindow(QMainWindow):
             self._update_title()
             self.statusBar().showMessage(tr("dialog.project.saved"), 3000)
             self.notification_banner.show_message(
-                "Projekt zapisano pomyślnie.", "success"
+                tr("notify.project_saved"), "success"
             )
         else:
             self.diagnostics.logger.error(
-                ProjectIO.get_last_error() or "Nie udało się zapisać projektu"
+                ProjectIO.get_last_error() or tr("dialog.project.save_error")
             )
             self.notification_banner.show_message(
-                "Nie udało się zapisać projektu.",
+                tr("dialog.project.save_error"),
                 "error",
                 lambda: QMessageBox.critical(
                     self,
-                    "Błąd zapisu",
+                    tr("dialog.project.save_error_title"),
                     ProjectIO.get_last_error()
-                    or "Nie udało się zapisać projektu.",
+                    or tr("dialog.project.save_error"),
                 ),
             )
             QMessageBox.critical(
@@ -1420,22 +1499,22 @@ class MainWindow(QMainWindow):
     def export_tmx_dialog(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Eksport Tiled TMX",
+            tr("dialog.tmx.export_title"),
             f"{self.project.name}.tmx",
-            "Tiled Map (*.tmx)",
+            tr("dialog.tmx.export_filter"),
         )
         if path and not ProjectIO.export_tmx(
             self.project, self.asset_manager, path
         ):
             QMessageBox.critical(
                 self,
-                "Eksport TMX",
-                ProjectIO.get_last_error() or "Nie udało się wyeksportować TMX.",
+                tr("dialog.tmx.export_title"),
+                ProjectIO.get_last_error() or tr("dialog.tmx.export_error"),
             )
 
     def export_bundle_dialog(self) -> None:
         output_dir = QFileDialog.getExistingDirectory(
-            self, "Katalog eksportu pakietu projektu", ""
+            self, tr("dialog.bundle.export_dir_title"), ""
         )
         if output_dir and not ProjectIO.export_bundle(
             self.project,
@@ -1446,8 +1525,8 @@ class MainWindow(QMainWindow):
         ):
             QMessageBox.critical(
                 self,
-                "Eksport pakietu",
-                ProjectIO.get_last_error() or "Nie udało się wyeksportować pakietu.",
+                tr("dialog.bundle.export_title"),
+                ProjectIO.get_last_error() or tr("dialog.bundle.export_error"),
             )
 
     def open_shortcuts_dialog(self) -> None:
@@ -1483,7 +1562,12 @@ class MainWindow(QMainWindow):
         if not labels:
             return
         selected, ok = QInputDialog.getItem(
-            self, "Szukaj polecenia", "Wybierz polecenie:", labels, 0, True
+            self,
+            tr("dialog.command_search.title"),
+            tr("dialog.command_search.prompt"),
+            labels,
+            0,
+            True,
         )
         if not ok or not selected:
             return
@@ -1500,7 +1584,7 @@ class MainWindow(QMainWindow):
 
     def save_interface_profile(self) -> None:
         name, ok = QInputDialog.getText(
-            self, "Profil interfejsu", "Nazwa profilu:"
+            self, tr("dialog.profile.title"), tr("dialog.profile.name_prompt")
         )
         if ok and name.strip():
             layout = self.toolbar_manager.get_layout_dict()
@@ -1511,18 +1595,23 @@ class MainWindow(QMainWindow):
                 layout,
             )
             self.notification_banner.show_message(
-                f"Zapisano profil interfejsu '{name.strip()}'.", "success"
+                tr("dialog.profile.saved", name=name.strip()), "success"
             )
 
     def load_interface_profile(self) -> None:
         names = self.profile_service.names()
         if not names:
             QMessageBox.information(
-                self, "Profile interfejsu", "Brak zapisanych profili."
+                self, tr("dialog.profile.list_title"), tr("dialog.profile.empty")
             )
             return
         name, ok = QInputDialog.getItem(
-            self, "Profil interfejsu", "Wybierz profil:", names, 0, False
+            self,
+            tr("dialog.profile.title"),
+            tr("dialog.profile.select_prompt"),
+            names,
+            0,
+            False,
         )
         if not ok or not name:
             return
@@ -1543,25 +1632,21 @@ class MainWindow(QMainWindow):
     def export_diagnostics(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Eksport raportu diagnostycznego",
+            tr("dialog.diagnostics.export_title"),
             "tileset-map-maker-diagnostics.json",
             "JSON (*.json)",
         )
         if path:
             self.diagnostics.export_report(path)
             self.notification_banner.show_message(
-                "Raport diagnostyczny został zapisany.", "success"
+                tr("dialog.diagnostics.saved"), "success"
             )
 
     def show_onboarding(self) -> None:
         QMessageBox.information(
             self,
-            "Witaj w TileSet Map Maker",
-            "1. Utwórz lub otwórz mapę.\n"
-            "2. Zaimportuj tileset z panelu biblioteki.\n"
-            "3. Wybierz kafelek i maluj pędzlem.\n"
-            "4. Użyj Ctrl+K, aby szybko odnaleźć polecenie.\n"
-            "5. Zapisz układ jako profil w menu Widok.",
+            tr("dialog.onboarding.title"),
+            tr("dialog.onboarding.body"),
         )
         QSettings("TileSetMapMaker", "TileSetMapMaker").setValue(
             "onboarding_completed", True
@@ -1887,11 +1972,45 @@ class MainWindow(QMainWindow):
         if hasattr(self, "brush_options") and hasattr(self.brush_options, "update_variants_summary"):
             self.brush_options.update_variants_summary()
 
+    def rotate_brush(self, clockwise: bool = True) -> bool:
+        """Rotates active brush orientation 90° clockwise (R) or counter-clockwise (Shift+R)."""
+        if hasattr(self, "brush_options") and hasattr(self.brush_options, "rotate_brush"):
+            return self.brush_options.rotate_brush(clockwise=clockwise)
+        return False
+
+    def _is_text_input_focused(self) -> bool:
+        from PyQt6.QtWidgets import (
+            QAbstractSpinBox,
+            QComboBox,
+            QLineEdit,
+            QPlainTextEdit,
+            QTextEdit,
+        )
+        focus = QApplication.focusWidget() or self.focusWidget()
+        if focus is None:
+            return False
+        if isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)):
+            return True
+        if isinstance(focus, QComboBox) and focus.isEditable():
+            return True
+        return False
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
             self.drag_safety.cancel_all("escape")
             if hasattr(self, "toolbar_manager") and self.toolbar_manager.is_edit_mode:
                 self.toolbar_manager.set_edit_mode(False)
+                event.accept()
+                return
+        elif event.key() == Qt.Key.Key_R and not (
+            event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+        ):
+            if not self._is_text_input_focused():
+                if event.isAutoRepeat():
+                    event.accept()
+                    return
+                clockwise = not bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self.rotate_brush(clockwise=clockwise)
                 event.accept()
                 return
         super().keyPressEvent(event)
@@ -1901,7 +2020,7 @@ class MainWindow(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 tr("dialog.map.save"),
-                "Projekt zawiera niezapisane zmiany. Zapisać przed zamknięciem?",
+                tr("dialog.project.unsaved_close_confirm"),
                 QMessageBox.StandardButton.Save
                 | QMessageBox.StandardButton.Discard
                 | QMessageBox.StandardButton.Cancel,

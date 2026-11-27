@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple, Dict, Any, Set
 from ...models.layer import MapItem, Layer, ItemType
 from ...models.project import Project
 from ...models.asset import Asset, SelectedSubTile, AssetType, TilesetConfig
-from ...models.brush_preset import BrushSettings
+from ...models.brush_preset import BrushSettings, transform_composition_cell
 from PyQt6.QtGui import QRegion
 from PyQt6.QtCore import Qt
 
@@ -76,11 +76,14 @@ class BaseTool(ABC):
         row: int,
         context: ToolContext,
         override_asset: Optional[Any] = None,
+        *,
+        for_preview: bool = False,
     ) -> List[MapItem]:
         """
         Creates one or more MapItems from selection.
         If a multi-tile block is selected (Tiled-style), returns all tiles
-        in the block relative to (col, row).
+        in the block relative to (col, row), with full composition-level
+        mirror and rotation applied.
         """
         bs = context.brush_settings
         if getattr(bs, "selected_autotile", None):
@@ -96,7 +99,7 @@ class BaseTool(ABC):
         if not sel:
             return []
 
-        rot, fx, fy, jx, jy = bs.get_random_transform()
+        rot, fx, fy, jx, jy = bs.get_brush_transform(for_preview=for_preview)
 
         if getattr(sel, "is_autotile", False) or hasattr(sel, "autotile"):
             autotile = getattr(sel, "autotile", sel)
@@ -131,13 +134,22 @@ class BaseTool(ABC):
             for dr in range(sel.rows_count):
                 for dc in range(sel.cols_count):
                     sx, sy, sw, sh = sel.get_tile_slice(dc, dr)
+                    dest_dc, dest_dr = transform_composition_cell(
+                        dc,
+                        dr,
+                        sel.cols_count,
+                        sel.rows_count,
+                        flip_x=fx,
+                        flip_y=fy,
+                        rotation=rot,
+                    )
                     # Use selection cell size or project tile size
                     dw = sel.tile_width
                     dh = sel.tile_height
                     item = MapItem(
                         asset_id=sel.asset_id,
-                        col=col + dc,
-                        row=row + dr,
+                        col=col + dest_dc,
+                        row=row + dest_dr,
                         item_type=ItemType.TILE,
                         offset_x=jx,
                         offset_y=jy,

@@ -615,30 +615,77 @@ class MapCanvas(QWidget):
         elif event.key() == Qt.Key.Key_Q:
             self.show_quick_menu()
             event.accept()
-        elif event.key() == Qt.Key.Key_R:
+        elif event.key() == Qt.Key.Key_R and not (
+            event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+        ):
+            if event.isAutoRepeat():
+                event.accept()
+                return
+            clockwise = not bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             if isinstance(self.active_tool, ObjectTool):
-                self.active_tool.rotate_selected(90.0, self.tool_context)
+                self.active_tool.rotate_selected(90.0 if clockwise else -90.0, self.tool_context)
                 self.update()
-            elif isinstance(self.active_tool, SelectTool):
-                self.active_tool.rotate_selection_clockwise(self.tool_context)
+            elif isinstance(self.active_tool, SelectTool) and self.active_tool.has_selection:
+                steps = 1 if clockwise else 3
+                for _ in range(steps):
+                    self.active_tool.rotate_selection_clockwise(self.tool_context)
                 self.update()
             elif isinstance(self.active_tool, StampTool):
-                self.active_tool.rotate_clockwise(self.tool_context)
+                steps = 1 if clockwise else 3
+                for _ in range(steps):
+                    self.active_tool.rotate_clockwise(self.tool_context)
                 self.update()
-        elif event.key() == Qt.Key.Key_H:
+            else:
+                win = self.window()
+                if hasattr(win, "rotate_brush"):
+                    win.rotate_brush(clockwise=clockwise)
+                else:
+                    if clockwise:
+                        self.tool_context.brush_settings.rotate_cw()
+                    else:
+                        self.tool_context.brush_settings.rotate_ccw()
+                    self.update()
+            event.accept()
+        elif event.key() == Qt.Key.Key_H and not (
+            event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+        ):
+            if event.isAutoRepeat():
+                event.accept()
+                return
             if isinstance(self.active_tool, ObjectTool):
                 self.active_tool.flip_selected(horizontal=True, context=self.tool_context)
                 self.update()
-            elif isinstance(self.active_tool, SelectTool):
+            elif isinstance(self.active_tool, SelectTool) and self.active_tool.has_selection:
                 self.active_tool.flip_selection_horizontal(self.tool_context)
                 self.update()
-        elif event.key() == Qt.Key.Key_V:
+            else:
+                win = self.window()
+                if hasattr(win, "brush_options") and hasattr(win.brush_options, "chk_flip_h"):
+                    win.brush_options.chk_flip_h.toggle()
+                else:
+                    self.tool_context.brush_settings.toggle_flip_horizontal()
+                    self.update()
+            event.accept()
+        elif event.key() == Qt.Key.Key_V and not (
+            event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+        ):
+            if event.isAutoRepeat():
+                event.accept()
+                return
             if isinstance(self.active_tool, ObjectTool):
                 self.active_tool.flip_selected(horizontal=False, context=self.tool_context)
                 self.update()
-            elif isinstance(self.active_tool, SelectTool):
+            elif isinstance(self.active_tool, SelectTool) and self.active_tool.has_selection:
                 self.active_tool.flip_selection_vertical(self.tool_context)
                 self.update()
+            else:
+                win = self.window()
+                if hasattr(win, "brush_options") and hasattr(win.brush_options, "chk_flip_v"):
+                    win.brush_options.chk_flip_v.toggle()
+                else:
+                    self.tool_context.brush_settings.toggle_flip_vertical()
+                    self.update()
+            event.accept()
         elif event.key() == Qt.Key.Key_Plus and isinstance(self.active_tool, ObjectTool):
             self.active_tool.scale_selected(1.2, self.tool_context)
             self.update()

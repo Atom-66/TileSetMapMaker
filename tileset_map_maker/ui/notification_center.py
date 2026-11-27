@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..core.localization import get_localization, tr
+
 
 class NotificationBanner(QWidget):
     """Non-modal notification with explicit diagnostics affordance."""
@@ -22,7 +24,7 @@ class NotificationBanner(QWidget):
         self.label.setWordWrap(True)
         layout.addWidget(self.label, 1)
         self.details = QToolButton()
-        self.details.setText("Szczegóły")
+        self.details.setText(tr("notify.details"))
         self.details.setVisible(False)
         layout.addWidget(self.details)
         close = QToolButton()
@@ -31,6 +33,9 @@ class NotificationBanner(QWidget):
         layout.addWidget(close)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._details_callback = None
+        get_localization().languageChanged.connect(
+            lambda _lang: self.details.setText(tr("notify.details"))
+        )
 
     def show_message(
         self, message: str, severity: str = "info", details=None
