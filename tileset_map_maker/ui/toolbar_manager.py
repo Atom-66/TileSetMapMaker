@@ -3159,9 +3159,14 @@ class ToolbarManager(QObject):
     def set_edit_mode(self, active: bool) -> None:
         if self.is_edit_mode == active:
             return
+        host_window = self.parent()
         if active:
-            self._pre_edit_geometry = bytes(self.main_window.saveGeometry())
-            self._pre_edit_maximized = self.main_window.isMaximized()
+            if host_window is not None and hasattr(host_window, "saveGeometry"):
+                self._pre_edit_geometry = bytes(host_window.saveGeometry())
+                self._pre_edit_maximized = bool(host_window.isMaximized())
+            else:
+                self._pre_edit_geometry = None
+                self._pre_edit_maximized = False
         else:
             for drag_filter in self._item_drag_filters.values():
                 drag_filter.cancel()
@@ -3188,10 +3193,15 @@ class ToolbarManager(QObject):
             was_max = getattr(self, "_pre_edit_maximized", False)
             self._pre_edit_geometry = None
             self._pre_edit_maximized = False
-            if saved_geom and bytes(self.main_window.saveGeometry()) != saved_geom:
-                self.main_window.restoreGeometry(saved_geom)
+            if (
+                saved_geom
+                and host_window is not None
+                and hasattr(host_window, "saveGeometry")
+                and bytes(host_window.saveGeometry()) != saved_geom
+            ):
+                host_window.restoreGeometry(saved_geom)
                 if was_max:
-                    self.main_window.showMaximized()
+                    host_window.showMaximized()
         self.edit_mode_changed.emit(active)
 
     def toggle_edit_mode(self) -> None:
