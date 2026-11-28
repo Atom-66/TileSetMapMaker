@@ -87,7 +87,7 @@ class TestPhase9Ergonomics(unittest.TestCase):
         before = bytes(window.saveGeometry())
         window.toolbar_manager.set_edit_mode(True)
         self.assertTrue(window.toolbar_manager.is_edit_mode)
-        window.resize(900, 650)
+        self.assertEqual(bytes(window.saveGeometry()), before)
         window.toolbar_manager.set_edit_mode(False)
         self.assertEqual(bytes(window.saveGeometry()), before)
         window.close()
