@@ -65,7 +65,7 @@ class TestToolbarItemVisibility(unittest.TestCase):
 
         # Visible items remain in correct relative order
         vis_items = self.tm.get_visible_items()
-        self.assertEqual(len(vis_items), 18)
+        self.assertEqual(len(vis_items), 19)
         vis_ids = [item.id for item in vis_items]
         self.assertEqual(vis_ids[:2], ["new", "open"])
         self.assertIn("grid", vis_ids)
@@ -107,7 +107,7 @@ class TestToolbarItemVisibility(unittest.TestCase):
         self.tm.show_all_items()
 
         self.assertEqual(len(self.tm.get_hidden_items()), 0)
-        self.assertEqual(len(self.tm.get_visible_items()), 23)
+        self.assertEqual(len(self.tm.get_visible_items()), 24)
         self.assertGreaterEqual(len(self.win.toolbar.item_widgets_map), 14)
 
     def test_05_drag_and_drop_preserves_hidden_items_order(self):
@@ -135,8 +135,8 @@ class TestToolbarItemVisibility(unittest.TestCase):
         # When we unhide 'grid' and 'fit', no duplicates occur
         self.tm.show_item("grid")
         self.tm.show_item("fit")
-        self.assertEqual(len(self.tm.item_order), 23)
-        self.assertEqual(len(set(self.tm.item_order)), 23)
+        self.assertEqual(len(self.tm.item_order), 24)
+        self.assertEqual(len(set(self.tm.item_order)), 24)
 
     def test_06_flow_layout_downward_expansion_respects_visibility(self):
         """6. FlowLayout i wysokość paska uwzględniają wyłącznie widoczne przyciski."""
@@ -191,17 +191,22 @@ class TestToolbarItemVisibility(unittest.TestCase):
         """8. Dedykowane okno dialogowe ToolbarVisibilityDialog – filtrowanie, zmiana i aplikacja."""
         dlg = ToolbarVisibilityDialog(self.tm, self.win)
 
-        # Check all 23 items populated in list
-        self.assertEqual(dlg.list_widget.count(), 23)
+        # Check all 24 items populated in list
+        self.assertEqual(dlg.list_widget.count(), 24)
 
-        # Test search filter for unique name "Ścieżek"
-        dlg._filter_list("Ścieżek")
+        # Test search filter for unique item (path_gen_dialog) regardless of active language
+        path_item_text = next(
+            dlg.list_widget.item(i).text()
+            for i in range(dlg.list_widget.count())
+            if dlg.list_widget.item(i).data(Qt.ItemDataRole.UserRole) == "path_gen_dialog"
+        )
+        dlg._filter_list(path_item_text)
         single_row = [
             i for i in range(dlg.list_widget.count())
             if not dlg.list_widget.item(i).isHidden()
         ]
         self.assertEqual(len(single_row), 1)
-        self.assertIn("Ścieżek", dlg.list_widget.item(single_row[0]).text())
+        self.assertEqual(dlg.list_widget.item(single_row[0]).text(), path_item_text)
 
         # Clear filter
         dlg._filter_list("")

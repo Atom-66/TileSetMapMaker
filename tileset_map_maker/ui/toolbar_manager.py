@@ -3159,7 +3159,10 @@ class ToolbarManager(QObject):
     def set_edit_mode(self, active: bool) -> None:
         if self.is_edit_mode == active:
             return
-        if not active:
+        if active:
+            self._pre_edit_geometry = bytes(self.main_window.saveGeometry())
+            self._pre_edit_maximized = self.main_window.isMaximized()
+        else:
             for drag_filter in self._item_drag_filters.values():
                 drag_filter.cancel()
         self.is_edit_mode = active
@@ -3180,6 +3183,15 @@ class ToolbarManager(QObject):
                 grip.setToolTip(_category_tooltip(grip.category_def, active))
         if self.edit_banner:
             self.edit_banner.setVisible(active)
+        if not active:
+            saved_geom = getattr(self, "_pre_edit_geometry", None)
+            was_max = getattr(self, "_pre_edit_maximized", False)
+            self._pre_edit_geometry = None
+            self._pre_edit_maximized = False
+            if saved_geom and bytes(self.main_window.saveGeometry()) != saved_geom:
+                self.main_window.restoreGeometry(saved_geom)
+                if was_max:
+                    self.main_window.showMaximized()
         self.edit_mode_changed.emit(active)
 
     def toggle_edit_mode(self) -> None:

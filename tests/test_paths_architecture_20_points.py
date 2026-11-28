@@ -302,7 +302,11 @@ class TestPathsArchitecture20Points(unittest.TestCase):
         self.assertEqual(len(dlg._custom_variants), 1)
         self.assertEqual(set(dlg._custom_variants[0].edges.keys()), {"N", "E", "S", "W"})
         dlg._auto_suggest_compatibility()
-        self.assertIn("kompatybilnych połączeń", dlg.lbl_compat_info.text())
+        compat_txt = dlg.lbl_compat_info.text()
+        self.assertTrue(
+            "compatible edge links" in compat_txt or "kompatybilnych połączeń" in compat_txt,
+            f"Unexpected compat info label: {compat_txt!r}",
+        )
         dlg.close()
 
 

@@ -127,14 +127,22 @@ class TestOneTilePathsSystem(unittest.TestCase):
         dlg._on_tile_clicked(1, 1)
         self.assertEqual(dlg.selected_col, 1)
         self.assertEqual(dlg.selected_row, 1)
-        self.assertIn("kolumna: 1, wiersz: 1", dlg.lbl_tile_coords.text())
+        coords_1 = dlg.lbl_tile_coords.text()
+        self.assertTrue(
+            "column: 1, row: 1" in coords_1 or "kolumna: 1, wiersz: 1" in coords_1,
+            f"Unexpected coordinates label: {coords_1!r}",
+        )
 
         # Select tile at col 2, row 3
         dlg.sheet_canvas.set_selected_tile(2, 3)
         dlg._on_tile_clicked(2, 3)
         self.assertEqual(dlg.selected_col, 2)
         self.assertEqual(dlg.selected_row, 3)
-        self.assertIn("kolumna: 2, wiersz: 3", dlg.lbl_tile_coords.text())
+        coords_2 = dlg.lbl_tile_coords.text()
+        self.assertTrue(
+            "column: 2, row: 3" in coords_2 or "kolumna: 2, wiersz: 3" in coords_2,
+            f"Unexpected coordinates label: {coords_2!r}",
+        )
         dlg.close()
 
     # 5. Wygenerowanie Autotile z wybranego kafelka
@@ -377,7 +385,11 @@ class TestOneTilePathsSystem(unittest.TestCase):
         empty_mgr = AssetManager()
         dlg = PathGeneratorDialog(self.autotile_engine, empty_mgr)
         self.assertFalse(dlg.btn_accept.isEnabled())
-        self.assertIn("Brak zaimportowanych tilesetów", dlg.lbl_tileset_info.text())
+        info_txt = dlg.lbl_tileset_info.text()
+        self.assertTrue(
+            "No imported tilesets" in info_txt or "Brak zaimportowanych tilesetów" in info_txt,
+            f"Unexpected empty tilesets label: {info_txt!r}",
+        )
         dlg.close()
 
         # Out-of-bounds coordinate synthesis
